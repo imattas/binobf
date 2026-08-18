@@ -153,7 +153,9 @@ auto make_coff_function_object() -> std::vector<std::byte> {
         .formatType = 0x20, .formatStorage = 2, .formatSectionIndex = 1,
         .auxiliaryData = {}, .name = "cli_function", .section = binobf::EntityId{1},
         .address = {}, .size = 3, .kind = binobf::SymbolKind::Function,
-        .visibility = binobf::SymbolVisibility::External, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::External, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     const auto written = binobf::write_object(image);
     if (!written.has_value()) throw std::runtime_error(written.error().message);
     return written.value();
@@ -186,7 +188,9 @@ auto make_coff_selection_object() -> std::vector<std::byte> {
             .address = binobf::BinaryAddress{offset, binobf::AddressKind::RelativeVirtual},
             .size = 4, .kind = binobf::SymbolKind::Function,
             .visibility = binobf::SymbolVisibility::External,
-            .defined = true, .lineage = {}});
+            .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     }
     const auto written = binobf::write_object(image);
     if (!written.has_value()) throw std::runtime_error(written.error().message);
@@ -212,7 +216,9 @@ auto make_coff_vm_protection_object() -> std::vector<std::byte> {
         .auxiliaryData = {}, .name = "cli_vm_add", .section = binobf::EntityId{1},
         .address = {}, .size = 5, .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::External,
-        .defined = true, .lineage = {}});
+        .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     const auto written = binobf::write_object(image);
     if (!written.has_value()) throw std::runtime_error(written.error().message);
     return written.value();

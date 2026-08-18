@@ -67,6 +67,9 @@ auto make_x86_object() -> binobf::BinaryImage {
         .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::External,
         .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     image.symbols.push_back(binobf::Symbol{
@@ -85,6 +88,9 @@ auto make_x86_object() -> binobf::BinaryImage {
         .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::External,
         .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     image.relocations.push_back(binobf::Relocation{
@@ -170,6 +176,9 @@ TEST_CASE(x86_object_analysis_bounds_a_zero_sized_symbol_at_the_next_owned_symbo
         .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::External,
         .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
 

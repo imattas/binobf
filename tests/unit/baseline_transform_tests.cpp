@@ -28,32 +28,42 @@ auto make_coff_symbols() -> binobf::BinaryImage {
             .formatType = 0x20, .formatStorage = 3, .formatSectionIndex = 1,
             .auxiliaryData = {}, .name = "helper", .section = binobf::EntityId{1},
             .address = {}, .kind = binobf::SymbolKind::Function,
-            .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::Local, .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
         binobf::Symbol{
             .id = binobf::EntityId{3}, .formatIndex = 1, .formatTableIndex = 0,
             .formatType = 0x20, .formatStorage = 2, .formatSectionIndex = 1,
             .auxiliaryData = {}, .name = "public_api", .section = binobf::EntityId{1},
             .address = {}, .kind = binobf::SymbolKind::Function,
-            .visibility = binobf::SymbolVisibility::External, .defined = true, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::External, .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
         binobf::Symbol{
             .id = binobf::EntityId{4}, .formatIndex = 2, .formatTableIndex = 0,
             .formatType = 0x20, .formatStorage = 2, .formatSectionIndex = 0,
             .auxiliaryData = {}, .name = "external_ref", .section = std::nullopt,
             .address = {}, .kind = binobf::SymbolKind::Function,
-            .visibility = binobf::SymbolVisibility::External, .defined = false, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::External, .defined = false,
+            .definition = binobf::SymbolDefinitionKind::Undefined,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
         binobf::Symbol{
             .id = binobf::EntityId{5}, .formatIndex = 3, .formatTableIndex = 0,
             .formatType = 0, .formatStorage = 3, .formatSectionIndex = 1,
             .auxiliaryData = std::vector<std::byte>(18), .name = ".text",
             .section = binobf::EntityId{1}, .address = {},
             .kind = binobf::SymbolKind::Section,
-            .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::Local, .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
         binobf::Symbol{
             .id = binobf::EntityId{6}, .formatIndex = 5, .formatTableIndex = 0,
             .formatType = 0, .formatStorage = 3, .formatSectionIndex = 1,
             .auxiliaryData = {}, .name = "keep_me", .section = binobf::EntityId{1},
             .address = {}, .kind = binobf::SymbolKind::Object,
-            .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::Local, .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
     };
     return image;
 }
@@ -90,13 +100,17 @@ auto make_elf_symbols() -> binobf::BinaryImage {
             .formatType = 2, .formatStorage = 0, .formatSectionIndex = 1,
             .auxiliaryData = {}, .name = "elf_local", .section = binobf::EntityId{1},
             .address = {}, .size = 1, .kind = binobf::SymbolKind::Function,
-            .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::Local, .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
         binobf::Symbol{
             .id = binobf::EntityId{6}, .formatIndex = 2, .formatTableIndex = 3,
             .formatType = 2, .formatStorage = 1, .formatSectionIndex = 1,
             .auxiliaryData = {}, .name = "elf_public", .section = binobf::EntityId{1},
             .address = {}, .size = 1, .kind = binobf::SymbolKind::Function,
-            .visibility = binobf::SymbolVisibility::External, .defined = true, .lineage = {}},
+            .visibility = binobf::SymbolVisibility::External, .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}},
     };
     return image;
 }
@@ -162,7 +176,9 @@ TEST_CASE(rename_private_symbols_preserves_coff_compiler_feature_markers) {
         .formatType = 0, .formatStorage = 3, .formatSectionIndex = -1,
         .auxiliaryData = {}, .name = "@feat.00", .section = std::nullopt,
         .address = {}, .kind = binobf::SymbolKind::Object,
-        .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::Local, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::Absolute,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
 
     const auto outcome = rename(std::move(image), 1337);
 
@@ -203,13 +219,17 @@ TEST_CASE(strip_local_symbols_removes_only_unreferenced_unpreserved_private_entr
         .formatType = 0, .formatStorage = 3, .formatSectionIndex = 1,
         .auxiliaryData = {}, .name = "unused_local", .section = binobf::EntityId{1},
         .address = {}, .kind = binobf::SymbolKind::Object,
-        .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::Local, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     image.symbols.push_back(binobf::Symbol{
         .id = binobf::EntityId{8}, .formatIndex = 7, .formatTableIndex = 0,
         .formatType = 0, .formatStorage = 103, .formatSectionIndex = -2,
         .auxiliaryData = {}, .name = "fixture.c", .section = std::nullopt,
         .address = {}, .kind = binobf::SymbolKind::File,
-        .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::Local, .defined = true,
+        .definition = std::nullopt,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     image.relocations.push_back(binobf::Relocation{
         .id = binobf::EntityId{20}, .formatIndex = 0, .formatTableIndex = 1,
         .section = binobf::EntityId{1}, .offset = 0,
@@ -332,7 +352,9 @@ TEST_CASE(strip_debug_closes_over_elf_relocations_symbols_and_addrsig) {
         .formatType = 1, .formatStorage = 0, .formatSectionIndex = 5,
         .auxiliaryData = {}, .name = "debug_local", .section = binobf::EntityId{21},
         .address = {}, .size = 4, .kind = binobf::SymbolKind::Object,
-        .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::Local, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     image.sections.push_back(binobf::Section{
         .id = binobf::EntityId{21}, .formatIndex = 5, .formatType = 1,
         .name = ".debug_info", .kind = binobf::SectionKind::Debug,

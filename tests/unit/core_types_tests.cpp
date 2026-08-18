@@ -122,7 +122,7 @@ TEST_CASE(object_metadata_survives_value_copies) {
         .formatType = 1,
         .formatStorage = 1,
         .formatOther = 2,
-        .formatSectionIndex = 5,
+        .formatSectionIndex = 0,
         .auxiliaryData = {std::byte{0x7f}},
         .name = "external_value",
         .section = std::nullopt,
@@ -131,6 +131,9 @@ TEST_CASE(object_metadata_survives_value_copies) {
         .kind = binobf::SymbolKind::Object,
         .visibility = binobf::SymbolVisibility::External,
         .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     image.relocations.push_back(binobf::Relocation{
@@ -145,6 +148,19 @@ TEST_CASE(object_metadata_survives_value_copies) {
         .addend = -7,
         .lineage = {},
     });
+    image.sectionAssociations.push_back(binobf::SectionAssociation{
+        .section = binobf::EntityId{11},
+        .kind = binobf::SectionAssociationKind::Ordinary,
+        .coffSelection = binobf::CoffComdatSelection::None,
+        .signatureSymbol = std::nullopt,
+        .parentSection = std::nullopt,
+        .members = {},
+    });
+    image.relocationTableEncodings.push_back(binobf::RelocationTableEncoding{
+        .section = binobf::EntityId{11},
+        .coffOverflow = false,
+        .declaredCount = 1,
+    });
 
     const auto copy = image;
     REQUIRE_EQ(copy.objectMetadata.osAbi, 3U);
@@ -158,10 +174,16 @@ TEST_CASE(object_metadata_survives_value_copies) {
     REQUIRE_EQ(copy.symbols.front().auxiliaryData.front(), std::byte{0x7f});
     REQUIRE_EQ(copy.symbols.front().kind, binobf::SymbolKind::Object);
     REQUIRE(!copy.symbols.front().defined);
+    REQUIRE_EQ(copy.symbols.front().definition,
+               binobf::SymbolDefinitionKind::Undefined);
+    REQUIRE_EQ(copy.symbols.front().tlsModel, binobf::TlsModel::None);
     REQUIRE(!copy.symbols.front().section.has_value());
     REQUIRE_EQ(copy.relocations.front().formatIndex, 3U);
     REQUIRE_EQ(copy.relocations.front().formatTableIndex, 7U);
     REQUIRE_EQ(copy.relocations.front().rawType, UINT64_C(42));
+    REQUIRE_EQ(copy.sectionAssociations.front().kind,
+               binobf::SectionAssociationKind::Ordinary);
+    REQUIRE_EQ(copy.relocationTableEncodings.front().declaredCount, UINT64_C(1));
 }
 
 int main() {

@@ -538,6 +538,19 @@ auto parse_elf_linked(
             tableIds.push_back(id);
             const auto relatedSection = section_id(sectionIndex);
             const auto visibility = symbol_visibility(info, other);
+            std::optional<SymbolDefinitionKind> definition;
+            std::uint64_t commonAlignment = 0;
+            if (sectionIndex == 0) {
+                definition = SymbolDefinitionKind::Undefined;
+            } else if (sectionIndex == 0xfff1U) {
+                definition = SymbolDefinitionKind::Absolute;
+            } else if (sectionIndex == 0xfff2U) {
+                definition = SymbolDefinitionKind::Common;
+                commonAlignment = value;
+            } else if (relatedSection.has_value()) {
+                definition = SymbolDefinitionKind::SectionRelative;
+            }
+            const auto normalizedKind = symbol_kind(info);
             result.image.symbols.push_back(Symbol{
                 .id = id,
                 .formatIndex = static_cast<std::uint32_t>(symbolIndex),
@@ -551,9 +564,14 @@ auto parse_elf_linked(
                 .section = relatedSection,
                 .address = BinaryAddress{value, AddressKind::Virtual},
                 .size = size,
-                .kind = symbol_kind(info),
+                .kind = normalizedKind,
                 .visibility = visibility,
                 .defined = sectionIndex != 0,
+                .definition = definition,
+                .commonAlignment = commonAlignment,
+                .tlsModel = normalizedKind == SymbolKind::Tls
+                    ? TlsModel::Unknown
+                    : TlsModel::None,
                 .lineage = {},
             });
             if (header.type == 11 && !name->empty() && (info >> 4U) != 0) {

@@ -1,11 +1,424 @@
 #include "../formats/object_writer_internal.hpp"
 
+#include <binobf/verify/object_ownership.hpp>
+
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+
+namespace binobf {
+namespace {
+
+auto ownership_failure(
+    std::string code,
+    std::string message,
+    std::optional<EntityId> entity = std::nullopt) -> Result<std::size_t, Diagnostic> {
+    if (entity.has_value()) {
+        message += " (entity " + std::to_string(entity->value()) + ')';
+    }
+    return Result<std::size_t, Diagnostic>::failure(Diagnostic{
+        DiagnosticSeverity::Error, std::move(code), std::move(message)});
+}
+
+auto ownership_power_of_two(std::uint64_t value) noexcept -> bool {
+    return value != 0U && (value & (value - 1U)) == 0U;
+}
+
+} // namespace
+
+auto validate_object_ownership(const BinaryImage& image)
+    -> Result<std::size_t, Diagnostic> {
+    std::unordered_map<std::uint64_t, const Section*> sections;
+    std::unordered_map<std::uint64_t, const Symbol*> symbols;
+    std::unordered_map<std::uint64_t, const Relocation*> relocations;
+    std::unordered_map<std::uint64_t, const Function*> functions;
+    std::unordered_set<std::uint64_t> entityIds;
+    for (const auto& section : image.sections) {
+        if (!section.id.valid() || !entityIds.insert(section.id.value()).second) {
+            return ownership_failure(
+                "object.ownership_entity",
+                "ownership model contains an invalid or duplicate entity ID",
+                section.id);
+        }
+        sections.emplace(section.id.value(), &section);
+    }
+    for (const auto& symbol : image.symbols) {
+        if (!symbol.id.valid() || !entityIds.insert(symbol.id.value()).second) {
+            return ownership_failure(
+                "object.ownership_entity",
+                "ownership model contains an invalid or duplicate entity ID",
+                symbol.id);
+        }
+        symbols.emplace(symbol.id.value(), &symbol);
+    }
+    for (const auto& relocation : image.relocations) {
+        if (!relocation.id.valid() || !entityIds.insert(relocation.id.value()).second) {
+            return ownership_failure(
+                "object.ownership_entity",
+                "ownership model contains an invalid or duplicate entity ID",
+                relocation.id);
+        }
+        relocations.emplace(relocation.id.value(), &relocation);
+    }
+    for (const auto& function : image.functions) {
+        if (!function.id.valid() || !entityIds.insert(function.id.value()).second) {
+            return ownership_failure(
+                "object.ownership_entity",
+                "ownership model contains an invalid or duplicate entity ID",
+                function.id);
+        }
+        functions.emplace(function.id.value(), &function);
+    }
+    for (const auto& unwind : image.unwindInfo) {
+        if (!unwind.id.valid() || !entityIds.insert(unwind.id.value()).second) {
+            return ownership_failure(
+                "object.ownership_entity",
+                "ownership model contains an invalid or duplicate entity ID",
+                unwind.id);
+        }
+    }
+
+    std::size_t validated = 0;
+    for (const auto& symbol : image.symbols) {
+        if (!symbol.definition.has_value()) {
+            if (symbol.tlsModel != TlsModel::Unknown
+                && symbol.tlsModel != TlsModel::None
+                && symbol.kind != SymbolKind::Tls) {
+                return ownership_failure(
+                    "object.ownership_tls_model",
+                    "TLS model belongs to a non-TLS symbol",
+                    symbol.id);
+            }
+            continue;
+        }
+        ++validated;
+        const auto ownedSection = symbol.section.has_value()
+            ? sections.find(symbol.section->value())
+            : sections.end();
+        if (symbol.section.has_value() && ownedSection == sections.end()) {
+            return ownership_failure(
+                "object.ownership_symbol_definition",
+                "normalized symbol references an absent section",
+                symbol.id);
+        }
+        switch (*symbol.definition) {
+        case SymbolDefinitionKind::Undefined:
+            if (symbol.defined || symbol.section.has_value() || symbol.commonAlignment != 0U
+                || symbol.formatSectionIndex != 0) {
+                return ownership_failure(
+                    "object.ownership_symbol_definition",
+                    "undefined symbol disagrees with raw definition fields",
+                    symbol.id);
+            }
+            break;
+        case SymbolDefinitionKind::SectionRelative:
+            if (!symbol.defined || ownedSection == sections.end()
+                || symbol.commonAlignment != 0U) {
+                return ownership_failure(
+                    "object.ownership_symbol_definition",
+                    "section-relative symbol has incomplete ownership",
+                    symbol.id);
+            }
+            if (symbol.formatSectionIndex != 0xffff
+                && symbol.formatSectionIndex != static_cast<std::int32_t>(
+                    ownedSection->second->formatIndex)) {
+                return ownership_failure(
+                    "object.ownership_symbol_definition",
+                    "section-relative symbol disagrees with its raw section index",
+                    symbol.id);
+            }
+            break;
+        case SymbolDefinitionKind::Absolute: {
+            const auto expected = image.format == BinaryFormat::ELF ? 0xfff1 : -1;
+            if (!symbol.defined || symbol.section.has_value() || symbol.commonAlignment != 0U
+                || symbol.formatSectionIndex != expected) {
+                return ownership_failure(
+                    "object.ownership_symbol_definition",
+                    "absolute symbol disagrees with raw definition fields",
+                    symbol.id);
+            }
+            break;
+        }
+        case SymbolDefinitionKind::Common: {
+            const auto expected = image.format == BinaryFormat::ELF ? 0xfff2 : 0;
+            if (!symbol.defined || symbol.section.has_value()
+                || !ownership_power_of_two(symbol.commonAlignment)
+                || symbol.formatSectionIndex != expected
+                || (image.format == BinaryFormat::ELF
+                    && symbol.address.value != symbol.commonAlignment)) {
+                return ownership_failure(
+                    "object.ownership_symbol_definition",
+                    "common symbol requires a nonzero power-of-two alignment",
+                    symbol.id);
+            }
+            break;
+        }
+        }
+        if (symbol.tlsModel != TlsModel::Unknown
+            && symbol.tlsModel != TlsModel::None
+            && symbol.kind != SymbolKind::Tls) {
+            return ownership_failure(
+                "object.ownership_tls_model",
+                "TLS model belongs to a non-TLS symbol",
+                symbol.id);
+        }
+    }
+
+    std::unordered_map<std::uint64_t, const SectionAssociation*> associations;
+    std::unordered_set<std::uint64_t> associatedMembership;
+    std::unordered_map<std::uint64_t, std::uint64_t> parents;
+    for (const auto& association : image.sectionAssociations) {
+        ++validated;
+        if (sections.find(association.section.value()) == sections.end()
+            || !associations.emplace(association.section.value(), &association).second) {
+            return ownership_failure(
+                "object.ownership_association",
+                "section association has an absent or duplicate owner",
+                association.section);
+        }
+        if (!associatedMembership.insert(association.section.value()).second) {
+            return ownership_failure(
+                "object.ownership_duplicate_membership",
+                "section belongs to more than one association",
+                association.section);
+        }
+        for (const auto member : association.members) {
+            if (sections.find(member.value()) == sections.end()) {
+                return ownership_failure(
+                    "object.ownership_association",
+                    "association member section is absent",
+                    member);
+            }
+            if (!associatedMembership.insert(member.value()).second) {
+                return ownership_failure(
+                    "object.ownership_duplicate_membership",
+                    "section belongs to more than one association",
+                    member);
+            }
+        }
+        if (association.kind != SectionAssociationKind::Ordinary) {
+            if (!association.signatureSymbol.has_value()
+                || symbols.find(association.signatureSymbol->value()) == symbols.end()) {
+                return ownership_failure(
+                    "object.ownership_signature",
+                    "COMDAT or group association has no signature symbol",
+                    association.section);
+            }
+        }
+        if (association.parentSection.has_value()) {
+            if (sections.find(association.parentSection->value()) == sections.end()) {
+                return ownership_failure(
+                    "object.ownership_association",
+                    "association parent section is absent",
+                    association.section);
+            }
+            parents.emplace(
+                association.section.value(), association.parentSection->value());
+        }
+    }
+
+    for (const auto& [start, association] : associations) {
+        static_cast<void>(association);
+        std::unordered_set<std::uint64_t> path;
+        auto current = start;
+        while (true) {
+            if (!path.insert(current).second) {
+                return ownership_failure(
+                    "object.ownership_association_cycle",
+                    "section association parent graph contains a cycle",
+                    EntityId{current});
+            }
+            const auto parent = parents.find(current);
+            if (parent == parents.end()) break;
+            current = parent->second;
+        }
+    }
+
+    for (const auto& association : image.sectionAssociations) {
+        switch (association.kind) {
+        case SectionAssociationKind::Ordinary:
+            if (association.coffSelection != CoffComdatSelection::None
+                || association.signatureSymbol.has_value()
+                || association.parentSection.has_value() || !association.members.empty()) {
+                return ownership_failure(
+                    "object.ownership_association",
+                    "ordinary section association contains format-specific ownership",
+                    association.section);
+            }
+            break;
+        case SectionAssociationKind::CoffComdat:
+            if (image.format != BinaryFormat::COFF
+                || association.coffSelection == CoffComdatSelection::None
+                || association.coffSelection == CoffComdatSelection::Associative
+                || association.parentSection.has_value() || !association.members.empty()) {
+                return ownership_failure(
+                    "object.ownership_association",
+                    "COFF COMDAT association has invalid selection or membership",
+                    association.section);
+            }
+            break;
+        case SectionAssociationKind::CoffAssociativeComdat: {
+            const auto parent = association.parentSection.has_value()
+                ? associations.find(association.parentSection->value())
+                : associations.end();
+            if (image.format != BinaryFormat::COFF
+                || association.coffSelection != CoffComdatSelection::Associative
+                || parent == associations.end()
+                || parent->second->kind != SectionAssociationKind::CoffComdat
+                || !association.members.empty()) {
+                return ownership_failure(
+                    "object.ownership_association",
+                    "associative COMDAT has no valid primary COMDAT owner",
+                    association.section);
+            }
+            break;
+        }
+        case SectionAssociationKind::ElfGroup:
+            if (image.format != BinaryFormat::ELF
+                || association.coffSelection != CoffComdatSelection::None
+                || association.parentSection.has_value() || association.members.empty()) {
+                return ownership_failure(
+                    "object.ownership_association",
+                    "ELF group has invalid format-specific ownership",
+                    association.section);
+            }
+            break;
+        }
+    }
+
+    std::unordered_set<std::uint64_t> relocationTableSections;
+    for (const auto& encoding : image.relocationTableEncodings) {
+        ++validated;
+        if (sections.find(encoding.section.value()) == sections.end()
+            || !relocationTableSections.insert(encoding.section.value()).second
+            || (encoding.coffOverflow && image.format != BinaryFormat::COFF)) {
+            return ownership_failure(
+                "object.ownership_relocation_table",
+                "relocation-table encoding has no unique target section",
+                encoding.section);
+        }
+        const auto actualCount = static_cast<std::uint64_t>(std::count_if(
+            image.relocations.begin(), image.relocations.end(),
+            [&](const auto& relocation) { return relocation.section == encoding.section; }));
+        if (encoding.declaredCount != actualCount
+            || (encoding.coffOverflow
+                && encoding.declaredCount <= std::numeric_limits<std::uint16_t>::max())) {
+            return ownership_failure(
+                "object.ownership_relocation_table",
+                "relocation-table declared count disagrees with owned relocations",
+                encoding.section);
+        }
+    }
+
+    std::unordered_map<std::uint64_t, const ExtendedSectionIndex*> extendedBySymbol;
+    for (const auto& extended : image.extendedSectionIndices) {
+        ++validated;
+        const auto symbol = symbols.find(extended.symbol.value());
+        const auto indexSection = sections.find(extended.indexSection.value());
+        const auto targetSection = sections.find(extended.section.value());
+        if (image.format != BinaryFormat::ELF || symbol == symbols.end()
+            || indexSection == sections.end() || targetSection == sections.end()
+            || !extendedBySymbol.emplace(extended.symbol.value(), &extended).second
+            || indexSection->second->formatType != 18U
+            || indexSection->second->formatLink != symbol->second->formatTableIndex
+            || symbol->second->formatSectionIndex != 0xffff
+            || symbol->second->section != extended.section
+            || extended.rawSectionIndex != targetSection->second->formatIndex) {
+            return ownership_failure(
+                "object.ownership_extended_index",
+                "extended symbol section index has no exact companion ownership",
+                extended.symbol);
+        }
+    }
+    for (const auto& symbol : image.symbols) {
+        if (symbol.definition == SymbolDefinitionKind::SectionRelative
+            && symbol.formatSectionIndex == 0xffff
+            && extendedBySymbol.find(symbol.id.value()) == extendedBySymbol.end()) {
+            return ownership_failure(
+                "object.ownership_extended_index",
+                "SHN_XINDEX symbol has no companion index entry",
+                symbol.id);
+        }
+    }
+
+    struct CodeRange {
+        EntityId section;
+        std::uint64_t begin{0};
+        std::uint64_t end{0};
+        EntityId unwind;
+    };
+    std::vector<CodeRange> codeRanges;
+    for (const auto& unwind : image.unwindInfo) {
+        if (unwind.format == UnwindFormat::Unknown) continue;
+        ++validated;
+        const auto function = functions.find(unwind.function.value());
+        const auto recordSection = sections.find(unwind.section.value());
+        if (function == functions.end() || recordSection == sections.end()) {
+            return ownership_failure(
+                "object.ownership_unwind",
+                "normalized unwind record has no function or section owner",
+                unwind.id);
+        }
+        const auto codeSection = sections.find(function->second->section.value());
+        const auto encodedSize = static_cast<std::uint64_t>(unwind.encoded.size());
+        if (codeSection == sections.end() || encodedSize == 0U || unwind.codeSize == 0U
+            || unwind.sectionOffset > recordSection->second->logicalSize
+            || encodedSize > recordSection->second->logicalSize - unwind.sectionOffset
+            || unwind.codeOffset > codeSection->second->logicalSize
+            || unwind.codeSize > codeSection->second->logicalSize - unwind.codeOffset
+            || (unwind.format == UnwindFormat::WindowsI386
+                && image.format != BinaryFormat::COFF)
+            || (unwind.format == UnwindFormat::DwarfCfi32
+                && image.format != BinaryFormat::ELF)) {
+            return ownership_failure(
+                "object.ownership_unwind",
+                "normalized unwind range or format is invalid",
+                unwind.id);
+        }
+        std::unordered_set<std::uint64_t> ownedRelocations;
+        for (const auto relocationId : unwind.relocations) {
+            const auto relocation = relocations.find(relocationId.value());
+            if (relocation == relocations.end()
+                || !ownedRelocations.insert(relocationId.value()).second
+                || relocation->second->section != unwind.section
+                || relocation->second->offset < unwind.sectionOffset
+                || relocation->second->offset >= unwind.sectionOffset + encodedSize) {
+                return ownership_failure(
+                    "object.ownership_unwind_relocation",
+                    "unwind relocation lies outside its encoded owner record",
+                    unwind.id);
+            }
+        }
+        codeRanges.push_back(CodeRange{
+            function->second->section,
+            unwind.codeOffset,
+            unwind.codeOffset + unwind.codeSize,
+            unwind.id,
+        });
+    }
+    std::ranges::sort(codeRanges, [](const auto& left, const auto& right) {
+        if (left.section != right.section) return left.section < right.section;
+        if (left.begin != right.begin) return left.begin < right.begin;
+        return left.end < right.end;
+    });
+    for (std::size_t index = 1; index < codeRanges.size(); ++index) {
+        if (codeRanges[index - 1U].section == codeRanges[index].section
+            && codeRanges[index].begin < codeRanges[index - 1U].end) {
+            return ownership_failure(
+                "object.ownership_unwind_overlap",
+                "normalized unwind code ranges overlap",
+                codeRanges[index].unwind);
+        }
+    }
+
+    return Result<std::size_t, Diagnostic>::success(validated);
+}
+
+} // namespace binobf
 
 namespace binobf::formats::detail {
 namespace {
@@ -274,6 +687,10 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
                 return size_limit("COFF relocation count requires unsupported overflow encoding");
             }
         }
+    }
+    const auto ownership = validate_object_ownership(image);
+    if (!ownership.has_value()) {
+        return ownership.error();
     }
     return std::nullopt;
 }

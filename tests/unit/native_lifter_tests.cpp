@@ -471,6 +471,9 @@ TEST_CASE(native_lifter_maps_a_declared_relocation_backed_external_call) {
         .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::External,
         .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     binobf::ir::NativeFunctionSignature signature{};
@@ -539,6 +542,9 @@ TEST_CASE(native_lifter_maps_typed_stack_arguments_for_a_declared_i386_call) {
         .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::External,
         .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     const auto u32 = binobf::ir::IrType{binobf::ir::IrWidth::U32};
@@ -621,6 +627,9 @@ TEST_CASE(native_lifter_maps_a_declared_relocation_backed_global_address) {
         .kind = binobf::SymbolKind::Object,
         .visibility = binobf::SymbolVisibility::External,
         .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     binobf::ir::NativeFunctionSignature signature{};
@@ -682,6 +691,9 @@ TEST_CASE(native_lifter_maps_a_declared_relocation_backed_tls_load) {
         .kind = binobf::SymbolKind::Object,
         .visibility = binobf::SymbolVisibility::External,
         .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
         .lineage = {},
     });
     binobf::ir::NativeFunctionSignature signature{};

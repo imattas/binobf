@@ -355,18 +355,30 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             }
             std::optional<EntityId> section;
             bool defined = *sectionIndexValue != 0;
+            std::optional<SymbolDefinitionKind> definition;
+            std::uint64_t commonAlignment = 0;
             if (*sectionIndexValue > 0 && *sectionIndexValue < sectionCount) {
                 if (!sectionIds[*sectionIndexValue].has_value()) {
                     return failure("elf.invalid", "ELF symbol section is unavailable");
                 }
                 section = sectionIds[*sectionIndexValue];
+                definition = SymbolDefinitionKind::SectionRelative;
             } else if (*sectionIndexValue == 0xffffU) {
                 return failure("elf.unsupported", "ELF extended symbol section indices are unsupported");
+            } else if (*sectionIndexValue == 0) {
+                definition = SymbolDefinitionKind::Undefined;
+                defined = false;
+            } else if (*sectionIndexValue == 0xfff1U) {
+                definition = SymbolDefinitionKind::Absolute;
+            } else if (*sectionIndexValue == 0xfff2U) {
+                definition = SymbolDefinitionKind::Common;
+                commonAlignment = *value;
             } else if (*sectionIndexValue != 0 && *sectionIndexValue < 0xff00U) {
                 return failure("elf.invalid", "ELF symbol section index is invalid");
             }
             const auto id = ids.allocate();
             map[symbolIndex] = id;
+            const auto normalizedKind = symbol_kind(*info);
             image.symbols.push_back(Symbol{
                 .id = id,
                 .formatIndex = static_cast<std::uint32_t>(symbolIndex),
@@ -380,9 +392,14 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
                 .section = section,
                 .address = BinaryAddress{*value, AddressKind::RelativeVirtual},
                 .size = *size,
-                .kind = symbol_kind(*info),
+                .kind = normalizedKind,
                 .visibility = symbol_visibility(*info, *other),
                 .defined = defined,
+                .definition = definition,
+                .commonAlignment = commonAlignment,
+                .tlsModel = normalizedKind == SymbolKind::Tls
+                    ? TlsModel::Unknown
+                    : TlsModel::None,
                 .lineage = {},
             });
         }

@@ -323,12 +323,23 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
         }
         std::optional<EntityId> section;
         bool defined = *sectionNumber != 0;
+        std::optional<SymbolDefinitionKind> definition;
+        std::uint64_t commonAlignment = 0;
         if (*sectionNumber > 0) {
             const auto sectionIndex = static_cast<std::size_t>(*sectionNumber - 1);
             if (sectionIndex >= sectionIds.size()) {
                 return failure("coff.invalid", "COFF symbol section index is invalid");
             }
             section = sectionIds[sectionIndex];
+            definition = SymbolDefinitionKind::SectionRelative;
+        } else if (*sectionNumber == -1) {
+            definition = SymbolDefinitionKind::Absolute;
+        } else if (*sectionNumber == 0 && *value != 0U && *storageClass == 2U) {
+            definition = SymbolDefinitionKind::Common;
+            commonAlignment = 1;
+            defined = true;
+        } else if (*sectionNumber == 0) {
+            definition = SymbolDefinitionKind::Undefined;
         } else if (*sectionNumber < -2) {
             return failure("coff.invalid", "COFF symbol special section number is invalid");
         }
@@ -343,6 +354,8 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
                     << (byteIndex * 8U);
             }
         }
+        const auto normalizedKind = symbol_kind(
+            *name, *type, *storageClass, *sectionNumber);
         image.symbols.push_back(Symbol{
             .id = id,
             .formatIndex = static_cast<std::uint32_t>(index),
@@ -356,9 +369,14 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             .section = section,
             .address = BinaryAddress{*value, AddressKind::RelativeVirtual},
             .size = normalizedSize,
-            .kind = symbol_kind(*name, *type, *storageClass, *sectionNumber),
+            .kind = normalizedKind,
             .visibility = symbol_visibility(*storageClass),
             .defined = defined,
+            .definition = definition,
+            .commonAlignment = commonAlignment,
+            .tlsModel = normalizedKind == SymbolKind::Tls
+                ? TlsModel::CoffStatic
+                : TlsModel::None,
             .lineage = {},
         });
         index += recordCount;

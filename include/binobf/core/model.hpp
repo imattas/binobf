@@ -60,6 +60,33 @@ struct Section {
     TransformationLineage lineage;
 };
 
+enum class SectionAssociationKind : std::uint8_t {
+    Ordinary,
+    CoffComdat,
+    CoffAssociativeComdat,
+    ElfGroup,
+};
+
+enum class CoffComdatSelection : std::uint8_t {
+    None,
+    NoDuplicates,
+    Any,
+    SameSize,
+    ExactMatch,
+    Associative,
+    Largest,
+    Newest,
+};
+
+struct SectionAssociation {
+    EntityId section;
+    SectionAssociationKind kind{SectionAssociationKind::Ordinary};
+    CoffComdatSelection coffSelection{CoffComdatSelection::None};
+    std::optional<EntityId> signatureSymbol;
+    std::optional<EntityId> parentSection;
+    std::vector<EntityId> members;
+};
+
 struct Segment {
     EntityId id;
     std::string name;
@@ -88,6 +115,23 @@ enum class SymbolKind : std::uint8_t {
     Unknown,
 };
 
+enum class SymbolDefinitionKind : std::uint8_t {
+    Undefined,
+    SectionRelative,
+    Absolute,
+    Common,
+};
+
+enum class TlsModel : std::uint8_t {
+    Unknown,
+    None,
+    GeneralDynamic,
+    LocalDynamic,
+    InitialExec,
+    LocalExec,
+    CoffStatic,
+};
+
 struct Symbol {
     EntityId id;
     std::uint32_t formatIndex{0};
@@ -104,7 +148,17 @@ struct Symbol {
     SymbolKind kind{SymbolKind::Unknown};
     SymbolVisibility visibility{SymbolVisibility::Unknown};
     bool defined{false};
+    std::optional<SymbolDefinitionKind> definition;
+    std::uint64_t commonAlignment{0};
+    TlsModel tlsModel{TlsModel::Unknown};
     TransformationLineage lineage;
+};
+
+struct ExtendedSectionIndex {
+    EntityId symbol;
+    EntityId indexSection;
+    EntityId section;
+    std::uint32_t rawSectionIndex{0};
 };
 
 struct Import {
@@ -142,6 +196,12 @@ struct Relocation {
     std::optional<EntityId> targetSymbol;
     std::int64_t addend{0};
     TransformationLineage lineage;
+};
+
+struct RelocationTableEncoding {
+    EntityId section;
+    bool coffOverflow{false};
+    std::uint64_t declaredCount{0};
 };
 
 enum class InstructionKind : std::uint8_t {
@@ -255,10 +315,30 @@ struct DataObject {
     TransformationLineage lineage;
 };
 
+enum class UnwindFormat : std::uint8_t {
+    Unknown,
+    WindowsI386,
+    DwarfCfi32,
+};
+
+enum class UnwindRewriteState : std::uint8_t {
+    Unchanged,
+    Adjusted,
+    Regenerated,
+    Opaque,
+};
+
 struct UnwindInfo {
     EntityId id;
     EntityId function;
     std::vector<std::byte> encoded;
+    EntityId section;
+    std::uint64_t sectionOffset{0};
+    std::uint64_t codeOffset{0};
+    std::uint64_t codeSize{0};
+    UnwindFormat format{UnwindFormat::Unknown};
+    std::vector<EntityId> relocations;
+    UnwindRewriteState rewriteState{UnwindRewriteState::Opaque};
     TransformationLineage lineage;
 };
 
@@ -284,11 +364,14 @@ struct BinaryImage {
     ObjectMetadata objectMetadata;
     std::optional<BinaryAddress> entryPoint;
     std::vector<Section> sections;
+    std::vector<SectionAssociation> sectionAssociations;
     std::vector<Segment> segments;
     std::vector<Symbol> symbols;
+    std::vector<ExtendedSectionIndex> extendedSectionIndices;
     std::vector<Import> imports;
     std::vector<Export> exports;
     std::vector<Relocation> relocations;
+    std::vector<RelocationTableEncoding> relocationTableEncodings;
     std::vector<Instruction> instructions;
     std::vector<BasicBlock> basicBlocks;
     std::vector<Function> functions;

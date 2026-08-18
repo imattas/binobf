@@ -405,6 +405,13 @@ auto parse_exception_directory(
             .id = ids.allocate(),
             .function = functionId,
             .encoded = std::vector<std::byte>{entry.begin(), entry.end()},
+            .section = {},
+            .sectionOffset = 0,
+            .codeOffset = 0,
+            .codeSize = 0,
+            .format = UnwindFormat::Unknown,
+            .relocations = {},
+            .rewriteState = UnwindRewriteState::Opaque,
             .lineage = {},
         });
     }

@@ -410,6 +410,9 @@ auto protect_function(const BinaryImage& image, const VmProtectionOptions& optio
                                             .kind = SymbolKind::Function,
                                             .visibility = SymbolVisibility::External,
                                             .defined = false,
+                                            .definition = SymbolDefinitionKind::Undefined,
+                                            .commonAlignment = 0,
+                                            .tlsModel = TlsModel::None,
                                             .lineage = {}});
         } else {
             const auto table = selectedSymbolTable;
@@ -431,6 +434,9 @@ auto protect_function(const BinaryImage& image, const VmProtectionOptions& optio
                                             .kind = SymbolKind::Function,
                                             .visibility = SymbolVisibility::External,
                                             .defined = false,
+                                            .definition = SymbolDefinitionKind::Undefined,
+                                            .commonAlignment = 0,
+                                            .tlsModel = TlsModel::None,
                                             .lineage = {}});
         }
         runtimeSymbol = &output.symbols.back();

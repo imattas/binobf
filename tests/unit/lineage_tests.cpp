@@ -121,7 +121,9 @@ TEST_CASE(lineage_generation_correlates_reparsed_ids_through_transform_provenanc
         .section = binobf::EntityId{1},
         .address = {0, binobf::AddressKind::RelativeVirtual}, .size = 8,
         .kind = binobf::SymbolKind::Function,
-        .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::Local, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     original.functions.push_back(binobf::Function{
         .id = binobf::EntityId{3}, .name = "helper", .section = binobf::EntityId{1},
         .symbol = binobf::EntityId{2},

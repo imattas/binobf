@@ -37,7 +37,9 @@ void add_function(
         .auxiliaryData = {}, .name = std::move(name), .section = binobf::EntityId{1},
         .address = binobf::BinaryAddress{offset, binobf::AddressKind::RelativeVirtual},
         .size = size, .kind = binobf::SymbolKind::Function,
-        .visibility = binobf::SymbolVisibility::Local, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::Local, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
 }
 
 auto find_function(const binobf::BinaryImage& image, std::string_view name)
@@ -248,7 +250,9 @@ TEST_CASE(object_analyzer_replaces_placeholder_call_targets_with_relocation_refe
         .formatType = 0x20, .formatStorage = 2, .formatSectionIndex = 0,
         .auxiliaryData = {}, .name = "external_target", .section = std::nullopt,
         .address = {}, .kind = binobf::SymbolKind::Function,
-        .visibility = binobf::SymbolVisibility::External, .defined = false, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::External, .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     image.relocations.push_back(binobf::Relocation{
         .id = binobf::EntityId{4}, .formatIndex = 0, .formatTableIndex = 1,
         .section = binobf::EntityId{1}, .offset = 1,

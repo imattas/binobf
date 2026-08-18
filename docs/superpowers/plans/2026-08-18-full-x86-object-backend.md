@@ -237,11 +237,11 @@ git commit -m "feat: analyze and lift i386 object code"
 - Consumes: stable entity IDs, raw format fields, symbols, sections, relocations, and unwind records.
 - Produces: normalized definition, association, relocation-table, extended-index, TLS, and unwind ownership records.
 
-- [ ] **Step 1: Write invalid-ownership tests first**
+- [x] **Step 1: Write invalid-ownership tests first**
 
 Require rejection of duplicate association membership, missing COMDAT/group signature, association cycles, a relocation table targeting an absent section, SHN_XINDEX without a companion entry, a common symbol with zero alignment, overlapping unwind ranges, and an unwind relocation outside its encoded record. Require a valid COFF associative COMDAT and valid ELF group to pass.
 
-- [ ] **Step 2: Run the new target to RED**
+- [x] **Step 2: Run the new target to RED**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_object_ownership_tests
@@ -249,7 +249,7 @@ cmake --build build\m13-dev --target binobf_object_ownership_tests
 
 Expected compile failure because normalized ownership types do not exist.
 
-- [ ] **Step 3: Add exact normalized records**
+- [x] **Step 3: Add exact normalized records**
 
 Add these model values:
 
@@ -281,18 +281,18 @@ enum class UnwindFormat : std::uint8_t { Unknown, WindowsI386, DwarfCfi32 };
 
 Extend symbols with definition kind/common alignment/TLS model, unwind records with section/range/format/relocation IDs/rewrite state, and `BinaryImage` with association/table-encoding collections. Preserve raw fields.
 
-- [ ] **Step 4: Validate ownership independently of a writer**
+- [x] **Step 4: Validate ownership independently of a writer**
 
 Index all entity IDs once, enforce unique membership and acyclic parents, validate association signature/selection rules, verify normalized/raw index agreement, and prove unwind ranges and referenced relocations lie in owned sections. Return `object.ownership_*` diagnostics with entity context.
 
-- [ ] **Step 5: Run model, ownership, and structural tests**
+- [x] **Step 5: Run model, ownership, and structural tests**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_object_ownership_tests binobf_core_types_tests binobf_structural_verifier_tests
 ctest --test-dir build\m13-dev -R "object_ownership|core_types|structural_verifier" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit normalized ownership**
+- [x] **Step 6: Commit normalized ownership**
 
 ```powershell
 git add CMakeLists.txt include/binobf/core/model.hpp src/verify/object_model_validator.cpp tests/unit/object_ownership_tests.cpp tests/unit/core_types_tests.cpp tests/unit/structural_verifier_tests.cpp

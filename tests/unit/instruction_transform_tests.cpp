@@ -47,7 +47,9 @@ void add_function(
         .address = binobf::BinaryAddress{offset, binobf::AddressKind::RelativeVirtual},
         .size = size, .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::Local,
-        .defined = true, .lineage = {}});
+        .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
 }
 
 auto add_external_symbol(binobf::BinaryImage& image, std::string name)
@@ -61,7 +63,9 @@ auto add_external_symbol(binobf::BinaryImage& image, std::string name)
         .section = std::nullopt, .address = {}, .size = 0,
         .kind = binobf::SymbolKind::Object,
         .visibility = binobf::SymbolVisibility::External,
-        .defined = false, .lineage = {}});
+        .defined = false,
+        .definition = binobf::SymbolDefinitionKind::Undefined,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     return id;
 }
 

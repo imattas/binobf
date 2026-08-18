@@ -43,7 +43,11 @@ auto make_code_object() -> binobf::BinaryImage {
         .auxiliaryData = {}, .name = "branching", .section = binobf::EntityId{1},
         .address = {}, .size = 4, .kind = binobf::SymbolKind::Function,
         .visibility = binobf::SymbolVisibility::Local,
-        .defined = true, .lineage = {}});
+        .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0,
+        .tlsModel = binobf::TlsModel::None,
+        .lineage = {}});
     return image;
 }
 
@@ -107,6 +111,23 @@ TEST_CASE(structural_verifier_rejects_corrupt_section_ranges) {
     REQUIRE(!verified.has_value());
     REQUIRE(!verified.error().code.empty());
     REQUIRE_CONTAINS(verified.error().message, "corrupt.obj");
+}
+
+TEST_CASE(structural_verifier_writer_rejects_invalid_normalized_ownership) {
+    auto image = make_code_object();
+    image.sectionAssociations.push_back(binobf::SectionAssociation{
+        .section = binobf::EntityId{1},
+        .kind = binobf::SectionAssociationKind::CoffComdat,
+        .coffSelection = binobf::CoffComdatSelection::Any,
+        .signatureSymbol = std::nullopt,
+        .parentSection = std::nullopt,
+        .members = {},
+    });
+
+    const auto written = binobf::write_object(image);
+
+    REQUIRE(!written.has_value());
+    REQUIRE_EQ(written.error().code, "object.ownership_signature");
 }
 
 int main() {

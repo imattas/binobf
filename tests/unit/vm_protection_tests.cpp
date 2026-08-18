@@ -81,6 +81,9 @@ auto make_function_object(binobf::BinaryFormat format) -> binobf::BinaryImage {
                                            .kind = binobf::SymbolKind::Function,
                                            .visibility = binobf::SymbolVisibility::External,
                                            .defined = true,
+                                           .definition = binobf::SymbolDefinitionKind::SectionRelative,
+                                           .commonAlignment = 0,
+                                           .tlsModel = binobf::TlsModel::None,
                                            .lineage = {}});
     return image;
 }
@@ -203,6 +206,9 @@ TEST_CASE(vm_protection_reuses_the_runtime_symbol_and_relocation_table) {
                        .kind = binobf::SymbolKind::Function,
                        .visibility = binobf::SymbolVisibility::External,
                        .defined = true,
+                       .definition = binobf::SymbolDefinitionKind::SectionRelative,
+                       .commonAlignment = 0,
+                       .tlsModel = binobf::TlsModel::None,
                        .lineage = {}});
     const auto first = binobf::vm::protect_function(
         image, binobf::vm::VmProtectionOptions{.function = "selected_add",
@@ -254,6 +260,9 @@ TEST_CASE(vm_protection_rejects_fixed_internal_callers_and_selected_unwind_metad
                        .kind = binobf::SymbolKind::Function,
                        .visibility = binobf::SymbolVisibility::External,
                        .defined = true,
+                       .definition = binobf::SymbolDefinitionKind::SectionRelative,
+                       .commonAlignment = 0,
+                       .tlsModel = binobf::TlsModel::None,
                        .lineage = {}});
     const auto direct = binobf::vm::protect_function(
         directCaller, binobf::vm::VmProtectionOptions{.function = "selected_add",
@@ -267,6 +276,13 @@ TEST_CASE(vm_protection_rejects_fixed_internal_callers_and_selected_unwind_metad
     unwind.unwindInfo.push_back(binobf::UnwindInfo{.id = binobf::EntityId{6},
                                                    .function = binobf::EntityId{7},
                                                    .encoded = {std::byte{0}},
+                                                   .section = {},
+                                                   .sectionOffset = 0,
+                                                   .codeOffset = 0,
+                                                   .codeSize = 0,
+                                                   .format = binobf::UnwindFormat::Unknown,
+                                                   .relocations = {},
+                                                   .rewriteState = binobf::UnwindRewriteState::Opaque,
                                                    .lineage = {}});
     const auto rejected = binobf::vm::protect_function(
         unwind, binobf::vm::VmProtectionOptions{.function = "selected_add",

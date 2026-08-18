@@ -47,7 +47,9 @@ auto make_valid_elf_image() -> binobf::BinaryImage {
         .auxiliaryData = {},
         .name = "fixture", .section = binobf::EntityId{1}, .address = {},
         .size = 1, .kind = binobf::SymbolKind::Function,
-        .visibility = binobf::SymbolVisibility::External, .defined = true, .lineage = {}});
+        .visibility = binobf::SymbolVisibility::External, .defined = true,
+        .definition = binobf::SymbolDefinitionKind::SectionRelative,
+        .commonAlignment = 0, .tlsModel = binobf::TlsModel::None, .lineage = {}});
     image.relocations.push_back(binobf::Relocation{
         .id = binobf::EntityId{7}, .formatIndex = 0, .formatTableIndex = 5,
         .section = binobf::EntityId{1}, .offset = 0,

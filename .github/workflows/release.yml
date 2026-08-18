@@ -36,6 +36,14 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
+      - name: Cache dependency build tree
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-binobf-release-deps-${{ hashFiles('CMakeLists.txt', 'cmake/BinobfLLVM.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-binobf-release-deps-
+
       - name: Install Linux build tools
         if: runner.os == 'Linux'
         shell: bash

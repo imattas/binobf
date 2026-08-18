@@ -17,6 +17,14 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Cache dependency build tree
+        uses: actions/cache@v4
+        with:
+          path: build/fuzz/_deps
+          key: ${{ runner.os }}-binobf-hardening-fuzz-deps-${{ hashFiles('CMakeLists.txt', 'cmake/BinobfLLVM.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-binobf-hardening-fuzz-deps-
+
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install --yes clang llvm lld ninja-build
 
@@ -41,6 +49,14 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Cache dependency build tree
+        uses: actions/cache@v4
+        with:
+          path: build/benchmark/_deps
+          key: ${{ runner.os }}-binobf-hardening-benchmark-deps-${{ hashFiles('CMakeLists.txt', 'cmake/BinobfLLVM.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-binobf-hardening-benchmark-deps-
 
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install --yes clang lld ninja-build

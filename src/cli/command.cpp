@@ -54,6 +54,21 @@ enum class DiagnosticFormat : std::uint8_t {
     Json,
 };
 
+thread_local std::optional<DiagnosticFormat> transformDiagnosticFormat;
+
+struct TransformDiagnosticScope {
+    std::optional<DiagnosticFormat> previous;
+
+    explicit TransformDiagnosticScope(DiagnosticFormat format)
+        : previous(transformDiagnosticFormat) {
+        transformDiagnosticFormat = format;
+    }
+
+    ~TransformDiagnosticScope() {
+        transformDiagnosticFormat = previous;
+    }
+};
+
 void print_usage(std::ostream& stream) {
     stream
         << "Usage:\n"
@@ -65,7 +80,7 @@ void print_usage(std::ostream& stream) {
         << "  binobf transform [<binary>] [--config=<path>] [-o <output>]"
            " [--passes=<list|minimal|balanced|none>] [--seed=N] [--dry-run]"
            " [--allow-signature-invalidation] [--manifest=<path>|--no-manifest]\n"
-        << "      [--lineage=<path>] [--jobs=N]\n"
+        << "      [--lineage=<path>] [--jobs=N] [--diagnostics=text|json]\n"
         << "  binobf passes\n"
         << "  binobf vm lower <object> --function=<name>"
            " --abi=windows-x64|sysv-amd64 --args=N -o <program.bvm> [--seed=N]"
@@ -83,7 +98,9 @@ void print_diagnostic(
     std::ostream& stream,
     const Diagnostic& diagnostic,
     DiagnosticFormat format) {
-    stream << (format == DiagnosticFormat::Json
+    const auto effectiveFormat = transformDiagnosticFormat.has_value()
+        && format == DiagnosticFormat::Text ? *transformDiagnosticFormat : format;
+    stream << (effectiveFormat == DiagnosticFormat::Json
         ? render_json(diagnostic)
         : render_text(diagnostic)) << '\n';
 }
@@ -433,6 +450,7 @@ struct TransformOptions {
     std::string passDescription;
     std::uint64_t seed{0};
     std::size_t jobs{1};
+    DiagnosticFormat diagnostics{DiagnosticFormat::Text};
     bool dryRun{false};
     bool allowSignatureInvalidation{false};
     config::ManifestConfig manifest;
@@ -481,6 +499,7 @@ auto parse_transform_options(
     std::optional<std::string> cliPassDescription;
     std::optional<std::uint64_t> cliSeed;
     std::optional<std::size_t> cliJobs;
+    std::optional<DiagnosticFormat> cliDiagnostics;
     std::vector<std::string> cliPreservedSymbols;
     std::optional<bool> cliManifestEnabled;
     std::optional<std::filesystem::path> cliManifestPath;
@@ -550,6 +569,13 @@ auto parse_transform_options(
                 return Result<TransformOptions, int>::failure(2);
             }
             cliJobs = jobs;
+        } else if (argument == "--diagnostics=text" || argument == "--diagnostics=json") {
+            if (cliDiagnostics.has_value()) {
+                errors << "transform accepts one --diagnostics option\n";
+                return Result<TransformOptions, int>::failure(2);
+            }
+            cliDiagnostics = argument.ends_with("=json")
+                ? DiagnosticFormat::Json : DiagnosticFormat::Text;
         } else if (argument == "--dry-run") {
             if (cliDryRun) {
                 errors << "transform accepts --dry-run once\n";
@@ -603,6 +629,7 @@ auto parse_transform_options(
 
     TransformOptions options;
     options.manifest.enabled = true;
+    options.diagnostics = cliDiagnostics.value_or(DiagnosticFormat::Text);
     if (configPath.has_value()) {
         const auto bytes = read_input(*configPath);
         if (!bytes.has_value()) {
@@ -965,6 +992,7 @@ auto transform(
         return parsedOptions.error();
     }
     const auto* options = &parsedOptions.value();
+    const TransformDiagnosticScope diagnosticScope{options->diagnostics};
     if (options->output.has_value() && paths_conflict(options->input, *options->output)) {
         print_diagnostic(errors, Diagnostic{
             DiagnosticSeverity::Error,

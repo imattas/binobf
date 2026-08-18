@@ -589,6 +589,27 @@ TEST_CASE(transform_rejects_unknown_pass_sets_without_creating_output) {
     REQUIRE(!std::filesystem::exists(output.path()));
 }
 
+TEST_CASE(transform_reports_runtime_diagnostics_as_json) {
+    auto malformedBytes = make_coff_object();
+    put_u32(malformedBytes, 20 + 20, 0xfffffff0U);
+    const TemporaryFile input{"binobf-cli-transform-malformed.obj", malformedBytes};
+    const TemporaryOutput output{"binobf-cli-transform-malformed-output.obj"};
+    const auto inputPath = input.path().string();
+    const auto outputPath = output.path().string();
+    const auto arguments = std::array<std::string_view, 6>{
+        "transform"sv, inputPath, "-o"sv, outputPath,
+        "--passes=none"sv, "--diagnostics=json"sv,
+    };
+    std::ostringstream stdoutStream;
+    std::ostringstream stderrStream;
+
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, stdoutStream, stderrStream), 3);
+    REQUIRE(stdoutStream.str().empty());
+    REQUIRE_CONTAINS(stderrStream.str(), "\"severity\":\"error\"");
+    REQUIRE_CONTAINS(stderrStream.str(), "\"code\":\"coff.truncated\"");
+    REQUIRE(!std::filesystem::exists(output.path()));
+}
+
 TEST_CASE(passes_command_reports_baseline_capabilities) {
     const std::array arguments{"passes"sv};
     std::ostringstream output;

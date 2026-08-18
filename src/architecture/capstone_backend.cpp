@@ -1,6 +1,9 @@
 #include <binobf/architecture/backend.hpp>
 
 #include "x86_fixups.hpp"
+#include "x86_abi.hpp"
+#include "x86_templates.hpp"
+#include "x86_unwind.hpp"
 
 #include <capstone/arm64.h>
 #include <capstone/capstone.h>
@@ -222,58 +225,86 @@ public:
                 "architecture.request_mismatch",
                 "transform request architecture does not match the fixed backend");
         }
-        if (request.kind != MachineTransformKind::DeadCodeFill
-            || architecture_ != Architecture::X86) {
+        if (architecture_ != Architecture::X86) {
             return service_failure<MachineTransformEmission>(
                 "architecture.service_unsupported",
                 "the fixed backend does not implement the requested transform service");
         }
-        if (request.format != BinaryFormat::COFF && request.format != BinaryFormat::ELF) {
-            return service_failure<MachineTransformEmission>(
-                "architecture.unsupported_format",
-                "x86 transform emission requires COFF or ELF");
-        }
-        if (request.exactSize == 0
-            || request.exactSize > request.limits.maxInstructions
-            || request.exactSize > request.limits.maxEmittedBytes
-            || request.exactSize > request.limits.maxLines
-            || request.exactSize > request.limits.maxAssemblyBytes / 4U) {
-            return service_failure<MachineTransformEmission>(
-                "architecture.resource_limit",
-                "x86 dead-code fill exceeds the request limits");
-        }
-
-        MachineAssemblyRequest assemblyRequest{};
-        assemblyRequest.architecture = architecture_;
-        assemblyRequest.format = request.format;
-        assemblyRequest.triple = request.format == BinaryFormat::COFF
-            ? "i686-pc-windows-msvc" : "i386-unknown-linux-gnu";
-        assemblyRequest.syntax = MachineSyntax::Intel;
-        assemblyRequest.limits = request.limits;
-        assemblyRequest.expectedInstructionCount = request.exactSize;
-        assemblyRequest.assembly.reserve(request.exactSize * 4U);
-        for (std::size_t index = 0; index < request.exactSize; ++index) {
-            assemblyRequest.assembly += "nop\n";
-        }
-        auto emitted = codegen_->emit(assemblyRequest);
+        auto emitted = detail::emit_x86_transform(request, *codegen_);
         if (!emitted.has_value()) {
             return service_failure<MachineTransformEmission>(
                 emitted.error().code, emitted.error().message);
         }
-        if (emitted.value().bytes.size() != request.exactSize) {
-            return service_failure<MachineTransformEmission>(
-                "architecture.exact_size_unavailable",
-                "x86 dead-code fill did not satisfy the exact-size request");
-        }
-        return Result<MachineTransformEmission, Diagnostic>::success(
-            MachineTransformEmission{
-                .emission = std::move(emitted).value(),
-                .instructionCount = request.exactSize,
-                .controlFlow = MachineControlFlow::Fallthrough,
-                .stackDelta = 0,
-                .readsFlags = false,
-                .writesFlags = false,
+        std::size_t offset = 0;
+        std::size_t count = 0;
+        InstructionKind lastKind = InstructionKind::Normal;
+        bool decodedReadsFlags = false;
+        bool decodedWritesFlags = false;
+        bool decodedTouchesStack = false;
+        bool decodedWritesRequestedRegister = false;
+        bool decodedHasUnexpectedEquivalentEffect = false;
+        const auto baseAddress = request.source.has_value()
+            ? request.source->address.value : 0U;
+        while (offset < emitted.value().emission.bytes.size()) {
+            const auto instruction = decode(DecodeRequest{
+                .architecture = Architecture::X86,
+                .bytes = std::span<const std::byte>{emitted.value().emission.bytes}.subspan(offset),
+                .address = BinaryAddress{baseAddress + offset, AddressKind::Virtual},
+                .instructionId = EntityId{count + 1U},
+                .sectionId = EntityId{1U},
+                .sectionOffset = offset,
             });
+            if (!instruction.has_value() || instruction.value().encoding.empty()) {
+                return service_failure<MachineTransformEmission>(
+                    "architecture.template_verification_failed",
+                    "x86 template did not decode completely");
+            }
+            lastKind = instruction.value().kind;
+            decodedReadsFlags = decodedReadsFlags || std::ranges::any_of(
+                instruction.value().registersRead,
+                [](const auto& value) { return value.name == "eflags"; });
+            decodedWritesFlags = decodedWritesFlags || std::ranges::any_of(
+                instruction.value().registersWritten,
+                [](const auto& value) { return value.name == "eflags"; });
+            decodedTouchesStack = decodedTouchesStack || std::ranges::any_of(
+                instruction.value().registersRead,
+                [](const auto& value) { return value.name == "esp"; })
+                || std::ranges::any_of(
+                    instruction.value().registersWritten,
+                    [](const auto& value) { return value.name == "esp"; });
+            decodedWritesRequestedRegister = decodedWritesRequestedRegister
+                || std::ranges::any_of(
+                    instruction.value().registersWritten,
+                    [&](const auto& value) { return value.name == request.condition; });
+            decodedHasUnexpectedEquivalentEffect = decodedHasUnexpectedEquivalentEffect
+                || !instruction.value().registersRead.empty()
+                || !instruction.value().registersWritten.empty();
+            offset += instruction.value().encoding.size();
+            ++count;
+        }
+        if (offset != emitted.value().emission.bytes.size()
+            || count != emitted.value().instructionCount) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.template_verification_failed",
+                "x86 template instruction count or byte coverage changed during decode");
+        }
+        const auto expectedKind = emitted.value().controlFlow == MachineControlFlow::Conditional
+            ? InstructionKind::ConditionalBranch
+            : emitted.value().controlFlow == MachineControlFlow::Direct
+                ? InstructionKind::DirectBranch : InstructionKind::Normal;
+        if (lastKind != expectedKind
+            || decodedReadsFlags != emitted.value().readsFlags
+            || decodedWritesFlags != emitted.value().writesFlags
+            || decodedTouchesStack
+            || (request.kind == MachineTransformKind::ConstantMaterialization
+                && !decodedWritesRequestedRegister)
+            || (request.kind == MachineTransformKind::InstructionEquivalent
+                && decodedHasUnexpectedEquivalentEffect)) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.template_verification_failed",
+                "decoded x86 control flow, flags, register, or stack effects do not match the template");
+        }
+        return emitted;
     }
 
     auto fixup_semantics(BinaryFormat format, std::uint64_t rawType) const
@@ -303,9 +334,12 @@ public:
                 "architecture.request_mismatch",
                 "ABI request architecture does not match the fixed backend");
         }
-        return service_failure<AbiAdapterPlan>(
-            "architecture.service_unsupported",
-            "the fixed backend does not implement ABI adapter generation");
+        if (architecture_ != Architecture::X86) {
+            return service_failure<AbiAdapterPlan>(
+                "architecture.service_unsupported",
+                "the fixed backend does not implement ABI adapter generation");
+        }
+        return detail::build_x86_abi_adapter(request, *codegen_);
     }
 
     auto build_unwind(const UnwindRequest& request) const
@@ -315,9 +349,12 @@ public:
                 "architecture.request_mismatch",
                 "unwind request architecture does not match the fixed backend");
         }
-        return service_failure<UnwindPlan>(
-            "architecture.service_unsupported",
-            "the fixed backend does not implement unwind generation");
+        if (architecture_ != Architecture::X86) {
+            return service_failure<UnwindPlan>(
+                "architecture.service_unsupported",
+                "the fixed backend does not implement unwind generation");
+        }
+        return detail::build_x86_unwind_plan(request);
     }
 
     auto decode(const DecodeRequest& request) const

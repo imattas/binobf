@@ -103,6 +103,7 @@ struct UnwindRequest {
     std::vector<UnwindAction> actions;
     std::optional<std::string> handlerSymbol;
     MachineCodeLimits limits{};
+    bool handlerOwned{false};
 };
 
 struct UnwindPlan {

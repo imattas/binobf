@@ -40,7 +40,7 @@ TEST_CASE(fixed_backend_rejects_a_transform_for_another_architecture) {
     REQUIRE_EQ(emitted.error().code, "architecture.request_mismatch");
 }
 
-TEST_CASE(unimplemented_callable_services_fail_with_stable_diagnostics) {
+TEST_CASE(callable_object_services_validate_requests_with_stable_diagnostics) {
     auto backend = binobf::make_architecture_backend(binobf::Architecture::X86);
     REQUIRE(backend.has_value());
 
@@ -54,15 +54,15 @@ TEST_CASE(unimplemented_callable_services_fail_with_stable_diagnostics) {
     abi.symbol = "external";
     const auto adapter = backend.value()->build_abi_adapter(abi);
     REQUIRE(!adapter.has_value());
-    REQUIRE_EQ(adapter.error().code, "architecture.service_unsupported");
+    REQUIRE_EQ(adapter.error().code, "architecture.incompatible_abi");
 
     binobf::UnwindRequest unwind{};
     unwind.architecture = binobf::Architecture::X86;
     unwind.format = binobf::BinaryFormat::COFF;
     unwind.codeSize = 1;
     const auto plan = backend.value()->build_unwind(unwind);
-    REQUIRE(!plan.has_value());
-    REQUIRE_EQ(plan.error().code, "architecture.service_unsupported");
+    REQUIRE(plan.has_value());
+    REQUIRE_EQ(plan.value().encoding, binobf::UnwindEncoding::WindowsI386);
 }
 
 TEST_CASE(fixup_encoding_accepts_the_zero_width_noop_shape) {

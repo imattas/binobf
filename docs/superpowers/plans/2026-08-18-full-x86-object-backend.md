@@ -515,49 +515,49 @@ git commit -m "feat: encode complete i386 object fixups"
 - Consumes: callable service contracts, i386 ABI declarations, LLVM MC provider, and x86 fixups.
 - Produces: verified exact-size transform emissions, convention adapters, and Windows/DWARF unwind plans.
 
-- [ ] **Step 1: Add transform-template goldens**
+- [x] **Step 1: Add transform-template goldens**
 
 Require same-size x86 equivalents for multi-byte NOP substitution, EAX/ECX constant materialization,
 all normalized condition inversions, short/near direct jumps, and dead-code fill sizes 1 through 15.
 Require emitted bytes to re-decode completely and effects to match. Add impossible exact-size and
 out-of-range target refusals.
 
-- [ ] **Step 2: Add ABI/unwind goldens**
+- [x] **Step 2: Add ABI/unwind goldens**
 
 For each five i386 ABIs assert argument moves, cleanup owner, 16-byte alignment, external call
 fixup, return binding, clobbers, and net stack delta. Require Windows leaf plans to return
 `NotRequired/WindowsI386` with zero encoded records and System V EBP-frame plans to return
 `Emit/DwarfCfi32` with CFA actions for EIP/EBP and a bounded code range.
 
-- [ ] **Step 3: Implement typed template-to-assembly lowering**
+- [x] **Step 3: Implement typed template-to-assembly lowering**
 
 Translate requests to internal Intel assembly using fixed register/condition tables. Emit with
 the request format triple, enforce exact byte count, and re-decode every byte. Compare decoded
 control-flow class, instruction count, flags access, register effects, and stack delta to the typed
 request before returning.
 
-- [ ] **Step 4: Implement i386 convention adapters**
+- [x] **Step 4: Implement i386 convention adapters**
 
 Build a deterministic argument-move schedule that handles register cycles through EAX, emits stack
 arguments right-to-left, inserts alignment padding, emits one external call fixup, applies
 caller/callee cleanup exactly once, and moves EAX/EDX/x87/SSE return values to the requested binding.
 Reject variadic stdcall/fastcall/thiscall and incompatible aggregate layouts.
 
-- [ ] **Step 5: Encode bounded DWARF CFI and Windows dispositions**
+- [x] **Step 5: Encode bounded DWARF CFI and Windows dispositions**
 
 Encode CIE/FDE length/version/augmentation/code alignment/data alignment/return register plus typed
 CFA opcodes using checked 32-bit offsets. Windows ordinary leaf/frame adapters return
 `NotRequired`; handler-bearing requests require `Preserve` with an owned SafeSEH symbol or fail
 `architecture.unwind_unowned`.
 
-- [ ] **Step 6: Run template, ABI, unwind, and backend suites**
+- [x] **Step 6: Run template, ABI, unwind, and backend suites**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_template_tests binobf_x86_abi_unwind_tests binobf_architecture_backend_tests
 ctest --test-dir build\m13-dev -R "x86_template|x86_abi_unwind|architecture_backend" --output-on-failure
 ```
 
-- [ ] **Step 7: Commit x86 code generation services**
+- [x] **Step 7: Commit x86 code generation services**
 
 ```powershell
 git add CMakeLists.txt src/architecture tests/unit/x86_template_tests.cpp tests/unit/x86_abi_unwind_tests.cpp

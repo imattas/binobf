@@ -360,7 +360,7 @@ ctest --test-dir build\m12-verify-debug `
 Expected: both tests pass; temporarily changing an evidence CTest name makes
 `capability_evidence` fail with that name.
 
-- [ ] **Step 6: Commit evidence enforcement**
+- [x] **Step 6: Commit evidence enforcement**
 
 ```powershell
 git add CMakeLists.txt include/binobf/capabilities/evidence.hpp `
@@ -386,7 +386,7 @@ git commit -m "test: bind capabilities to acceptance evidence"
 - Consumes: all eleven `make_*_pass()` factories and `TransformPass::requirements()`.
 - Produces: `PassRegistration`, `registered_passes()`, `find_registered_pass()`, and `make_registered_pass()`.
 
-- [ ] **Step 1: Write failing pass-registry completeness tests**
+- [x] **Step 1: Write failing pass-registry completeness tests**
 
 Create `tests/unit/pass_registry_tests.cpp`:
 
@@ -426,7 +426,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: Register and run the test to verify missing interfaces**
+- [x] **Step 2: Register and run the test to verify missing interfaces**
 
 Add the source and test target using the existing unit-test pattern, then run:
 
@@ -436,7 +436,7 @@ cmake --build build\m12-verify-debug --target binobf_pass_registry_tests
 
 Expected: compilation fails because `binobf/transforms/registry.hpp` does not exist.
 
-- [ ] **Step 3: Implement registrations with factory function pointers**
+- [x] **Step 3: Implement registrations with factory function pointers**
 
 Create `include/binobf/transforms/registry.hpp`:
 
@@ -470,13 +470,13 @@ struct PassRegistration {
 Define one sorted static registration per existing factory. At static initialization, do not
 construct pass objects. `make_registered_pass` calls the selected non-null factory.
 
-- [ ] **Step 4: Remove CLI pass-name and factory duplication**
+- [x] **Step 4: Remove CLI pass-name and factory duplication**
 
 Replace the name chain at `src/cli/command.cpp:688-702` with `make_registered_pass(name)`. Replace
 the explicit-name validation at `src/cli/command.cpp:459-469` with
 `find_registered_pass(name) == nullptr`. Keep profile expansion order unchanged.
 
-- [ ] **Step 5: Run pass, config, CLI, and transformation tests**
+- [x] **Step 5: Run pass, config, CLI, and transformation tests**
 
 ```powershell
 cmake --build build\m12-verify-debug --target `

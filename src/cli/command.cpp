@@ -19,9 +19,8 @@
 #include <binobf/ir/vm_lowering.hpp>
 #include <binobf/support/artifact_transaction.hpp>
 #include <binobf/support/sha256.hpp>
-#include <binobf/transforms/baseline.hpp>
-#include <binobf/transforms/instruction.hpp>
 #include <binobf/transforms/pass_manager.hpp>
+#include <binobf/transforms/registry.hpp>
 #include <binobf/verify/structural_verifier.hpp>
 #include <binobf/vm/bytecode.hpp>
 #include <binobf/vm/protection.hpp>
@@ -456,16 +455,7 @@ auto split_passes(std::string_view value) -> std::optional<std::vector<std::stri
         const auto separator = value.find(',');
         const auto name = value.substr(0, separator);
         if (name.empty()) return std::nullopt;
-        if (name != "strip-debug" && name != "cleanup-metadata"
-            && name != "strip-local-symbols"
-            && name != "rename-private-symbols"
-            && name != "instruction-substitution"
-            && name != "constant-rewriting"
-            && name != "branch-inversion"
-            && name != "dead-code-insertion"
-            && name != "block-splitting"
-            && name != "block-reordering"
-            && name != "function-reordering") {
+        if (find_registered_pass(name) == nullptr) {
             return std::nullopt;
         }
         if (std::find(names.begin(), names.end(), name) != names.end()) return std::nullopt;
@@ -686,21 +676,6 @@ auto parse_transform_options(
     return Result<TransformOptions, int>::success(std::move(options));
 }
 
-auto make_pass(std::string_view name) -> std::unique_ptr<TransformPass> {
-    if (name == "strip-debug") return make_strip_debug_pass();
-    if (name == "cleanup-metadata") return make_metadata_cleanup_pass();
-    if (name == "strip-local-symbols") return make_strip_local_symbols_pass();
-    if (name == "rename-private-symbols") return make_rename_private_symbols_pass();
-    if (name == "instruction-substitution") return make_instruction_substitution_pass();
-    if (name == "constant-rewriting") return make_constant_rewriting_pass();
-    if (name == "branch-inversion") return make_branch_inversion_pass();
-    if (name == "dead-code-insertion") return make_dead_code_insertion_pass();
-    if (name == "block-splitting") return make_block_splitting_pass();
-    if (name == "block-reordering") return make_block_reordering_pass();
-    if (name == "function-reordering") return make_function_reordering_pass();
-    return nullptr;
-}
-
 auto configure_function_selection(
     TransformContext& context,
     const std::optional<config::SelectionConfig>& configured,
@@ -854,7 +829,7 @@ auto commit_transform_outputs(
 auto configure_pass_manager(PassManager& manager, const std::vector<std::string>& passes)
     -> std::optional<Diagnostic> {
     for (const auto& name : passes) {
-        const auto added = manager.add(make_pass(name));
+        const auto added = manager.add(make_registered_pass(name));
         if (!added.has_value()) return added.error();
     }
     return std::nullopt;

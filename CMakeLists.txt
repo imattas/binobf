@@ -139,6 +139,7 @@ set(BINOBF_CORE_SOURCES
     src/support/artifact_transaction.cpp
     src/support/sha256.cpp
     src/transforms/pass_manager.cpp
+    src/transforms/registry.cpp
     src/transforms/selection.cpp
     src/transforms/instruction.cpp
     src/transforms/rename_private_symbols.cpp
@@ -431,6 +432,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_pass_manager_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_pass_manager_tests)
     add_test(NAME pass_manager COMMAND binobf_pass_manager_tests)
+
+    add_executable(binobf_pass_registry_tests tests/unit/pass_registry_tests.cpp)
+    target_link_libraries(binobf_pass_registry_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_pass_registry_tests)
+    add_test(NAME pass_registry COMMAND binobf_pass_registry_tests)
 
     add_executable(binobf_function_selection_tests tests/unit/function_selection_tests.cpp)
     target_link_libraries(binobf_function_selection_tests PRIVATE binobf::core)

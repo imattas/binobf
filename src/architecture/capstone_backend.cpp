@@ -162,8 +162,11 @@ auto codegen_support(Architecture architecture) -> SupportLevel {
 
 class CapstoneArchitectureBackend final : public ArchitectureBackend {
 public:
-    explicit CapstoneArchitectureBackend(Architecture architecture)
+    CapstoneArchitectureBackend(
+        Architecture architecture,
+        std::unique_ptr<CodegenProvider> codegen)
         : architecture_(architecture),
+          codegen_(std::move(codegen)),
           services_{
               BackendServiceRecord{
                   BackendService::Decode, SupportLevel::Supported, kDecodeEvidence},
@@ -198,6 +201,10 @@ public:
 
     auto services() const noexcept -> std::span<const BackendServiceRecord> override {
         return services_;
+    }
+
+    auto codegen() const noexcept -> const CodegenProvider* override {
+        return codegen_.get();
     }
 
     auto decode(const DecodeRequest& request) const
@@ -310,6 +317,7 @@ public:
 
 private:
     Architecture architecture_;
+    std::unique_ptr<CodegenProvider> codegen_;
     Handle handle_;
     std::array<BackendServiceRecord, 6> services_;
 };
@@ -330,7 +338,12 @@ auto make_architecture_backend(Architecture architecture)
             "architecture.unsupported", "cannot create a backend for unknown architecture");
     }
 
-    auto backend = std::make_unique<CapstoneArchitectureBackend>(architecture);
+    auto codegen = make_codegen_provider(architecture);
+    if (!codegen.has_value()) {
+        return backend_failure(codegen.error().code, codegen.error().message);
+    }
+    auto backend = std::make_unique<CapstoneArchitectureBackend>(
+        architecture, std::move(codegen.value()));
     const auto opened = backend->initialize();
     if (opened != CS_ERR_OK) {
         return backend_failure(

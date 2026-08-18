@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include <string>
 
 namespace {
@@ -42,6 +43,27 @@ TEST_CASE(architecture_backend_services_match_public_capabilities) {
             REQUIRE(service != nullptr);
             REQUIRE(capability != nullptr);
             REQUIRE_EQ(service->support, capability->support);
+        }
+    }
+}
+
+TEST_CASE(supported_backend_services_reference_known_acceptance_evidence) {
+    std::set<std::string_view> knownEvidence;
+    for (const auto& evidence : binobf::builtin_acceptance_evidence()) {
+        knownEvidence.insert(evidence.id);
+    }
+    for (const auto architecture : std::array{
+             binobf::Architecture::X86,
+             binobf::Architecture::X86_64,
+             binobf::Architecture::ARM64}) {
+        auto backend = binobf::make_architecture_backend(architecture);
+        REQUIRE(backend.has_value());
+        for (const auto& service : backend.value()->services()) {
+            if (service.support != binobf::SupportLevel::Supported) continue;
+            REQUIRE(!service.evidence.empty());
+            for (const auto evidence : service.evidence) {
+                REQUIRE(knownEvidence.contains(evidence));
+            }
         }
     }
 }

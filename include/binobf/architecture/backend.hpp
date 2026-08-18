@@ -1,6 +1,7 @@
 #pragma once
 
 #include <binobf/analysis/instruction_decoder.hpp>
+#include <binobf/architecture/codegen.hpp>
 #include <binobf/capabilities/registry.hpp>
 
 #include <cstdint>
@@ -31,6 +32,7 @@ public:
     [[nodiscard]] virtual auto name() const noexcept -> std::string_view = 0;
     [[nodiscard]] virtual auto services() const noexcept
         -> std::span<const BackendServiceRecord> = 0;
+    [[nodiscard]] virtual auto codegen() const noexcept -> const CodegenProvider* = 0;
     [[nodiscard]] auto find_service(BackendService service) const noexcept
         -> const BackendServiceRecord*;
 };

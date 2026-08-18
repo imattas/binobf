@@ -592,13 +592,13 @@ git commit -m "refactor: migrate native pipeline to canonical IR types"
 - Consumes: fixed decode backend and Task 1 provider.
 - Produces: backend-owned `codegen()` service with service/capability consistency.
 
-- [ ] **Step 1: Add failing backend-provider ownership tests**
+- [x] **Step 1: Add failing backend-provider ownership tests**
 
 For all architectures require `backend->codegen() != nullptr`, matching architecture/provider
 identity, deterministic `nop; ret` emission, and independent backend decode. Keep `EmitCode`
 service states equal to the capability registry rather than promoting them.
 
-- [ ] **Step 2: Extend `ArchitectureBackend`**
+- [x] **Step 2: Extend `ArchitectureBackend`**
 
 Add:
 
@@ -609,17 +609,17 @@ virtual auto codegen() const noexcept -> const CodegenProvider* = 0;
 Include `codegen.hpp`; own one `std::unique_ptr<CodegenProvider>` inside each Capstone backend.
 Factory construction fails if either decoder or provider initialization fails.
 
-- [ ] **Step 3: Cross-check service evidence**
+- [x] **Step 3: Cross-check service evidence**
 
 Extend consistency tests so every supported backend service has a known acceptance-evidence ID,
 and decode/analyze/emit service levels equal their capability records. Provider availability alone
 must not alter `EmitCode` support.
 
-- [ ] **Step 4: Run backend, provider, registry, and consistency tests**
+- [x] **Step 4: Run backend, provider, registry, and consistency tests**
 
 Run the four focused CTests with output on failure.
 
-- [ ] **Step 5: Commit backend provider ownership**
+- [x] **Step 5: Commit backend provider ownership**
 
 ```powershell
 git add include/binobf/architecture/backend.hpp src/architecture/capstone_backend.cpp `

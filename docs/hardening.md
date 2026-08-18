@@ -23,7 +23,7 @@ cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
 cmake --build build/fuzz --target fuzz-smoke
 ```
 
-The target generates valid COFF and ELF objects, PE and ELF linked images, a GNU archive, and a versioned VM program, and includes valid strict-configuration, lineage, and all six x86/x86-64/ARM64 by COFF/ELF code-generation seeds. It then runs 2,000 deterministic mutations on each of detector, object, linked-image, archive, VM bytecode, TOML configuration, lineage JSON, and bounded machine-emission surfaces. The code-generation fuzzer emits twice for determinism and never executes output. For longer runs, invoke an individual `binobf_fuzz_*` executable with its matching corpus and a larger `-runs` or `-max_total_time` value.
+The target generates valid COFF and ELF objects, PE and ELF linked images, a GNU archive, and a versioned VM program, and includes valid strict-configuration, lineage, all six x86/x86-64/ARM64 by COFF/ELF code-generation seeds, and both bounded i386 object-rewrite seeds. It runs 2,000 deterministic mutations on each of nine surfaces: detector, object, linked image, archive, VM bytecode, TOML configuration, lineage JSON, bounded machine emission, and transactional object rewrite. The rewrite fuzzer caps ranges and growth, requires stable refusal diagnostics, and writes/reparses successful plans without execution. The code-generation fuzzer emits twice for determinism and never executes output. For longer runs, invoke an individual `binobf_fuzz_*` executable with its matching corpus and a larger `-runs` or `-max_total_time` value.
 
 ## Generated and mutation tests
 

@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -224,6 +226,161 @@ auto tls_model_for_i386_relocation(std::uint64_t rawType) noexcept
     case 34:
     case 37: return TlsModel::LocalExec;
     default: return std::nullopt;
+    }
+}
+
+auto find_section(BinaryImage& image, EntityId id) -> Section* {
+    const auto found = std::ranges::find(image.sections, id, &Section::id);
+    return found == image.sections.end() ? nullptr : &*found;
+}
+
+auto normalize_i386_unwind(BinaryImage& image, EntityIdAllocator& ids) -> void {
+    if (image.architecture != Architecture::X86) return;
+    for (const auto& section : image.sections) {
+        if (section.name != ".eh_frame" && section.name != ".debug_frame") continue;
+        const auto append_unknown = [&](std::size_t offset, std::size_t size) {
+            image.unwindInfo.push_back(UnwindInfo{
+                .id = ids.allocate(),
+                .function = {},
+                .encoded = std::vector<std::byte>(
+                    section.contents.begin() + static_cast<std::ptrdiff_t>(offset),
+                    section.contents.begin() + static_cast<std::ptrdiff_t>(offset + size)),
+                .section = section.id,
+                .sectionOffset = offset,
+                .codeOffset = 0,
+                .codeSize = 0,
+                .format = UnwindFormat::Unknown,
+                .relocations = {},
+                .rewriteState = UnwindRewriteState::Opaque,
+                .lineage = {},
+            });
+        };
+        if (section.name == ".debug_frame") {
+            if (!section.contents.empty()) append_unknown(0, section.contents.size());
+            continue;
+        }
+        std::unordered_set<std::size_t> cieOffsets;
+        std::size_t cursor = 0;
+        while (cursor < section.contents.size()) {
+            const auto length = span_u32(section.contents, cursor);
+            if (!length.has_value()) {
+                append_unknown(cursor, section.contents.size() - cursor);
+                break;
+            }
+            if (*length == 0U) break;
+            const auto recordSize = static_cast<std::size_t>(*length) + 4U;
+            if (recordSize < 8U || recordSize > section.contents.size() - cursor) {
+                append_unknown(cursor, section.contents.size() - cursor);
+                break;
+            }
+            const auto contentStart = cursor + 4U;
+            const auto ciePointer = span_u32(section.contents, contentStart);
+            if (!ciePointer.has_value()) {
+                append_unknown(cursor, recordSize);
+                cursor += recordSize;
+                continue;
+            }
+            if (*ciePointer == 0U) {
+                cieOffsets.insert(cursor);
+                cursor += recordSize;
+                continue;
+            }
+            const bool validCiePointer = *ciePointer <= contentStart
+                && cieOffsets.contains(contentStart - *ciePointer);
+            const auto initialLocationOffset = contentStart + 4U;
+            const auto range = span_u32(section.contents, contentStart + 8U);
+            const auto relocation = std::ranges::find_if(
+                image.relocations, [&](const auto& value) {
+                    return value.section == section.id
+                        && value.offset == initialLocationOffset
+                        && value.targetSymbol.has_value();
+                });
+            const auto target = relocation == image.relocations.end()
+                ? image.symbols.end()
+                : std::ranges::find(image.symbols, *relocation->targetSymbol, &Symbol::id);
+            const Symbol* symbol = nullptr;
+            if (target != image.symbols.end() && target->defined
+                && target->section.has_value()) {
+                if (target->kind == SymbolKind::Function) {
+                    symbol = &*target;
+                } else if (target->kind == SymbolKind::Section && relocation->addend >= 0) {
+                    const auto relative = static_cast<std::uint64_t>(relocation->addend);
+                    if (relative <= std::numeric_limits<std::uint64_t>::max()
+                            - target->address.value) {
+                        const auto address = target->address.value + relative;
+                        for (const auto& candidate : image.symbols) {
+                            if (!candidate.defined || candidate.kind != SymbolKind::Function
+                                || candidate.section != target->section
+                                || candidate.address.value != address) {
+                                continue;
+                            }
+                            if (symbol != nullptr) {
+                                symbol = nullptr;
+                                break;
+                            }
+                            symbol = &candidate;
+                        }
+                    }
+                }
+            }
+            const auto* codeSection = symbol == nullptr || !symbol->section.has_value()
+                ? nullptr : find_section(image, *symbol->section);
+            const bool validOwner = validCiePointer && range.has_value() && *range != 0U
+                && symbol != nullptr && codeSection != nullptr
+                && symbol->address.value >= codeSection->address.value
+                && symbol->address.value - codeSection->address.value <= codeSection->logicalSize
+                && *range <= codeSection->logicalSize
+                    - (symbol->address.value - codeSection->address.value);
+            if (!validOwner) {
+                append_unknown(cursor, recordSize);
+                cursor += recordSize;
+                continue;
+            }
+            auto function = std::ranges::find_if(image.functions, [&](const auto& value) {
+                return value.symbol == symbol->id;
+            });
+            if (function == image.functions.end()) {
+                image.functions.push_back(Function{
+                    .id = ids.allocate(),
+                    .name = symbol->name,
+                    .section = *symbol->section,
+                    .symbol = symbol->id,
+                    .address = symbol->address,
+                    .size = *range,
+                    .discovery = FunctionDiscovery::Symbol,
+                    .instructions = {},
+                    .basicBlocks = {},
+                    .entryBlock = std::nullopt,
+                    .externallyVisible = symbol->visibility == SymbolVisibility::External,
+                    .complete = true,
+                    .lineage = {},
+                });
+                function = std::prev(image.functions.end());
+            }
+            std::vector<EntityId> ownedRelocations;
+            for (const auto& value : image.relocations) {
+                if (value.section == section.id && value.offset >= cursor
+                    && value.offset < cursor + recordSize) {
+                    ownedRelocations.push_back(value.id);
+                }
+            }
+            image.unwindInfo.push_back(UnwindInfo{
+                .id = ids.allocate(),
+                .function = function->id,
+                .encoded = std::vector<std::byte>(
+                    section.contents.begin() + static_cast<std::ptrdiff_t>(cursor),
+                    section.contents.begin() + static_cast<std::ptrdiff_t>(cursor + recordSize)),
+                .section = section.id,
+                .sectionOffset = cursor,
+                .codeOffset = symbol->address.value - codeSection->address.value,
+                .codeSize = *range,
+                .format = UnwindFormat::DwarfCfi32,
+                .relocations = std::move(ownedRelocations),
+                .rewriteState = UnwindRewriteState::Opaque,
+                .lineage = {},
+            });
+            cursor += recordSize;
+        }
     }
 }
 
@@ -644,14 +801,18 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
                 ? (information & UINT64_C(0xffffffff))
                 : (information & UINT64_C(0xff));
             if (!is64Bit && header.type == shtRel) {
-                const auto targetContents = section_bytes(reader, headers[header.info]);
-                const auto implicit = targetContents
-                    ? implicit_i386_addend(*targetContents, offset, rawType)
-                    : std::nullopt;
-                if (!implicit) {
-                    return failure("elf.invalid", "ELF REL implicit addend is out of range");
+                const auto semantics = binobf::detail::x86_fixup_semantics(
+                    BinaryFormat::ELF, rawType);
+                if (semantics.has_value()) {
+                    const auto targetContents = section_bytes(reader, headers[header.info]);
+                    const auto implicit = targetContents
+                        ? implicit_i386_addend(*targetContents, offset, rawType)
+                        : std::nullopt;
+                    if (!implicit) {
+                        return failure("elf.invalid", "ELF REL implicit addend is out of range");
+                    }
+                    addend = *implicit;
                 }
-                addend = *implicit;
             }
             if (symbolIndex >= symbolMap.size()) {
                 return failure("elf.invalid", "ELF relocation symbol index is invalid");
@@ -690,6 +851,7 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             });
         }
     }
+    normalize_i386_unwind(image, ids);
     return Result<BinaryImage, Diagnostic>::success(std::move(image));
 }
 

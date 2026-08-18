@@ -429,9 +429,32 @@ if(BINOBF_BUILD_TESTS)
             "-DBINOBF_CONFIGURATION=${CMAKE_BUILD_TYPE}"
             "-DBINOBF_UNDEFINED_SANITIZER=${BINOBF_ENABLE_UNDEFINED_SANITIZER}"
             "-DBINOBF_INSTALLED_LIBRARIES=${_binobf_installed_libraries}"
+            "-DBINOBF_CONSUMER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/installed/track2_consumer.cpp"
+            "-DBINOBF_CONSUMER_NAME=binobf-track2-installed-consumer"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunInstalledConsumer.cmake"
     )
     set_tests_properties(installed_track2_consumer PROPERTIES
+        RUN_SERIAL TRUE
+        TIMEOUT 180
+    )
+    add_test(
+        NAME installed_track3_consumer
+        COMMAND "${CMAKE_COMMAND}"
+            "-DBINOBF_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DBINOBF_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            "-DBINOBF_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/installed-track3-consumer"
+            "-DBINOBF_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DBINOBF_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DBINOBF_CONFIGURATION=${CMAKE_BUILD_TYPE}"
+            "-DBINOBF_UNDEFINED_SANITIZER=${BINOBF_ENABLE_UNDEFINED_SANITIZER}"
+            "-DBINOBF_INSTALLED_LIBRARIES=${_binobf_installed_libraries}"
+            "-DBINOBF_CONSUMER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/installed/track3_consumer.cpp"
+            "-DBINOBF_CONSUMER_NAME=binobf-track3-installed-consumer"
+            "-DBINOBF_TRACK3=ON"
+            "-DBINOBF_X86_FIXTURE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86/transform_patterns.S"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunInstalledConsumer.cmake"
+    )
+    set_tests_properties(installed_track3_consumer PROPERTIES
         RUN_SERIAL TRUE
         TIMEOUT 180
     )
@@ -1183,6 +1206,23 @@ if(BINOBF_BUILD_TESTS)
                 "${CMAKE_CURRENT_BINARY_DIR}/x86-object-backend"
         )
 
+        add_executable(
+            binobf_x86_service_artifact_generator
+            tests/differential/x86_service_artifact_generator.cpp
+        )
+        target_link_libraries(
+            binobf_x86_service_artifact_generator PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_x86_service_artifact_generator)
+        add_test(
+            NAME x86_unwind_semantics
+            COMMAND "${CMAKE_COMMAND}"
+                "-DLLVM_READOBJ=${BINOBF_LLVM_READOBJ}"
+                "-DLD_LLD=${BINOBF_LD_LLD}"
+                "-DGENERATOR=$<TARGET_FILE:binobf_x86_service_artifact_generator>"
+                "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/x86-unwind-semantics"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunX86UnwindSemantics.cmake"
+        )
+
         if(WIN32)
             file(GLOB BINOBF_X86_KERNEL32_CANDIDATES
                 "C:/Program Files (x86)/Windows Kits/10/Lib/*/um/x86/kernel32.lib")
@@ -1210,6 +1250,17 @@ if(BINOBF_BUILD_TESTS)
                     "-DTRANSFORMER=$<TARGET_FILE:binobf_x86_native_differential_tests>"
                     "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/x86-native-differential"
                     -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunX86NativeDifferential.cmake"
+            )
+            add_test(
+                NAME x86_abi_native_differential
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DCLANG=${CMAKE_C_COMPILER}"
+                    "-DLLD_LINK=${BINOBF_LLD_LINK}"
+                    "-DKERNEL32_LIB=${BINOBF_X86_KERNEL32_LIB}"
+                    "-DENTRY_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86/abi_native_entry.S"
+                    "-DGENERATOR=$<TARGET_FILE:binobf_x86_service_artifact_generator>"
+                    "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/x86-abi-native-differential"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunX86AbiNativeDifferential.cmake"
             )
         endif()
 

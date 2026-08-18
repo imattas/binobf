@@ -5,7 +5,6 @@
 #include "../formats/object_writer_internal.hpp"
 
 #include <algorithm>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -47,195 +46,6 @@ struct MappedSpan {
     std::uint64_t begin{0};
     std::uint64_t size{0};
 };
-
-auto hash_mix(std::uint64_t& hash, std::uint64_t value) -> void {
-    for (unsigned shift = 0; shift < 64U; shift += 8U) {
-        hash ^= (value >> shift) & 0xffU;
-        hash *= UINT64_C(1099511628211);
-    }
-}
-
-auto hash_string(std::uint64_t& hash, std::string_view value) -> void {
-    hash_mix(hash, value.size());
-    for (const auto character : value) {
-        hash ^= static_cast<std::uint8_t>(character);
-        hash *= UINT64_C(1099511628211);
-    }
-}
-
-auto hash_bytes(std::uint64_t& hash, std::span<const std::byte> value) -> void {
-    hash_mix(hash, value.size());
-    for (const auto byte : value) hash_mix(hash, std::to_integer<std::uint8_t>(byte));
-}
-
-auto hash_address(std::uint64_t& hash, BinaryAddress value) -> void {
-    hash_mix(hash, value.value);
-    hash_mix(hash, static_cast<std::uint8_t>(value.kind));
-}
-
-auto hash_lineage(std::uint64_t& hash, const TransformationLineage& lineage) -> void {
-    hash_mix(hash, lineage.parents.size());
-    for (const auto& record : lineage.parents) {
-        hash_mix(hash, record.transform.value());
-        hash_mix(hash, record.source.value());
-        hash_string(hash, record.passName);
-    }
-}
-
-auto fingerprint(const BinaryImage& image) -> std::uint64_t {
-    std::uint64_t hash = UINT64_C(14695981039346656037);
-    hash_mix(hash, static_cast<std::uint8_t>(image.format));
-    hash_mix(hash, static_cast<std::uint8_t>(image.type));
-    hash_mix(hash, static_cast<std::uint8_t>(image.architecture));
-    hash_mix(hash, image.objectMetadata.osAbi);
-    hash_mix(hash, image.objectMetadata.abiVersion);
-    hash_mix(hash, image.objectMetadata.formatFlags);
-    hash_mix(hash, image.objectMetadata.characteristics);
-    hash_mix(hash, image.objectMetadata.coffBigObj);
-    hash_mix(hash, image.objectMetadata.elfExtendedSectionCount);
-    hash_mix(hash, image.objectMetadata.elfExtendedSectionNameIndex);
-    hash_mix(hash, image.entryPoint.has_value());
-    if (image.entryPoint.has_value()) hash_address(hash, *image.entryPoint);
-    hash_mix(hash, image.sections.size());
-    hash_mix(hash, image.symbols.size());
-    hash_mix(hash, image.relocations.size());
-    hash_mix(hash, image.functions.size());
-    hash_mix(hash, image.instructions.size());
-    hash_mix(hash, image.basicBlocks.size());
-    hash_mix(hash, image.unwindInfo.size());
-    for (const auto& section : image.sections) {
-        hash_mix(hash, section.id.value());
-        hash_mix(hash, section.formatIndex);
-        hash_mix(hash, section.formatType);
-        hash_mix(hash, section.formatFlags);
-        hash_mix(hash, section.formatLink);
-        hash_mix(hash, section.formatInfo);
-        hash_mix(hash, section.formatEntrySize);
-        hash_mix(hash, section.isSectionNameTable);
-        hash_mix(hash, section.logicalSize);
-        hash_mix(hash, section.alignment);
-        hash_mix(hash, section.readable);
-        hash_mix(hash, section.writable);
-        hash_mix(hash, section.executable);
-        hash_string(hash, section.name);
-        hash_address(hash, section.address);
-        hash_bytes(hash, section.contents);
-        hash_lineage(hash, section.lineage);
-    }
-    hash_mix(hash, image.sectionAssociations.size());
-    for (const auto& association : image.sectionAssociations) {
-        hash_mix(hash, association.section.value());
-        hash_mix(hash, static_cast<std::uint8_t>(association.kind));
-        hash_mix(hash, static_cast<std::uint8_t>(association.coffSelection));
-        hash_mix(hash, association.signatureSymbol.has_value()
-            ? association.signatureSymbol->value() : 0U);
-        hash_mix(hash, association.parentSection.has_value()
-            ? association.parentSection->value() : 0U);
-        hash_mix(hash, association.members.size());
-        for (const auto member : association.members) hash_mix(hash, member.value());
-    }
-    for (const auto& symbol : image.symbols) {
-        hash_mix(hash, symbol.id.value());
-        hash_mix(hash, symbol.formatIndex);
-        hash_mix(hash, symbol.formatTableIndex);
-        hash_mix(hash, symbol.formatType);
-        hash_mix(hash, symbol.formatStorage);
-        hash_mix(hash, symbol.formatOther);
-        hash_mix(hash, std::bit_cast<std::uint32_t>(symbol.formatSectionIndex));
-        hash_bytes(hash, symbol.auxiliaryData);
-        hash_mix(hash, symbol.section.has_value() ? symbol.section->value() : 0U);
-        hash_address(hash, symbol.address);
-        hash_mix(hash, symbol.size);
-        hash_mix(hash, static_cast<std::uint8_t>(symbol.kind));
-        hash_mix(hash, static_cast<std::uint8_t>(symbol.visibility));
-        hash_mix(hash, symbol.defined);
-        hash_mix(hash, symbol.definition.has_value()
-            ? static_cast<std::uint8_t>(*symbol.definition) + 1U : 0U);
-        hash_mix(hash, symbol.commonAlignment);
-        hash_mix(hash, static_cast<std::uint8_t>(symbol.tlsModel));
-        hash_string(hash, symbol.name);
-        hash_lineage(hash, symbol.lineage);
-    }
-    for (const auto& relocation : image.relocations) {
-        hash_mix(hash, relocation.id.value());
-        hash_mix(hash, relocation.formatIndex);
-        hash_mix(hash, relocation.formatTableIndex);
-        hash_mix(hash, relocation.section.value());
-        hash_mix(hash, relocation.offset);
-        hash_mix(hash, static_cast<std::uint8_t>(relocation.kind));
-        hash_mix(hash, relocation.rawType);
-        hash_mix(hash, std::bit_cast<std::uint64_t>(relocation.addend));
-        hash_mix(hash, relocation.targetSymbol.has_value() ? relocation.targetSymbol->value() : 0U);
-        hash_lineage(hash, relocation.lineage);
-    }
-    for (const auto& function : image.functions) {
-        hash_mix(hash, function.id.value());
-        hash_mix(hash, function.section.value());
-        hash_string(hash, function.name);
-        hash_mix(hash, function.symbol.has_value() ? function.symbol->value() : 0U);
-        hash_address(hash, function.address);
-        hash_mix(hash, function.size);
-        hash_mix(hash, static_cast<std::uint8_t>(function.discovery));
-        hash_mix(hash, function.instructions.size());
-        for (const auto id : function.instructions) hash_mix(hash, id.value());
-        hash_mix(hash, function.basicBlocks.size());
-        for (const auto id : function.basicBlocks) hash_mix(hash, id.value());
-        hash_mix(hash, function.entryBlock.has_value() ? function.entryBlock->value() : 0U);
-        hash_mix(hash, function.externallyVisible);
-        hash_mix(hash, function.complete);
-        hash_lineage(hash, function.lineage);
-    }
-    for (const auto& instruction : image.instructions) {
-        hash_mix(hash, instruction.id.value());
-        hash_mix(hash, instruction.section.value());
-        hash_mix(hash, instruction.sectionOffset);
-        hash_address(hash, instruction.address);
-        hash_bytes(hash, instruction.encoding);
-        hash_string(hash, instruction.mnemonic);
-        hash_string(hash, instruction.operands);
-        hash_mix(hash, static_cast<std::uint8_t>(instruction.kind));
-        hash_mix(hash, instruction.directTarget.has_value());
-        if (instruction.directTarget.has_value()) hash_address(hash, *instruction.directTarget);
-        hash_mix(hash, instruction.hasFallthrough);
-        hash_mix(hash, instruction.references.size());
-        for (const auto& reference : instruction.references) {
-            hash_mix(hash, static_cast<std::uint8_t>(reference.kind));
-            hash_mix(hash, reference.address.has_value());
-            if (reference.address.has_value()) hash_address(hash, *reference.address);
-            hash_mix(hash, reference.relocation.has_value() ? reference.relocation->value() : 0U);
-            hash_mix(hash, reference.symbol.has_value() ? reference.symbol->value() : 0U);
-        }
-        hash_lineage(hash, instruction.lineage);
-    }
-    for (const auto& block : image.basicBlocks) {
-        hash_mix(hash, block.id.value());
-        hash_mix(hash, block.section.value());
-        hash_mix(hash, block.sectionOffset);
-        hash_address(hash, block.address);
-        hash_mix(hash, block.function.value());
-        hash_mix(hash, block.instructions.size());
-        for (const auto id : block.instructions) hash_mix(hash, id.value());
-        hash_mix(hash, block.successors.size());
-        for (const auto id : block.successors) hash_mix(hash, id.value());
-        hash_mix(hash, block.hasUnresolvedSuccessor);
-        hash_lineage(hash, block.lineage);
-    }
-    for (const auto& unwind : image.unwindInfo) {
-        hash_mix(hash, unwind.id.value());
-        hash_mix(hash, unwind.function.value());
-        hash_bytes(hash, unwind.encoded);
-        hash_mix(hash, unwind.section.value());
-        hash_mix(hash, unwind.sectionOffset);
-        hash_mix(hash, unwind.codeOffset);
-        hash_mix(hash, unwind.codeSize);
-        hash_mix(hash, static_cast<std::uint8_t>(unwind.format));
-        hash_mix(hash, unwind.relocations.size());
-        for (const auto id : unwind.relocations) hash_mix(hash, id.value());
-        hash_mix(hash, static_cast<std::uint8_t>(unwind.rewriteState));
-        hash_lineage(hash, unwind.lineage);
-    }
-    return hash;
-}
 
 auto checked_shift(std::uint64_t value, std::int64_t delta) -> std::optional<std::uint64_t> {
     if (delta >= 0) {
@@ -283,6 +93,25 @@ auto find_mapping(std::span<const SectionMapping> mappings, EntityId section)
     -> const SectionMapping* {
     const auto found = std::ranges::find(mappings, section, &SectionMapping::section);
     return found == mappings.end() ? nullptr : &*found;
+}
+
+auto mapping_is_identity(
+    const SectionMapping& mapping,
+    const Section& sourceSection) noexcept -> bool {
+    if (mapping.oldSize != mapping.newSize) return false;
+    const auto unchanged = [&](const auto& segment) {
+        const auto length = segment.oldEnd - segment.oldBegin;
+        return segment.oldBegin == segment.newBegin && length == segment.newLength
+            && segment.oldEnd <= sourceSection.contents.size()
+            && std::ranges::equal(
+                segment.bytes,
+                std::span<const std::byte>{sourceSection.contents}.subspan(
+                    static_cast<std::size_t>(segment.oldBegin),
+                    static_cast<std::size_t>(length)));
+    };
+    return mapping.sourceSegments.size() == mapping.outputSegments.size()
+        && std::ranges::all_of(mapping.sourceSegments, unchanged)
+        && std::ranges::all_of(mapping.outputSegments, unchanged);
 }
 
 auto map_point(const SectionMapping& mapping, std::uint64_t point)
@@ -684,7 +513,33 @@ auto ObjectRewritePlan::create(
         if (siteMapping == nullptr && targetMapping == nullptr) continue;
         const auto semantics = backend.fixup_semantics(image.format, relocation.rawType);
         if (!semantics.has_value()) {
-            return failure<ObjectRewritePlan>(semantics.error().code, semantics.error().message);
+            bool moved = false;
+            if (siteMapping != nullptr) {
+                const auto* sourceSection = find_section(image, relocation.section);
+                moved = sourceSection == nullptr
+                    || !mapping_is_identity(*siteMapping, *sourceSection);
+            }
+            const auto* updatedTarget = relocation.targetSymbol.has_value()
+                ? find_symbol(output, *relocation.targetSymbol) : nullptr;
+            if (targetMapping != nullptr) {
+                moved = moved || originalTarget == nullptr || updatedTarget == nullptr
+                    || originalTarget->section != updatedTarget->section
+                    || originalTarget->address != updatedTarget->address
+                    || (originalTarget->kind == SymbolKind::Section
+                        && [&] {
+                            const auto* sourceSection = find_section(
+                                image, *originalTarget->section);
+                            return sourceSection == nullptr
+                                || !mapping_is_identity(*targetMapping, *sourceSection);
+                        }());
+            }
+            if (moved) {
+                return failure<ObjectRewritePlan>(
+                    "rewrite.unknown_relocation_moved",
+                    "rewrite cannot move a relocation with unknown i386 semantics");
+            }
+            ++validationCount;
+            continue;
         }
         if (siteMapping != nullptr) {
             const auto fieldSize = static_cast<std::uint64_t>(semantics.value().bitWidth / 8U);
@@ -801,7 +656,7 @@ auto ObjectRewritePlan::create(
         return failure<ObjectRewritePlan>(invalid->code, invalid->message);
     }
     ObjectRewritePlan plan;
-    plan.sourceFingerprint_ = fingerprint(image);
+    plan.sourceSnapshot_ = image;
     plan.validationCount_ = validationCount;
     plan.output_ = std::move(output);
     return Result<ObjectRewritePlan, Diagnostic>::success(std::move(plan));
@@ -809,7 +664,7 @@ auto ObjectRewritePlan::create(
 
 auto ObjectRewritePlan::validate(const BinaryImage& image) const
     -> Result<std::size_t, Diagnostic> {
-    if (fingerprint(image) != sourceFingerprint_) {
+    if (image != sourceSnapshot_) {
         return failure<std::size_t>(
             "rewrite.source_mismatch", "rewrite plan was created for a different object snapshot");
     }

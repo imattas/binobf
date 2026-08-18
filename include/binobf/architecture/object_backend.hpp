@@ -91,6 +91,7 @@ struct UnwindAction {
     UnwindActionKind kind{UnwindActionKind::DefineCanonicalFrameAddress};
     std::string registerName;
     std::int64_t offset{0};
+    std::uint64_t codeOffset{0};
 
     auto operator==(const UnwindAction&) const -> bool = default;
 };
@@ -101,6 +102,7 @@ struct UnwindRequest {
     BinaryAddress codeStart{};
     std::uint64_t codeSize{0};
     std::vector<UnwindAction> actions;
+    std::optional<std::string> codeSymbol;
     std::optional<std::string> handlerSymbol;
     MachineCodeLimits limits{};
     bool handlerOwned{false};

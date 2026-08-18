@@ -371,7 +371,7 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
     REQUIRE_EQ(binobf::cli::run_cli(architectures, output, errors), 0);
     REQUIRE_EQ(
         output.str(),
-        "x86 detection=supported decoder=supported object-analysis=experimental codegen=planned\n"
+        "x86 detection=supported decoder=supported object-analysis=supported codegen=supported\n"
         "x86-64 detection=supported decoder=supported object-analysis=supported codegen=restricted object backend\n"
         "arm64 detection=supported decoder=supported object-analysis=experimental codegen=planned\n");
     REQUIRE(errors.str().empty());

@@ -11,6 +11,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -51,6 +52,9 @@ auto next_entity_id(const BinaryImage& image) -> std::uint64_t {
     for (const auto& value : image.imports) include_id(maximum, value.id);
     for (const auto& value : image.exports) include_id(maximum, value.id);
     for (const auto& value : image.relocations) include_id(maximum, value.id);
+    for (const auto& value : image.instructions) include_id(maximum, value.id);
+    for (const auto& value : image.basicBlocks) include_id(maximum, value.id);
+    for (const auto& value : image.functions) include_id(maximum, value.id);
     for (const auto& value : image.dataObjects) include_id(maximum, value.id);
     for (const auto& value : image.unwindInfo) include_id(maximum, value.id);
     for (const auto& value : image.debugInfo) include_id(maximum, value.id);
@@ -446,6 +450,12 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
     }
     auto backend = std::move(backendResult).value();
     AnalysisReport report{.image = input, .diagnostics = {}};
+    std::unordered_map<std::uint64_t, EntityId> functionIdsBySymbol;
+    for (const auto& function : report.image.functions) {
+        if (function.symbol.has_value()) {
+            functionIdsBySymbol.emplace(function.symbol->value(), function.id);
+        }
+    }
     report.image.instructions.clear();
     report.image.basicBlocks.clear();
     report.image.functions.clear();
@@ -485,7 +495,9 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
     }
     for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex) {
         const auto& candidate = candidates[candidateIndex];
-        const auto functionId = EntityId{nextId++};
+        const auto preservedId = functionIdsBySymbol.find(candidate.symbol->id.value());
+        const auto functionId = preservedId == functionIdsBySymbol.end()
+            ? EntityId{nextId++} : preservedId->second;
         bool complete = candidate.offsetValid;
         std::uint64_t end = candidate.offset;
         if (!candidate.offsetValid) {

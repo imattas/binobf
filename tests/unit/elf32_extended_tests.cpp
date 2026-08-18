@@ -1,5 +1,7 @@
 #include "../test_support.hpp"
 
+#include <binobf/analysis/object_analyzer.hpp>
+#include <binobf/architecture/backend.hpp>
 #include <binobf/formats/object_parser.hpp>
 #include <binobf/formats/object_writer.hpp>
 
@@ -290,6 +292,83 @@ TEST_CASE(elf32_extended_metadata_groups_symbols_and_relocations_round_trip) {
     REQUIRE_EQ(reparsed.value().extendedSectionIndices.size(), std::size_t{1});
     REQUIRE_EQ(reparsed.value().sectionAssociations.size(), std::size_t{1});
     REQUIRE_EQ(reparsed.value().relocations.size(), std::size_t{6});
+}
+
+TEST_CASE(elf32_unknown_rel_relocation_round_trips_without_rewriting_its_field) {
+    auto image = extended_image();
+    image.relocations.front().rawType = 0xfe;
+    image.relocations.front().kind = binobf::RelocationKind::ArchitectureSpecific;
+    image.relocations.front().addend = 0;
+    image.sections.front().contents[0] = std::byte{0x12};
+    image.sections.front().contents[1] = std::byte{0x34};
+    image.sections.front().contents[2] = std::byte{0x56};
+    image.sections.front().contents[3] = std::byte{0x78};
+
+    const auto written = binobf::write_object(image);
+    REQUIRE(written.has_value());
+    const auto parsed = binobf::parse_object(written.value(), "unknown-rel-i386.o");
+    REQUIRE(parsed.has_value());
+    REQUIRE_EQ(parsed.value().relocations.front().rawType, UINT64_C(0xfe));
+    REQUIRE_EQ(parsed.value().sections.front().contents, image.sections.front().contents);
+}
+
+TEST_CASE(elf32_eh_frame_fde_is_normalized_to_stable_function_ownership) {
+    auto backendResult = binobf::make_architecture_backend(binobf::Architecture::X86);
+    REQUIRE(backendResult.has_value());
+    binobf::UnwindRequest unwindRequest{};
+    unwindRequest.architecture = binobf::Architecture::X86;
+    unwindRequest.format = binobf::BinaryFormat::ELF;
+    unwindRequest.codeSize = 24;
+    unwindRequest.codeSymbol = "extended_function";
+    unwindRequest.actions = {
+        {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "esp", 4},
+        {binobf::UnwindActionKind::SaveRegister, "eip", -4},
+    };
+    const auto plan = backendResult.value()->build_unwind(unwindRequest);
+    REQUIRE(plan.has_value());
+
+    auto image = extended_image();
+    auto& functionSymbol = const_cast<binobf::Symbol&>(find_symbol(image, "extended_function"));
+    functionSymbol.size = 24;
+    auto ehFrame = make_section(10, 10, 1, ".eh_frame", 2, 4);
+    ehFrame.contents = plan.value().encoded;
+    ehFrame.logicalSize = ehFrame.contents.size();
+    auto relocations = make_section(11, 11, 9, ".rel.eh_frame", 0, 4);
+    relocations.formatLink = 4;
+    relocations.formatInfo = 10;
+    relocations.formatEntrySize = 8;
+    image.sections.push_back(std::move(ehFrame));
+    image.sections.push_back(std::move(relocations));
+    image.relocations.push_back(binobf::Relocation{
+        .id = binobf::EntityId{120},
+        .formatIndex = 0,
+        .formatTableIndex = 11,
+        .section = binobf::EntityId{10},
+        .offset = plan.value().fixups.front().offset,
+        .kind = binobf::RelocationKind::PcRelative,
+        .rawType = 2,
+        .targetSymbol = binobf::EntityId{21},
+        .addend = 0,
+        .lineage = {},
+    });
+
+    const auto written = binobf::write_object(image);
+    REQUIRE(written.has_value());
+    const auto parsed = binobf::parse_object(written.value(), "owned-unwind-i386.o");
+    REQUIRE(parsed.has_value());
+    REQUIRE_EQ(parsed.value().unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.value().unwindInfo.front().format, binobf::UnwindFormat::DwarfCfi32);
+    REQUIRE_EQ(parsed.value().unwindInfo.front().rewriteState,
+               binobf::UnwindRewriteState::Opaque);
+    REQUIRE_EQ(parsed.value().unwindInfo.front().codeSize, UINT64_C(24));
+    REQUIRE_EQ(parsed.value().unwindInfo.front().relocations.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.value().functions.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.value().unwindInfo.front().function, parsed.value().functions.front().id);
+
+    const auto analyzed = binobf::analyze_object(parsed.value());
+    REQUIRE(analyzed.has_value());
+    REQUIRE_EQ(analyzed.value().image.unwindInfo.front().function,
+               analyzed.value().image.functions.front().id);
 }
 
 TEST_CASE(elf32_extended_symbol_indices_require_one_valid_companion) {

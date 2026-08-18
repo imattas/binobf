@@ -49,17 +49,26 @@ TEST_CASE(backend_service_levels_mirror_the_current_architecture_matrix) {
     REQUIRE(x64.has_value());
     REQUIRE(arm64.has_value());
     REQUIRE_EQ(x86.value()->find_service(binobf::BackendService::AnalyzeObject)->support,
-               binobf::SupportLevel::Experimental);
+               binobf::SupportLevel::Supported);
     REQUIRE_EQ(x64.value()->find_service(binobf::BackendService::AnalyzeObject)->support,
                binobf::SupportLevel::Supported);
     REQUIRE_EQ(arm64.value()->find_service(binobf::BackendService::AnalyzeObject)->support,
                binobf::SupportLevel::Experimental);
     REQUIRE_EQ(x86.value()->find_service(binobf::BackendService::EmitCode)->support,
-               binobf::SupportLevel::Planned);
+               binobf::SupportLevel::Supported);
     REQUIRE_EQ(x64.value()->find_service(binobf::BackendService::EmitCode)->support,
                binobf::SupportLevel::Restricted);
     REQUIRE_EQ(arm64.value()->find_service(binobf::BackendService::EmitCode)->support,
                binobf::SupportLevel::Planned);
+    for (const auto service : {
+             binobf::BackendService::EncodeFixups,
+             binobf::BackendService::BuildAbiAdapter,
+             binobf::BackendService::BuildUnwind}) {
+        const auto* record = x86.value()->find_service(service);
+        REQUIRE(record != nullptr);
+        REQUIRE_EQ(record->support, binobf::SupportLevel::Supported);
+        REQUIRE(!record->evidence.empty());
+    }
 }
 
 TEST_CASE(backends_own_fixed_codegen_providers_and_verify_deterministic_emission) {

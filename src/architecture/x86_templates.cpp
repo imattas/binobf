@@ -252,7 +252,7 @@ auto emit_x86_transform(
             MachineControlFlow::Direct, false);
     }
     return failure<MachineTransformEmission>(
-        "architecture.service_unsupported", "x86 template kind is not implemented");
+        "architecture.service_unsupported", "unsupported x86 template kind");
 }
 
 } // namespace binobf::detail

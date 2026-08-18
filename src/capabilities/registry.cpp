@@ -100,11 +100,13 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         architecture_record(InstructionDecoding, X86_64, Supported, {}, {"instruction_decoder"}),
         architecture_record(InstructionDecoding, ARM64, Supported, {}, {"instruction_decoder"}),
 
-        architecture_record(ObjectAnalysis, X86, Experimental),
+        architecture_record(ObjectAnalysis, X86, Supported, {}, {"x86_object_backend"}),
         architecture_record(ObjectAnalysis, X86_64, Supported, {}, {"object_analyzer"}),
         architecture_record(ObjectAnalysis, ARM64, Experimental),
 
-        architecture_record(CodeGeneration, X86, Planned),
+        architecture_record(
+            CodeGeneration, X86, Supported, {},
+            {"x86_abi_adapter", "x86_codegen", "x86_unwind"}),
         architecture_record(CodeGeneration, X86_64, Restricted, "object backend"),
         architecture_record(CodeGeneration, ARM64, Planned),
     };
@@ -162,7 +164,7 @@ auto to_string(Capability capability) noexcept -> std::string_view {
     case Capability::StructuralVerification: return "structural verification";
     case Capability::Emission: return "exact linked/object emission";
     case Capability::BaselineMetadataTransformation: return "baseline metadata transformations";
-    case Capability::MachineCodeTransformation: return "x86-64 instruction/CFG/layout transformations";
+    case Capability::MachineCodeTransformation: return "x86/x86-64 instruction/CFG/layout transformations";
     case Capability::VmLowering: return "selected x86-64 function VM lowering";
     case Capability::VmProtection: return "embedded selected-function VM protection";
     case Capability::InstructionDecoding: return "decoder";

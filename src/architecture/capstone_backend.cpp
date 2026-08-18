@@ -24,6 +24,10 @@ namespace {
 
 constexpr std::array<std::string_view, 1> kDecodeEvidence{"instruction_decoder"};
 constexpr std::array<std::string_view, 1> kAnalysisEvidence{"object_analyzer"};
+constexpr std::array<std::string_view, 1> kX86AnalysisEvidence{"x86_object_backend"};
+constexpr std::array<std::string_view, 1> kX86CodegenEvidence{"x86_codegen"};
+constexpr std::array<std::string_view, 1> kX86AbiEvidence{"x86_abi_adapter"};
+constexpr std::array<std::string_view, 1> kX86UnwindEvidence{"x86_unwind"};
 
 auto failure(std::string code, std::string message) -> Result<Instruction, Diagnostic> {
     return Result<Instruction, Diagnostic>::failure(Diagnostic{
@@ -162,11 +166,12 @@ auto normalize_registers(
 }
 
 auto analysis_support(Architecture architecture) -> SupportLevel {
-    return architecture == Architecture::X86_64
+    return architecture == Architecture::X86 || architecture == Architecture::X86_64
         ? SupportLevel::Supported : SupportLevel::Experimental;
 }
 
 auto codegen_support(Architecture architecture) -> SupportLevel {
+    if (architecture == Architecture::X86) return SupportLevel::Supported;
     return architecture == Architecture::X86_64
         ? SupportLevel::Restricted : SupportLevel::Planned;
 }
@@ -183,17 +188,37 @@ public:
                   BackendService::Decode, SupportLevel::Supported, kDecodeEvidence},
               BackendServiceRecord{
                   BackendService::AnalyzeObject, analysis_support(architecture),
-                  architecture == Architecture::X86_64
-                      ? std::span<const std::string_view>{kAnalysisEvidence}
+                  architecture == Architecture::X86
+                      ? std::span<const std::string_view>{kX86AnalysisEvidence}
+                      : architecture == Architecture::X86_64
+                          ? std::span<const std::string_view>{kAnalysisEvidence}
+                          : std::span<const std::string_view>{}},
+              BackendServiceRecord{
+                  BackendService::EmitCode, codegen_support(architecture),
+                  architecture == Architecture::X86
+                      ? std::span<const std::string_view>{kX86CodegenEvidence}
                       : std::span<const std::string_view>{}},
               BackendServiceRecord{
-                  BackendService::EmitCode, codegen_support(architecture), {}},
+                  BackendService::EncodeFixups,
+                  architecture == Architecture::X86
+                      ? SupportLevel::Supported : SupportLevel::Unsupported,
+                  architecture == Architecture::X86
+                      ? std::span<const std::string_view>{kX86CodegenEvidence}
+                      : std::span<const std::string_view>{}},
               BackendServiceRecord{
-                  BackendService::EncodeFixups, SupportLevel::Unsupported, {}},
+                  BackendService::BuildAbiAdapter,
+                  architecture == Architecture::X86
+                      ? SupportLevel::Supported : SupportLevel::Unsupported,
+                  architecture == Architecture::X86
+                      ? std::span<const std::string_view>{kX86AbiEvidence}
+                      : std::span<const std::string_view>{}},
               BackendServiceRecord{
-                  BackendService::BuildAbiAdapter, SupportLevel::Unsupported, {}},
-              BackendServiceRecord{
-                  BackendService::BuildUnwind, SupportLevel::Unsupported, {}},
+                  BackendService::BuildUnwind,
+                  architecture == Architecture::X86
+                      ? SupportLevel::Supported : SupportLevel::Unsupported,
+                  architecture == Architecture::X86
+                      ? std::span<const std::string_view>{kX86UnwindEvidence}
+                      : std::span<const std::string_view>{}},
           } {}
 
     auto initialize() -> cs_err { return handle_.open(architecture_); }

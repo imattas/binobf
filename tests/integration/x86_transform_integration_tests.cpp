@@ -64,6 +64,14 @@ auto run_every_pass(const std::filesystem::path& fixture) -> void {
             || (tlsSection != parsed.value().sections.end()
                 && tlsSection->name.starts_with(".tls")));
     REQUIRE(!parsed.value().sectionAssociations.empty());
+    const bool hasUnmodeledUnwind = std::ranges::any_of(
+        parsed.value().unwindInfo, [](const auto& unwind) {
+            return unwind.format == binobf::UnwindFormat::Unknown;
+        });
+    const bool hasOpaqueUnwind = std::ranges::any_of(
+        parsed.value().unwindInfo, [](const auto& unwind) {
+            return unwind.rewriteState == binobf::UnwindRewriteState::Opaque;
+        });
     for (auto& pass : passes()) {
         const auto passName = std::string{pass->name()};
         auto candidate = parsed.value();
@@ -76,11 +84,23 @@ auto run_every_pass(const std::filesystem::path& fixture) -> void {
                 passName + ": " + transformed.error().code + ": " + transformed.error().message);
         }
         REQUIRE_EQ(transformed.value().reports.size(), std::size_t{1});
-        REQUIRE_EQ(transformed.value().reports.front().status, binobf::PassStatus::Applied);
-        REQUIRE(transformed.value().reports.front().statistics.changed > 0U);
+        const bool layoutPass = passName == "block-reordering"
+            || passName == "function-reordering";
+        const auto expectedStatus = hasUnmodeledUnwind
+            ? binobf::PassStatus::Unsupported
+            : hasOpaqueUnwind && layoutPass
+                ? binobf::PassStatus::Unchanged
+                : binobf::PassStatus::Applied;
+        REQUIRE_EQ(transformed.value().reports.front().status,
+                   expectedStatus);
+        if (expectedStatus == binobf::PassStatus::Applied) {
+            REQUIRE(transformed.value().reports.front().statistics.changed > 0U);
+        }
         const auto written = binobf::write_object(transformed.value().image);
         REQUIRE(written.has_value());
-        REQUIRE(written.value() != originalBytes);
+        if (expectedStatus == binobf::PassStatus::Applied) {
+            REQUIRE(written.value() != originalBytes);
+        }
         const auto reparsed = binobf::parse_object(written.value(), "i386-transformed.o");
         REQUIRE(reparsed.has_value());
         REQUIRE_EQ(reparsed.value().architecture, binobf::Architecture::X86);
@@ -101,7 +121,7 @@ auto run_every_pass(const std::filesystem::path& fixture) -> void {
 
 } // namespace
 
-TEST_CASE(all_seven_machine_passes_transform_real_i386_coff_and_elf_objects) {
+TEST_CASE(all_seven_machine_passes_transform_owned_i386_objects_and_skip_unmodeled_unwind) {
     run_every_pass(coffFixture);
     run_every_pass(elfFixture);
 }

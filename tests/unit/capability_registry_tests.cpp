@@ -21,7 +21,7 @@ TEST_CASE(builtin_capability_registry_contains_each_public_matrix_axis) {
         .architecture = binobf::Architecture::X86,
     });
     REQUIRE(x86Analysis != nullptr);
-    REQUIRE_EQ(x86Analysis->support, binobf::SupportLevel::Experimental);
+    REQUIRE_EQ(x86Analysis->support, binobf::SupportLevel::Supported);
 
     const auto* peObjectParsing = registry.find(binobf::CapabilityKey{
         .capability = binobf::Capability::RelocatableObjectParsing,

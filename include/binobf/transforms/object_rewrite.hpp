@@ -41,7 +41,7 @@ public:
         -> Result<BinaryImage, Diagnostic>;
 
 private:
-    std::uint64_t sourceFingerprint_{0};
+    BinaryImage sourceSnapshot_;
     std::size_t validationCount_{0};
     BinaryImage output_;
 };

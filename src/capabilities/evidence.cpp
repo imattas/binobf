@@ -21,6 +21,10 @@ constexpr std::array kBuiltinEvidence{
     AcceptanceEvidence{"object_analyzer", "object_analyzer", true},
     AcceptanceEvidence{"object_writer", "object_writer_integration", true},
     AcceptanceEvidence{"structural_verifier", "structural_verifier", true},
+    AcceptanceEvidence{"x86_abi_adapter", "x86_abi_native_differential", true},
+    AcceptanceEvidence{"x86_codegen", "x86_native_differential", true},
+    AcceptanceEvidence{"x86_object_backend", "x86_object_backend", true},
+    AcceptanceEvidence{"x86_unwind", "x86_unwind_semantics", true},
 };
 
 auto failure(std::string code, std::string message)
@@ -85,6 +89,11 @@ auto validate_capability_evidence(
             if (found == sorted.end() || (*found)->id != referencedId) {
                 return failure("capability.unknown_evidence",
                                "capability references unknown evidence id: " +
+                                   std::string(referencedId));
+            }
+            if (record.support == SupportLevel::Supported && !(*found)->releaseGate) {
+                return failure("capability.disabled_evidence",
+                               "supported capability references disabled evidence id: " +
                                    std::string(referencedId));
             }
         }

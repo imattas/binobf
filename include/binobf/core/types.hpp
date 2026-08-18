@@ -77,6 +77,8 @@ struct SourceLocation {
     std::string file;
     std::uint32_t line{0};
     std::uint32_t column{0};
+
+    auto operator==(const SourceLocation&) const -> bool = default;
 };
 
 [[nodiscard]] auto to_string(BinaryFormat format) noexcept -> std::string_view;

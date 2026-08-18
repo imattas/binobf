@@ -166,11 +166,25 @@ TEST_CASE(full_i386_compiler_matrix_transforms_deterministically_and_passes_stan
     std::array<bool, 7> passApplied{};
     std::vector<std::filesystem::path> allObjects;
     std::vector<std::filesystem::path> coffOriginals;
+    std::vector<std::filesystem::path> coffOutputs;
+    std::vector<std::filesystem::path> elfOutputs;
     for (const auto& member : members) {
         const auto originalBytes = read_file(member.path);
         const auto parsed = binobf::parse_object(originalBytes, member.path.filename().string());
         REQUIRE(parsed.has_value());
         REQUIRE_EQ(parsed.value().architecture, binobf::Architecture::X86);
+        if (member.format == "elf"
+            && std::ranges::any_of(parsed.value().sections, [](const auto& section) {
+                return section.name == ".eh_frame";
+            })) {
+            REQUIRE(std::ranges::none_of(parsed.value().unwindInfo, [&](const auto& unwind) {
+                const auto owner = std::ranges::find(
+                    parsed.value().sections, unwind.section, &binobf::Section::id);
+                return owner != parsed.value().sections.end()
+                    && owner->name == ".eh_frame"
+                    && unwind.format == binobf::UnwindFormat::Unknown;
+            }));
+        }
         const auto analyzed = binobf::analyze_object(parsed.value());
         REQUIRE(analyzed.has_value());
         REQUIRE(std::ranges::any_of(analyzed.value().image.functions, [](const auto& function) {
@@ -208,6 +222,8 @@ TEST_CASE(full_i386_compiler_matrix_transforms_deterministically_and_passes_stan
                          + (member.format == "coff" ? ".obj" : ".o"));
                     write_file(output, written.value());
                     allObjects.push_back(output);
+                    if (member.format == "coff") coffOutputs.push_back(output);
+                    else elfOutputs.push_back(output);
                     if (outcome.value().reports.front().status == binobf::PassStatus::Applied) {
                         passApplied[passIndex] = true;
                         REQUIRE(has_pass_lineage(outcome.value().image, passName));
@@ -219,6 +235,8 @@ TEST_CASE(full_i386_compiler_matrix_transforms_deterministically_and_passes_stan
         }
     }
     REQUIRE(std::ranges::all_of(passApplied, [](bool applied) { return applied; }));
+    REQUIRE_EQ(coffOutputs.size(), std::size_t{126});
+    REQUIRE_EQ(elfOutputs.size(), std::size_t{126});
 
     inspect_in_chunks(llvmReadobj,
         {"--file-headers", "--sections", "--symbols", "--relocations", "--unwind"},
@@ -239,6 +257,27 @@ TEST_CASE(full_i386_compiler_matrix_transforms_deterministically_and_passes_stan
         "/safeseh:no",
         "/out:" + (outputDirectory / "corpus-consumer.dll").string(), consumer->string(),
         (outputDirectory / "corpus.lib").string()}, outputDirectory / "lld-link-consumer.log");
+
+    const auto coffLinkedDirectory = outputDirectory / "linked-coff";
+    std::filesystem::create_directories(coffLinkedDirectory);
+    for (std::size_t index = 0; index < coffOutputs.size(); ++index) {
+        const auto linked = coffLinkedDirectory /
+            (std::to_string(index) + "-" + coffOutputs[index].stem().string() + ".dll");
+        run_checked({lldLink.string(), "/dll", "/noentry", "/nodefaultlib", "/machine:x86",
+            "/safeseh:no", "/force:unresolved", "/out:" + linked.string(),
+            coffOutputs[index].string()},
+            coffLinkedDirectory / (std::to_string(index) + ".log"));
+    }
+
+    const auto elfLinkedDirectory = outputDirectory / "linked-elf";
+    std::filesystem::create_directories(elfLinkedDirectory);
+    for (std::size_t index = 0; index < elfOutputs.size(); ++index) {
+        const auto linked = elfLinkedDirectory /
+            (std::to_string(index) + "-" + elfOutputs[index].stem().string() + ".o");
+        run_checked({elfLinker.string(), "-m", "elf_i386", "-r", "-o",
+            linked.string(), elfOutputs[index].string()},
+            elfLinkedDirectory / (std::to_string(index) + ".log"));
+    }
 
     for (const auto optimization : {"O0", "O1", "O2", "O3", "Os", "Oz"}) {
         std::vector<std::string> elfArguments{

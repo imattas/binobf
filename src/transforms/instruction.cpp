@@ -53,7 +53,10 @@ auto supports_machine_pass(const BinaryImage& image) -> bool {
     return image.type == BinaryType::RelocatableObject
         && (image.architecture == Architecture::X86
             || image.architecture == Architecture::X86_64)
-        && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF);
+        && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF)
+        && std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
+            return unwind.format == UnwindFormat::Unknown;
+        });
 }
 
 auto find_section(BinaryImage& image, EntityId id) -> Section* {
@@ -1242,7 +1245,10 @@ public:
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
         return supports_machine_pass(image)
-            && (image.architecture == Architecture::X86 || image.unwindInfo.empty());
+            && (image.architecture == Architecture::X86 || image.unwindInfo.empty())
+            && std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
+                return unwind.format == UnwindFormat::Unknown;
+            });
     }
 
     auto run(TransformContext& context, BinaryImage& image) const
@@ -1592,6 +1598,9 @@ public:
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
         return supports_machine_pass(image)
             && (image.architecture == Architecture::X86 || image.unwindInfo.empty())
+            && std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
+                return unwind.format == UnwindFormat::Unknown;
+            })
             && std::none_of(image.sections.begin(), image.sections.end(), [](const auto& section) {
                 return section.kind == SectionKind::Debug;
             });

@@ -140,6 +140,12 @@ with backend-owned templates. Each backend provides real equivalents for substit
 rewriting, branch rewriting, harmless dead-code insertion, block splitting, block reordering, and
 function reordering.
 
+The completed i386 milestone implements this contract for COFF and ELF with total transactional
+mapping, conventional Windows/System V ABI adapters, owned Windows i386 and bounded DWARF unwind
+handling, a six-optimization compiler corpus, standard-tool acceptance, and native 32-bit
+differential evidence. ARM64, broader VM semantics, archive VM operations, and linked-image layout
+work remain separate unchecked tracks.
+
 ### Linked-image reconstruction
 
 Add a normalized linked-layout editor above the PE and ELF adapters. A layout plan owns old-to-new
@@ -212,7 +218,7 @@ The work is implemented as separately designed and gated tracks in dependency or
    architecture provider contracts, and migration of existing x86-64 behavior without regressions.
 2. [x] **LLVM MC provider and expanded native IR.** Private pinned dependency, types, validation,
    emission/fixup round trips, and independent re-decoding.
-3. [ ] **Full x86 object backend.** Analysis, code generation, ABI/unwind, all object transforms, COFF and
+3. [x] **Full x86 object backend.** Analysis, code generation, ABI/unwind, all object transforms, COFF and
    ELF compiler corpora, native 32-bit execution, and matrix promotion.
 4. [ ] **Full ARM64 object backend.** Analysis, code generation, ABI/unwind, all object transforms,
    COFF and ELF compiler corpora, native or emulated execution, and matrix promotion.

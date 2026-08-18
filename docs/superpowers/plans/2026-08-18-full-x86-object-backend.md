@@ -845,33 +845,33 @@ git commit -m "test: prove native and adversarial i386 behavior"
 - Consumes: all Track 3 implementation/evidence and installed static-library closure.
 - Produces: supported x86 object-analysis/codegen records, installed-consumer proof, and a clean pushed milestone.
 
-- [ ] **Step 1: Bind enabled acceptance evidence before promotion**
+- [x] **Step 1: Bind enabled acceptance evidence before promotion**
 
 Add `AcceptanceEvidence{"x86_object_backend", "x86_object_backend", true}` and
 `AcceptanceEvidence{"x86_codegen", "x86_native_differential", true}` in sorted order. Require the
 evidence validator to fail when either group is absent/disabled.
 
-- [ ] **Step 2: Promote x86 records and backend services**
+- [x] **Step 2: Promote x86 records and backend services**
 
 Set x86 `ObjectAnalysis` and `CodeGeneration` to `Supported` with their evidence IDs. Set x86
 AnalyzeObject/EmitCode/EncodeFixups/BuildAbiAdapter/BuildUnwind service records to supported and
 evidence-bound. Keep ARM64 states unchanged and preserve x86-64 advertised behavior.
 
-- [ ] **Step 3: Extend installed-only verification**
+- [x] **Step 3: Extend installed-only verification**
 
 The Track 3 consumer parses checked-in x86 COFF/ELF fixtures, analyzes a function, emits a template
 and ABI adapter, normalizes/encodes representative fixups, builds Windows/System V unwind plans,
 runs all seven transforms across the two images, writes/reparses, and validates capability evidence.
 Compile/link it only against installed headers and the exact declared archive closure.
 
-- [ ] **Step 4: Update public documentation from evidence**
+- [x] **Step 4: Update public documentation from evidence**
 
 Render x86 architecture status as supported for object analysis/codegen. Document ABI conventions,
 metadata ownership, supported relocation families, rewrite-plan transaction, unwind limitations,
 compiler corpus, native probe, per-function refusal, and safety boundary. Do not promote ARM64, VM,
 archive VM, linked PE/ELF transform, or overall-program completion.
 
-- [ ] **Step 5: Run complete Debug, Release, and UBSan gates**
+- [x] **Step 5: Run complete Debug, Release, and UBSan gates**
 
 ```powershell
 cmake -S . -B build\m13-verify-debug -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBINOBF_BUILD_TESTS=ON
@@ -885,19 +885,19 @@ cmake --build build\m13-ubsan
 ctest --test-dir build\m13-ubsan --output-on-failure
 ```
 
-- [ ] **Step 6: Run analyzer, headers, installed consumer, fuzz, and hygiene**
+- [x] **Step 6: Run analyzer, headers, installed consumer, fuzz, and hygiene**
 
 Run whole-production clang-tidy/Clang Static Analyzer over every production translation unit,
 supported ASan tests, 2,000 deterministic runs for every fuzz surface, standalone compilation of
 every public header, installed-only consumer CTest, `git diff --check`, tracked-artifact scan,
 unfinished-marker scan outside plan/spec history, and README/CLI/capability consistency diff.
 
-- [ ] **Step 7: Obtain independent code review and fix findings**
+- [x] **Step 7: Obtain independent code review and fix findings**
 
 Use `superpowers:requesting-code-review` over the Track 3 commit range. Resolve every Critical and
 Important finding with a focused regression and rerun the affected gate plus final full gates.
 
-- [ ] **Step 8: Record and commit Track 3 completion**
+- [x] **Step 8: Record and commit Track 3 completion**
 
 Check Task 12 and Track 3 only after all fresh evidence passes. Commit:
 

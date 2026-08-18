@@ -14,10 +14,14 @@ struct TransformationRecord {
     TransformId transform;
     EntityId source;
     std::string passName;
+
+    auto operator==(const TransformationRecord&) const -> bool = default;
 };
 
 struct TransformationLineage {
     std::vector<TransformationRecord> parents;
+
+    auto operator==(const TransformationLineage&) const -> bool = default;
 };
 
 struct ObjectMetadata {
@@ -28,6 +32,8 @@ struct ObjectMetadata {
     bool coffBigObj{false};
     bool elfExtendedSectionCount{false};
     bool elfExtendedSectionNameIndex{false};
+
+    auto operator==(const ObjectMetadata&) const -> bool = default;
 };
 
 enum class SectionKind : std::uint8_t {
@@ -61,6 +67,8 @@ struct Section {
     bool executable{false};
     std::vector<std::byte> contents;
     TransformationLineage lineage;
+
+    auto operator==(const Section&) const -> bool = default;
 };
 
 enum class SectionAssociationKind : std::uint8_t {
@@ -88,6 +96,8 @@ struct SectionAssociation {
     std::optional<EntityId> signatureSymbol;
     std::optional<EntityId> parentSection;
     std::vector<EntityId> members;
+
+    auto operator==(const SectionAssociation&) const -> bool = default;
 };
 
 struct Segment {
@@ -100,6 +110,8 @@ struct Segment {
     bool writable{false};
     bool executable{false};
     TransformationLineage lineage;
+
+    auto operator==(const Segment&) const -> bool = default;
 };
 
 enum class SymbolVisibility : std::uint8_t {
@@ -155,6 +167,8 @@ struct Symbol {
     std::uint64_t commonAlignment{0};
     TlsModel tlsModel{TlsModel::Unknown};
     TransformationLineage lineage;
+
+    auto operator==(const Symbol&) const -> bool = default;
 };
 
 struct ExtendedSectionIndex {
@@ -162,6 +176,8 @@ struct ExtendedSectionIndex {
     EntityId indexSection;
     EntityId section;
     std::uint32_t rawSectionIndex{0};
+
+    auto operator==(const ExtendedSectionIndex&) const -> bool = default;
 };
 
 struct Import {
@@ -170,6 +186,8 @@ struct Import {
     std::string name;
     std::optional<std::uint32_t> ordinal;
     TransformationLineage lineage;
+
+    auto operator==(const Import&) const -> bool = default;
 };
 
 struct Export {
@@ -178,6 +196,8 @@ struct Export {
     BinaryAddress address;
     std::optional<std::uint32_t> ordinal;
     TransformationLineage lineage;
+
+    auto operator==(const Export&) const -> bool = default;
 };
 
 enum class RelocationKind : std::uint8_t {
@@ -199,18 +219,24 @@ struct Relocation {
     std::optional<EntityId> targetSymbol;
     std::int64_t addend{0};
     TransformationLineage lineage;
+
+    auto operator==(const Relocation&) const -> bool = default;
 };
 
 struct RelocationTableEncoding {
     EntityId section;
     bool coffOverflow{false};
     std::uint64_t declaredCount{0};
+
+    auto operator==(const RelocationTableEncoding&) const -> bool = default;
 };
 
 struct CoffSafeSehEntry {
     EntityId section;
     EntityId symbol;
     std::uint32_t formatIndex{0};
+
+    auto operator==(const CoffSafeSehEntry&) const -> bool = default;
 };
 
 enum class InstructionKind : std::uint8_t {
@@ -244,6 +270,8 @@ struct InstructionReference {
     std::optional<BinaryAddress> address;
     std::optional<EntityId> relocation;
     std::optional<EntityId> symbol;
+
+    auto operator==(const InstructionReference&) const -> bool = default;
 };
 
 struct Instruction {
@@ -261,6 +289,8 @@ struct Instruction {
     std::vector<RegisterAccess> registersWritten;
     std::vector<InstructionReference> references;
     TransformationLineage lineage;
+
+    auto operator==(const Instruction&) const -> bool = default;
 };
 
 enum class ControlFlowEdgeKind : std::uint8_t {
@@ -275,6 +305,8 @@ struct ControlFlowEdge {
     ControlFlowEdgeKind kind{ControlFlowEdgeKind::Fallthrough};
     std::optional<EntityId> targetBlock;
     std::optional<BinaryAddress> targetAddress;
+
+    auto operator==(const ControlFlowEdge&) const -> bool = default;
 };
 
 struct BasicBlock {
@@ -290,6 +322,8 @@ struct BasicBlock {
     std::vector<RegisterAccess> liveOut;
     bool hasUnresolvedSuccessor{false};
     TransformationLineage lineage;
+
+    auto operator==(const BasicBlock&) const -> bool = default;
 };
 
 enum class FunctionDiscovery : std::uint8_t {
@@ -314,6 +348,8 @@ struct Function {
     bool externallyVisible{false};
     bool complete{false};
     TransformationLineage lineage;
+
+    auto operator==(const Function&) const -> bool = default;
 };
 
 struct DataObject {
@@ -322,6 +358,8 @@ struct DataObject {
     BinaryAddress address;
     std::vector<std::byte> bytes;
     TransformationLineage lineage;
+
+    auto operator==(const DataObject&) const -> bool = default;
 };
 
 enum class UnwindFormat : std::uint8_t {
@@ -349,6 +387,8 @@ struct UnwindInfo {
     std::vector<EntityId> relocations;
     UnwindRewriteState rewriteState{UnwindRewriteState::Opaque};
     TransformationLineage lineage;
+
+    auto operator==(const UnwindInfo&) const -> bool = default;
 };
 
 struct DebugInfo {
@@ -356,6 +396,8 @@ struct DebugInfo {
     std::string format;
     std::optional<SourceLocation> source;
     TransformationLineage lineage;
+
+    auto operator==(const DebugInfo&) const -> bool = default;
 };
 
 struct Resource {
@@ -364,6 +406,8 @@ struct Resource {
     std::string name;
     std::vector<std::byte> bytes;
     TransformationLineage lineage;
+
+    auto operator==(const Resource&) const -> bool = default;
 };
 
 struct BinaryImage {
@@ -389,6 +433,8 @@ struct BinaryImage {
     std::vector<UnwindInfo> unwindInfo;
     std::vector<DebugInfo> debugInfo;
     std::vector<Resource> resources;
+
+    auto operator==(const BinaryImage&) const -> bool = default;
 };
 
 } // namespace binobf

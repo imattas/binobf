@@ -21,13 +21,13 @@ constexpr std::string_view expectedMarkdown =
     "| Structural verification | supported | supported | supported | supported |\n"
     "| Exact linked/object emission | supported | supported | supported | supported |\n"
     "| Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported per object member |\n"
-    "| x86-64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |\n"
+    "| x86/x86-64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |\n"
     "| Selected x86-64 function VM lowering | n/a | restricted | restricted | unsupported |\n"
     "| Embedded selected-function VM protection | n/a | restricted | restricted | unsupported |\n"
     "\n"
     "| Architecture | Detection | Decoder | Object analysis | Code generation |\n"
     "|---|---:|---:|---:|---:|\n"
-    "| x86 | supported | supported | experimental | planned |\n"
+    "| x86 | supported | supported | supported | supported |\n"
     "| x86-64 | supported | supported | supported | restricted object backend |\n"
     "| ARM64 | supported | supported | experimental | planned |\n";
 
@@ -53,7 +53,7 @@ TEST_CASE(capability_renderers_report_registry_and_pass_truth) {
         "COFF detection=supported parsing=supported emission=supported");
     REQUIRE_CONTAINS(
         binobf::render_architecture_capabilities_text(registry),
-        "x86 detection=supported decoder=supported object-analysis=experimental codegen=planned");
+        "x86 detection=supported decoder=supported object-analysis=supported codegen=supported");
     REQUIRE_CONTAINS(
         binobf::render_pass_capabilities_text(),
         "instruction-substitution risk=medium");

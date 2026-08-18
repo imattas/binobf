@@ -82,7 +82,9 @@ auto append_action(std::vector<std::byte>& output, const UnwindAction& action)
         append_uleb(output, static_cast<std::uint64_t>(action.offset));
         break;
     case UnwindActionKind::SaveRegister:
-        if (action.offset >= 0 || action.offset % 4 != 0 || *registerNumber > 0x3fU) {
+        if (action.offset >= 0
+            || action.offset == std::numeric_limits<std::int64_t>::min()
+            || action.offset % 4 != 0 || *registerNumber > 0x3fU) {
             return failure<bool>(
                 "architecture.unwind_action", "saved i386 registers require a negative 4-byte offset");
         }
@@ -98,6 +100,27 @@ auto append_action(std::vector<std::byte>& output, const UnwindAction& action)
         break;
     }
     return Result<bool, Diagnostic>::success(true);
+}
+
+auto append_advance(std::vector<std::byte>& output, std::uint64_t delta) -> void {
+    if (delta == 0U) return;
+    if (delta <= 0x3fU) {
+        output.push_back(static_cast<std::byte>(0x40U | delta));
+    } else if (delta <= std::numeric_limits<std::uint8_t>::max()) {
+        output.push_back(std::byte{0x02});
+        output.push_back(static_cast<std::byte>(delta));
+    } else if (delta <= std::numeric_limits<std::uint16_t>::max()) {
+        output.push_back(std::byte{0x03});
+        output.push_back(static_cast<std::byte>(delta & 0xffU));
+        output.push_back(static_cast<std::byte>((delta >> 8U) & 0xffU));
+    } else {
+        output.push_back(std::byte{0x04});
+        append_u32(output, static_cast<std::uint32_t>(delta));
+    }
+}
+
+auto pad_to_four(std::vector<std::byte>& output) -> void {
+    while (output.size() % 4U != 0U) output.push_back(std::byte{0});
 }
 
 } // namespace
@@ -145,6 +168,10 @@ auto build_x86_unwind_plan(const UnwindRequest& request)
         return failure<UnwindPlan>(
             "architecture.unwind_unowned", "ELF personality handlers are not owned by this request");
     }
+    if (!request.codeSymbol.has_value() || request.codeSymbol->empty()) {
+        return failure<UnwindPlan>(
+            "architecture.unwind_unowned", "ELF unwind emission requires an owned code symbol");
+    }
 
     std::vector<std::byte> encoded;
     encoded.reserve(64U + request.actions.size() * 3U);
@@ -153,27 +180,43 @@ auto build_x86_unwind_plan(const UnwindRequest& request)
     const auto cieStart = encoded.size();
     append_u32(encoded, 0U);
     encoded.push_back(std::byte{1});
+    encoded.push_back(std::byte{'z'});
+    encoded.push_back(std::byte{'R'});
     encoded.push_back(std::byte{0});
     append_uleb(encoded, 1U);
     append_sleb(encoded, -4);
     append_uleb(encoded, 8U);
+    append_uleb(encoded, 1U);
+    encoded.push_back(std::byte{0x1b});
     encoded.push_back(std::byte{0x0c});
     append_uleb(encoded, 4U);
     append_uleb(encoded, 4U);
+    pad_to_four(encoded);
     patch_u32(encoded, cieLengthOffset, static_cast<std::uint32_t>(encoded.size() - cieStart));
 
     const auto fdeLengthOffset = encoded.size();
     append_u32(encoded, 0U);
     const auto fdeStart = encoded.size();
+    append_u32(encoded, static_cast<std::uint32_t>(fdeStart - cieLengthOffset));
+    const auto initialLocationOffset = encoded.size();
     append_u32(encoded, 0U);
-    append_u32(encoded, static_cast<std::uint32_t>(request.codeStart.value));
     append_u32(encoded, static_cast<std::uint32_t>(request.codeSize));
+    append_uleb(encoded, 0U);
+    std::uint64_t currentOffset = 0;
     for (const auto& action : request.actions) {
+        if (action.codeOffset < currentOffset || action.codeOffset > request.codeSize) {
+            return failure<UnwindPlan>(
+                "architecture.unwind_action",
+                "DWARF CFI action offsets must be ordered and inside the code range");
+        }
+        append_advance(encoded, action.codeOffset - currentOffset);
+        currentOffset = action.codeOffset;
         const auto appended = append_action(encoded, action);
         if (!appended.has_value()) {
             return failure<UnwindPlan>(appended.error().code, appended.error().message);
         }
     }
+    pad_to_four(encoded);
     patch_u32(encoded, fdeLengthOffset, static_cast<std::uint32_t>(encoded.size() - fdeStart));
     if (encoded.size() > request.limits.maxEmittedBytes) {
         return failure<UnwindPlan>(
@@ -186,7 +229,15 @@ auto build_x86_unwind_plan(const UnwindRequest& request)
         .codeSize = request.codeSize,
         .actions = request.actions,
         .encoded = std::move(encoded),
-        .fixups = {},
+        .fixups = {MachineFixup{
+            .offset = initialLocationOffset,
+            .bitWidth = 32,
+            .isSigned = true,
+            .pcRelative = true,
+            .addend = 0,
+            .symbol = *request.codeSymbol,
+            .kind = MachineFixupKind::PcRelative32,
+        }},
     });
 }
 

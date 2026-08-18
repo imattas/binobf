@@ -25,6 +25,7 @@ constexpr std::size_t bigObjSymbolEntrySize = 20;
 constexpr std::size_t relocationEntrySize = 10;
 constexpr std::size_t maximumSectionCount = 65'536;
 constexpr std::size_t maximumSymbolCount = 1'000'000;
+constexpr std::size_t maximumRelocationCount = 4'000'000;
 
 struct CoffSectionHeader {
     std::array<std::byte, 8> encodedName{};
@@ -293,6 +294,7 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
 
     std::vector<CoffSectionHeader> headers;
     headers.reserve(layout.sectionCount);
+    std::size_t cumulativeRelocationCount = 0;
     for (std::size_t index = 0; index < layout.sectionCount; ++index) {
         const auto headerOffset = layout.headerSize + index * sectionHeaderSize;
         const auto header = read_section_header(reader, headerOffset);
@@ -323,6 +325,12 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             normalizedHeader.relocationCount = *sentinelCount - 1U;
             normalizedHeader.relocationOverflow = true;
         }
+        if (normalizedHeader.relocationCount > maximumRelocationCount
+            || cumulativeRelocationCount > maximumRelocationCount
+                - normalizedHeader.relocationCount) {
+            return failure("coff.invalid", "COFF relocation count exceeds the parser limit");
+        }
+        cumulativeRelocationCount += normalizedHeader.relocationCount;
         const auto relocationSize = checked_multiply(
             static_cast<std::size_t>(tableEntryCount), relocationEntrySize);
         if (!relocationSize
@@ -590,22 +598,21 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             if (detection.architecture == Architecture::X86) {
                 const auto semantics = binobf::detail::x86_fixup_semantics(
                     BinaryFormat::COFF, *rawType);
-                if (!semantics.has_value()) {
-                    return failure("coff.invalid", semantics.error().message);
+                if (semantics.has_value()) {
+                    const auto byteCount = static_cast<std::size_t>(
+                        semantics.value().bitWidth / 8U);
+                    const auto& contents = image.sections[sectionIndex].contents;
+                    if (*offset > contents.size() || byteCount > contents.size() - *offset) {
+                        return failure("coff.invalid", "COFF relocation field is out of range");
+                    }
+                    const auto decoded = binobf::detail::decode_x86_fixup(
+                        semantics.value(),
+                        std::span<const std::byte>{contents}.subspan(*offset, byteCount));
+                    if (!decoded.has_value()) {
+                        return failure("coff.invalid", decoded.error().message);
+                    }
+                    addend = decoded.value();
                 }
-                const auto byteCount = static_cast<std::size_t>(
-                    semantics.value().bitWidth / 8U);
-                const auto& contents = image.sections[sectionIndex].contents;
-                if (*offset > contents.size() || byteCount > contents.size() - *offset) {
-                    return failure("coff.invalid", "COFF relocation field is out of range");
-                }
-                const auto decoded = binobf::detail::decode_x86_fixup(
-                    semantics.value(),
-                    std::span<const std::byte>{contents}.subspan(*offset, byteCount));
-                if (!decoded.has_value()) {
-                    return failure("coff.invalid", decoded.error().message);
-                }
-                addend = decoded.value();
             }
             image.relocations.push_back(Relocation{
                 .id = ids.allocate(),

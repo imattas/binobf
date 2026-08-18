@@ -306,6 +306,31 @@ TEST_CASE(coff_x86_pc_relative_bias_is_inverse_across_write_and_parse) {
                std::vector<std::byte>(4, std::byte{0}));
 }
 
+TEST_CASE(coff_x86_unknown_relocation_round_trips_without_rewriting_its_field) {
+    auto image = base_image();
+    image.sections[0].contents = {
+        std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}};
+    image.sections[0].logicalSize = image.sections[0].contents.size();
+    image.symbols.push_back(undefined_symbol(3, 1, "vendor_target"));
+    image.relocations.push_back(binobf::Relocation{
+        .id = binobf::EntityId{10},
+        .formatIndex = 0,
+        .formatTableIndex = 1,
+        .section = binobf::EntityId{1},
+        .offset = 0,
+        .kind = binobf::RelocationKind::ArchitectureSpecific,
+        .rawType = 0x00ff,
+        .targetSymbol = binobf::EntityId{3},
+        .addend = 0,
+        .lineage = {},
+    });
+
+    const auto parsed = round_trip(image);
+    REQUIRE_EQ(parsed.relocations.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.relocations[0].rawType, UINT64_C(0x00ff));
+    REQUIRE_EQ(parsed.sections[0].contents, image.sections[0].contents);
+}
+
 TEST_CASE(coff_x86_relocation_overflow_round_trips_65536_real_entries) {
     auto image = base_image();
     image.sections[0].contents.resize(4, std::byte{0});
@@ -352,6 +377,13 @@ TEST_CASE(coff_x86_relocation_overflow_round_trips_65536_real_entries) {
     const auto rejected = binobf::parse_object(malformed, "bad-overflow.obj");
     REQUIRE(!rejected.has_value());
     REQUIRE_EQ(rejected.error().code, "coff.invalid");
+
+    auto oversized = written.value();
+    put_u32(oversized, relocationOffset, 4'000'002U);
+    const auto limited = binobf::parse_object(oversized, "oversized-overflow.obj");
+    REQUIRE(!limited.has_value());
+    REQUIRE_EQ(limited.error().code, "coff.invalid");
+    REQUIRE(limited.error().message.find("parser limit") != std::string::npos);
 }
 
 TEST_CASE(coff_x86_all_primary_comdat_selections_round_trip) {

@@ -135,6 +135,14 @@ auto require_create_error(
     }
 }
 
+auto require_source_mismatch(
+    const binobf::ObjectRewritePlan& plan,
+    const binobf::BinaryImage& changed) -> void {
+    const auto committed = plan.commit(changed);
+    REQUIRE(!committed.has_value());
+    REQUIRE_EQ(committed.error().code, "rewrite.source_mismatch");
+}
+
 } // namespace
 
 TEST_CASE(object_rewrite_reorders_two_owned_functions_transactionally) {
@@ -330,6 +338,130 @@ TEST_CASE(object_rewrite_commit_refuses_a_different_snapshot_without_mutating_it
     REQUIRE_EQ(committed.error().code, "rewrite.source_mismatch");
     REQUIRE_EQ(changed.sections.front().contents, before);
     REQUIRE_EQ(changed.symbols[1].address.value, UINT64_C(1));
+}
+
+TEST_CASE(object_rewrite_preserves_unknown_relocations_only_when_their_sites_do_not_move) {
+    auto source = image();
+    binobf::Relocation relocation{};
+    relocation.id = binobf::EntityId{7};
+    relocation.formatIndex = 0;
+    relocation.formatTableIndex = 1;
+    relocation.section = binobf::EntityId{1};
+    relocation.offset = 1;
+    relocation.kind = binobf::RelocationKind::ArchitectureSpecific;
+    relocation.rawType = 0xffff;
+    relocation.targetSymbol = binobf::EntityId{3};
+    source.relocations.push_back(relocation);
+
+    auto fixed = backend();
+    const auto moved = binobf::ObjectRewritePlan::create(
+        source, *fixed, reorder_request());
+    REQUIRE(!moved.has_value());
+    REQUIRE_EQ(moved.error().code, "rewrite.unknown_relocation_moved");
+
+    auto identity = reorder_request();
+    identity.ranges[0].newBegin = 0;
+    identity.ranges[1].newBegin = 4;
+    const auto preserved = binobf::ObjectRewritePlan::create(source, *fixed, identity);
+    REQUIRE(preserved.has_value());
+    const auto output = preserved.value().commit(source);
+    REQUIRE(output.has_value());
+    REQUIRE_EQ(output.value().relocations.front(), source.relocations.front());
+
+    auto changedBytes = identity;
+    changedBytes.ranges[1].replacement = {
+        std::byte{0xff}, std::byte{6}, std::byte{7}, std::byte{8}};
+    const auto rejectedBytes = binobf::ObjectRewritePlan::create(
+        source, *fixed, changedBytes);
+    REQUIRE(!rejectedBytes.has_value());
+    REQUIRE_EQ(rejectedBytes.error().code, "rewrite.unknown_relocation_moved");
+}
+
+TEST_CASE(object_rewrite_snapshot_covers_every_semantic_model_collection) {
+    const auto source = image();
+    auto fixed = backend();
+    const auto plan = binobf::ObjectRewritePlan::create(source, *fixed, reorder_request());
+    REQUIRE(plan.has_value());
+
+    auto changed = source;
+    binobf::Segment segment{};
+    segment.id = binobf::EntityId{20};
+    segment.name = "segment";
+    changed.segments.push_back(segment);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    changed.extendedSectionIndices.push_back(binobf::ExtendedSectionIndex{
+        .symbol = binobf::EntityId{3}, .indexSection = binobf::EntityId{1},
+        .section = binobf::EntityId{1}, .rawSectionIndex = 1});
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::Import imported{};
+    imported.id = binobf::EntityId{21};
+    imported.name = "import";
+    changed.imports.push_back(imported);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::Export exported{};
+    exported.id = binobf::EntityId{22};
+    exported.name = "export";
+    changed.exports.push_back(exported);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    changed.relocationTableEncodings.push_back(binobf::RelocationTableEncoding{
+        .section = binobf::EntityId{1}, .coffOverflow = true, .declaredCount = 0xffff});
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    changed.coffSafeSehEntries.push_back(binobf::CoffSafeSehEntry{
+        .section = binobf::EntityId{1}, .symbol = binobf::EntityId{3}, .formatIndex = 0});
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::Instruction instruction{};
+    instruction.id = binobf::EntityId{23};
+    instruction.section = binobf::EntityId{1};
+    instruction.registersRead = {{1U, "eax"}};
+    changed.instructions.push_back(instruction);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::BasicBlock block{};
+    block.id = binobf::EntityId{24};
+    block.function = binobf::EntityId{5};
+    block.section = binobf::EntityId{1};
+    block.edges = {{binobf::ControlFlowEdgeKind::DirectBranch, std::nullopt,
+                    binobf::BinaryAddress{4U, binobf::AddressKind::RelativeVirtual}}};
+    block.liveIn = {{1U, "eax"}};
+    changed.basicBlocks.push_back(block);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::DataObject data{};
+    data.id = binobf::EntityId{25};
+    data.name = "data";
+    data.bytes = {std::byte{1}};
+    changed.dataObjects.push_back(data);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::DebugInfo debug{};
+    debug.id = binobf::EntityId{26};
+    debug.format = "debug";
+    changed.debugInfo.push_back(debug);
+    require_source_mismatch(plan.value(), changed);
+
+    changed = source;
+    binobf::Resource resource{};
+    resource.id = binobf::EntityId{27};
+    resource.type = "type";
+    resource.name = "name";
+    resource.bytes = {std::byte{2}};
+    changed.resources.push_back(resource);
+    require_source_mismatch(plan.value(), changed);
 }
 
 int main() { return binobf::test::run_all(); }

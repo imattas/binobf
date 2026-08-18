@@ -4,7 +4,9 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <algorithm>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -41,6 +43,31 @@ auto main(int argc, char** argv) -> int {
         binobf::builtin_acceptance_evidence());
     if (!validated.has_value()) {
         std::cerr << validated.error().code << ": " << validated.error().message << '\n';
+        return 1;
+    }
+
+    std::vector<binobf::AcceptanceEvidence> missing(
+        binobf::builtin_acceptance_evidence().begin(),
+        binobf::builtin_acceptance_evidence().end());
+    std::erase_if(missing, [](const auto& item) { return item.id == "x86_object_backend"; });
+    const auto missingResult = binobf::validate_capability_evidence(
+        binobf::builtin_capability_registry(), missing);
+    if (missingResult.has_value() || missingResult.error().code != "capability.unknown_evidence") {
+        std::cerr << "missing x86 object evidence was not rejected\n";
+        return 1;
+    }
+    auto disabled = std::vector<binobf::AcceptanceEvidence>{
+        binobf::builtin_acceptance_evidence().begin(),
+        binobf::builtin_acceptance_evidence().end()};
+    const auto codegen = std::ranges::find(disabled, std::string_view{"x86_codegen"},
+                                           &binobf::AcceptanceEvidence::id);
+    if (codegen == disabled.end()) return 1;
+    codegen->releaseGate = false;
+    const auto disabledResult = binobf::validate_capability_evidence(
+        binobf::builtin_capability_registry(), disabled);
+    if (disabledResult.has_value()
+        || disabledResult.error().code != "capability.disabled_evidence") {
+        std::cerr << "disabled x86 codegen evidence was not rejected\n";
         return 1;
     }
 

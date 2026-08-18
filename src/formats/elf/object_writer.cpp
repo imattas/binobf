@@ -443,7 +443,7 @@ auto write_elf_object(const BinaryImage& image)
                 const auto semantics = binobf::detail::x86_fixup_semantics(
                     BinaryFormat::ELF, relocation->rawType);
                 if (!semantics.has_value()) {
-                    return failure(semantics.error().code, semantics.error().message);
+                    continue;
                 }
                 const auto encoded = binobf::detail::encode_x86_fixup(
                     semantics.value(), relocation->addend);

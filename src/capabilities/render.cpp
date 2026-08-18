@@ -67,7 +67,7 @@ constexpr std::array kMarkdownFormatLabels{
     "Structural verification",
     "Exact linked/object emission",
     "Baseline metadata transformations",
-    "x86-64 instruction/CFG/layout transformations",
+    "x86/x86-64 instruction/CFG/layout transformations",
     "Selected x86-64 function VM lowering",
     "Embedded selected-function VM protection",
 };

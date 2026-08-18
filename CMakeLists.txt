@@ -152,6 +152,7 @@ set(BINOBF_CORE_SOURCES
     src/transforms/registry.cpp
     src/transforms/selection.cpp
     src/transforms/instruction.cpp
+    src/transforms/object_rewrite.cpp
     src/transforms/rename_private_symbols.cpp
     src/transforms/section_removal.cpp
     src/verify/object_model_validator.cpp
@@ -589,6 +590,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_x86_abi_unwind_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_x86_abi_unwind_tests)
     add_test(NAME x86_abi_unwind COMMAND binobf_x86_abi_unwind_tests)
+
+    add_executable(binobf_object_rewrite_tests tests/unit/object_rewrite_tests.cpp)
+    target_link_libraries(binobf_object_rewrite_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_object_rewrite_tests)
+    add_test(NAME object_rewrite COMMAND binobf_object_rewrite_tests)
 
     add_executable(binobf_object_analyzer_tests tests/unit/object_analyzer_tests.cpp)
     target_link_libraries(binobf_object_analyzer_tests PRIVATE binobf::core)

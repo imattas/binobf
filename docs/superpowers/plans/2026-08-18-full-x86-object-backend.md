@@ -578,14 +578,14 @@ git commit -m "feat: emit i386 templates ABI and unwind"
 - Consumes: normalized ownership, backend fixup services, section-local replacements, and lineage.
 - Produces: `ObjectRewritePlan::create()`, `validate()`, and `commit()` with total old-to-new mapping.
 
-- [ ] **Step 1: Write plan invariant and transaction tests**
+- [x] **Step 1: Write plan invariant and transaction tests**
 
 Cover overlapping replacements, mapping gaps, expansion overflow, unmapped symbol, moved relocation
 site/target, implicit addend repair, unowned association/unwind metadata, branch range overflow,
 duplicate lineage, deterministic order, and a valid two-function reorder. Snapshot the input and
 require exact equality after every failed plan/commit.
 
-- [ ] **Step 2: Define focused public plan values**
+- [x] **Step 2: Define focused public plan values**
 
 ```cpp
 struct ObjectRewriteRange {
@@ -610,26 +610,26 @@ public:
 
 Keep indexes and implementation maps private.
 
-- [ ] **Step 3: Build and freeze a total mapping**
+- [x] **Step 3: Build and freeze a total mapping**
 
 Sort by section/old begin, reject overlap/overflow, derive unchanged gaps, and map every symbol,
 relocation site/target, section-symbol addend, association, and unwind range. Use backend fixup
 semantics to repair explicit and implicit addends. Store only immutable vectors after `create()`.
 
-- [ ] **Step 4: Commit to a copy and validate the result**
+- [x] **Step 4: Commit to a copy and validate the result**
 
 Apply bytes, normalized addresses, raw addend fields, association indices, unwind ranges, and one
 lineage record to a copy. Run object-model validation before returning. Do not write files or mutate
 the source.
 
-- [ ] **Step 5: Run rewrite/model suites**
+- [x] **Step 5: Run rewrite/model suites**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_object_rewrite_tests binobf_structural_verifier_tests
 ctest --test-dir build\m13-dev -R "object_rewrite|structural_verifier" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit transactional rewrite plans**
+- [x] **Step 6: Commit transactional rewrite plans**
 
 ```powershell
 git add CMakeLists.txt include/binobf/transforms/object_rewrite.hpp src/transforms/object_rewrite.cpp tests/unit/object_rewrite_tests.cpp

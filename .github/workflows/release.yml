@@ -59,6 +59,24 @@ jobs:
           cmake --build build --parallel 2
           cmake --install build --prefix staging/binobf
 
+      - name: Normalize package metadata on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $epoch = [int64](git log -1 --format=%ct)
+          $stamp = [DateTimeOffset]::FromUnixTimeSeconds($epoch).LocalDateTime
+          Get-ChildItem -LiteralPath staging/binobf -Recurse -Force | ForEach-Object {
+            $_.LastWriteTime = $stamp
+          }
+
+      - name: Normalize package metadata on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          epoch="$(git log -1 --format=%ct)"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$epoch" >> "$GITHUB_ENV"
+          find staging/binobf -exec touch -d "@${epoch}" {} +
+
       - name: Package Windows archive
         if: runner.os == 'Windows'
         shell: pwsh
@@ -67,7 +85,10 @@ jobs:
       - name: Package Linux archive
         if: runner.os == 'Linux'
         shell: bash
-        run: tar -C staging -czf binobf-${{ matrix.platform }}.tar.gz binobf
+        run: >-
+          tar --sort=name --mtime="@${SOURCE_DATE_EPOCH}"
+          --owner=0 --group=0 --numeric-owner
+          -C staging -czf binobf-${{ matrix.platform }}.tar.gz binobf
 
       - name: Create Windows integrity files
         if: runner.os == 'Windows'

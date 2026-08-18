@@ -517,6 +517,19 @@ if(BINOBF_BUILD_TESTS)
             "-DBINOBF_ARM64_FIXTURE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/transform_patterns.S"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunInstalledConsumer.cmake"
     )
+
+    if(BINOBF_BUILD_C_SHARED)
+        add_test(
+            NAME installed_c_api_package_consumer
+            COMMAND "${CMAKE_COMMAND}"
+                "-DBINOBF_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+                "-DBINOBF_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                "-DBINOBF_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/installed-c-api-package"
+                "-DBINOBF_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+                "-DBINOBF_CONFIGURATION=${CMAKE_BUILD_TYPE}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunCMakePackageConsumer.cmake"
+        )
+    endif()
     set_tests_properties(installed_track4_consumer PROPERTIES
         RUN_SERIAL TRUE
         TIMEOUT 180

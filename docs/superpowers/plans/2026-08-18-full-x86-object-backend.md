@@ -777,31 +777,31 @@ git commit -m "test: validate the i386 compiler object corpus"
 - Consumes: transformed x86 COFF objects and all validation/range/ownership checks.
 - Produces: native original-versus-transformed behavior, rewrite fuzzing, and mutation-kill evidence.
 
-- [ ] **Step 1: Add a hard native-x86 host probe**
+- [x] **Step 1: Add a hard native-x86 host probe**
 
 Compile/link a freestanding i386 COFF executable with `lld-link /machine:x86 /entry:entry
 /subsystem:console /nodefaultlib`, run it, and require the designed exit code. Check the PE machine
 field before execution. A launch failure or wrong code fails `x86_native_differential`; do not skip.
 
-- [ ] **Step 2: Compare original and transformed programs**
+- [x] **Step 2: Compare original and transformed programs**
 
 For each runtime-safe corpus function and every pass, link original and transformed objects with the
 same entry fixture. Run bounded child processes, compare exit code and fixed result-file bytes, and
 require no timeout/crash. Use build-local unique paths and remove only verified build-local outputs.
 
-- [ ] **Step 3: Add bounded rewrite-plan fuzzing**
+- [x] **Step 3: Add bounded rewrite-plan fuzzing**
 
 Map input bytes to x86 COFF/ELF seed selection, bounded replacement ranges, target/addend changes,
 and resource limits. Parse, attempt plan creation/commit, and if successful write/reparse/validate;
 otherwise require a nonempty stable diagnostic. Never execute fuzz output.
 
-- [ ] **Step 4: Add mutation-kill assertions**
+- [x] **Step 4: Add mutation-kill assertions**
 
 Introduce test-local mutant functions that omit each critical check: signed fixup range, PC bias,
 implicit addend rewrite, association ownership, unwind ownership, mapping overlap, and transactional
 copy. Require the golden counterexample to pass the production checker and fail the mutant.
 
-- [ ] **Step 5: Run native, fuzz-smoke, and mutation gates**
+- [x] **Step 5: Run native, fuzz-smoke, and mutation gates**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_native_differential_tests binobf_x86_backend_mutation_tests
@@ -810,7 +810,7 @@ cmake -S . -B build\m13-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBINOBF
 cmake --build build\m13-fuzz --target fuzz-smoke
 ```
 
-- [ ] **Step 6: Commit runtime and robustness evidence**
+- [x] **Step 6: Commit runtime and robustness evidence**
 
 ```powershell
 git add CMakeLists.txt cmake/RunX86NativeDifferential.cmake tests/differential tests/fixtures/x86/native_entry.S tests/fuzz tests/mutation/x86_backend_mutation_tests.cpp

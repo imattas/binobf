@@ -224,6 +224,7 @@ if(BINOBF_BUILD_FUZZERS)
     binobf_add_fuzzer(binobf_fuzz_config tests/fuzz/config_fuzzer.cpp)
     binobf_add_fuzzer(binobf_fuzz_lineage tests/fuzz/lineage_fuzzer.cpp)
     binobf_add_fuzzer(binobf_fuzz_codegen tests/fuzz/codegen_fuzzer.cpp)
+    binobf_add_fuzzer(binobf_fuzz_object_rewrite tests/fuzz/object_rewrite_fuzzer.cpp)
 
     add_executable(binobf_fuzz_seed_generator tests/fuzz/vm_seed_generator.cpp)
     target_link_libraries(binobf_fuzz_seed_generator PRIVATE binobf::core)
@@ -239,6 +240,7 @@ if(BINOBF_BUILD_FUZZERS)
     set(BINOBF_FUZZ_CONFIG_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/config")
     set(BINOBF_FUZZ_LINEAGE_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/lineage")
     set(BINOBF_FUZZ_CODEGEN_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/codegen")
+    set(BINOBF_FUZZ_OBJECT_REWRITE_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/object-rewrite")
     set(BINOBF_FUZZ_COFF_SEED "${BINOBF_FUZZ_OBJECT_DIR}/arithmetic.obj")
     set(BINOBF_FUZZ_ELF_SEED "${BINOBF_FUZZ_OBJECT_DIR}/arithmetic.o")
     set(BINOBF_FUZZ_PE_OBJECT "${BINOBF_FUZZ_LINKED_DIR}/linked-pe.obj")
@@ -276,6 +278,7 @@ if(BINOBF_BUILD_FUZZERS)
             "${BINOBF_FUZZ_CONFIG_DIR}"
             "${BINOBF_FUZZ_LINEAGE_DIR}"
             "${BINOBF_FUZZ_CODEGEN_DIR}"
+            "${BINOBF_FUZZ_OBJECT_REWRITE_DIR}"
         COMMAND "${CMAKE_C_COMPILER}" --target=x86_64-pc-windows-msvc -gcodeview
             -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arithmetic.c"
             -o "${BINOBF_FUZZ_COFF_SEED}"
@@ -306,6 +309,9 @@ if(BINOBF_BUILD_FUZZERS)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen"
             "${BINOBF_FUZZ_CODEGEN_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/object-rewrite"
+            "${BINOBF_FUZZ_OBJECT_REWRITE_DIR}"
         DEPENDS
             binobf_fuzz_seed_generator
             tests/fixtures/arithmetic.c
@@ -319,6 +325,8 @@ if(BINOBF_BUILD_FUZZERS)
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/x64-elf.seed
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/arm64-coff.seed
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/arm64-elf.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/object-rewrite/x86-coff.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/object-rewrite/x86-elf.seed
         VERBATIM
     )
     add_custom_target(
@@ -353,6 +361,8 @@ if(BINOBF_BUILD_FUZZERS)
             "${BINOBF_FUZZ_LINEAGE_DIR}"
         COMMAND binobf_fuzz_codegen -runs=2000 -seed=12012 -max_len=65536 -timeout=5
             "${BINOBF_FUZZ_CODEGEN_DIR}"
+        COMMAND binobf_fuzz_object_rewrite -runs=2000 -seed=12012 -max_len=256 -timeout=5
+            "${BINOBF_FUZZ_OBJECT_REWRITE_DIR}"
         DEPENDS
             binobf_fuzz_detector
             binobf_fuzz_object
@@ -362,6 +372,7 @@ if(BINOBF_BUILD_FUZZERS)
             binobf_fuzz_config
             binobf_fuzz_lineage
             binobf_fuzz_codegen
+            binobf_fuzz_object_rewrite
             binobf_fuzz_corpus
         USES_TERMINAL
     )
@@ -1034,6 +1045,13 @@ if(BINOBF_BUILD_TESTS)
                 "${BINOBF_ARCHIVE_A}"
         )
         add_executable(
+            binobf_x86_backend_mutation_tests
+            tests/mutation/x86_backend_mutation_tests.cpp
+        )
+        target_link_libraries(binobf_x86_backend_mutation_tests PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_x86_backend_mutation_tests)
+        add_test(NAME x86_backend_mutation COMMAND binobf_x86_backend_mutation_tests)
+        add_executable(
             binobf_object_writer_integration_tests
             tests/integration/object_writer_integration_tests.cpp
         )
@@ -1164,6 +1182,36 @@ if(BINOBF_BUILD_TESTS)
                 "${BINOBF_LD_LLD}"
                 "${CMAKE_CURRENT_BINARY_DIR}/x86-object-backend"
         )
+
+        if(WIN32)
+            file(GLOB BINOBF_X86_KERNEL32_CANDIDATES
+                "C:/Program Files (x86)/Windows Kits/10/Lib/*/um/x86/kernel32.lib")
+            list(SORT BINOBF_X86_KERNEL32_CANDIDATES COMPARE NATURAL)
+            if(NOT BINOBF_X86_KERNEL32_CANDIDATES)
+                message(FATAL_ERROR "the native i386 differential gate requires kernel32.lib")
+            endif()
+            list(POP_BACK BINOBF_X86_KERNEL32_CANDIDATES BINOBF_X86_KERNEL32_LIB)
+            add_executable(
+                binobf_x86_native_differential_tests
+                tests/differential/x86_native_differential_tests.cpp
+            )
+            target_link_libraries(
+                binobf_x86_native_differential_tests PRIVATE binobf::core)
+            binobf_enable_warnings(binobf_x86_native_differential_tests)
+            add_test(
+                NAME x86_native_differential
+                COMMAND "${CMAKE_COMMAND}"
+                    "-DCLANG=${CMAKE_C_COMPILER}"
+                    "-DLLD_LINK=${BINOBF_LLD_LINK}"
+                    "-DLLVM_READOBJ=${BINOBF_LLVM_READOBJ}"
+                    "-DKERNEL32_LIB=${BINOBF_X86_KERNEL32_LIB}"
+                    "-DENTRY_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86/native_entry.S"
+                    "-DFIXTURE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86/transform_patterns.S"
+                    "-DTRANSFORMER=$<TARGET_FILE:binobf_x86_native_differential_tests>"
+                    "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/x86-native-differential"
+                    -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunX86NativeDifferential.cmake"
+            )
+        endif()
 
         set_source_files_properties(
             "${BINOBF_VM_LOWERING_FIXTURE}"

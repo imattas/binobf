@@ -1,5 +1,7 @@
 #include <binobf/architecture/backend.hpp>
 
+#include "x86_fixups.hpp"
+
 #include <capstone/arm64.h>
 #include <capstone/capstone.h>
 #include <capstone/x86.h>
@@ -274,23 +276,24 @@ public:
             });
     }
 
-    auto fixup_semantics(BinaryFormat, std::uint64_t) const
+    auto fixup_semantics(BinaryFormat format, std::uint64_t rawType) const
         -> Result<ObjectFixupSemantics, Diagnostic> override {
-        return service_failure<ObjectFixupSemantics>(
-            "architecture.service_unsupported",
-            "the fixed backend does not implement object fixup semantics");
+        if (architecture_ != Architecture::X86) {
+            return service_failure<ObjectFixupSemantics>(
+                "architecture.unsupported_fixup",
+                "object fixup semantics are implemented only for x86");
+        }
+        return detail::x86_fixup_semantics(format, rawType);
     }
 
-    auto encode_fixup(const ObjectFixupSemantics& semantics, std::int64_t) const
+    auto encode_fixup(const ObjectFixupSemantics& semantics, std::int64_t value) const
         -> Result<ObjectFixupEncoding, Diagnostic> override {
-        if (semantics.bitWidth == 0 || semantics.bitWidth > 64) {
+        if (architecture_ != Architecture::X86) {
             return service_failure<ObjectFixupEncoding>(
-                "architecture.invalid_fixup",
-                "object fixup width must be between 1 and 64 bits");
+                "architecture.unsupported_fixup",
+                "object fixup encoding is implemented only for x86");
         }
-        return service_failure<ObjectFixupEncoding>(
-            "architecture.service_unsupported",
-            "the fixed backend does not implement object fixup encoding");
+        return detail::encode_x86_fixup(semantics, value);
     }
 
     auto build_abi_adapter(const AbiAdapterRequest& request) const

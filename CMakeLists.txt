@@ -112,6 +112,7 @@ set(BINOBF_CORE_SOURCES
     src/architecture/codegen_provider.cpp
     src/architecture/llvm_fixups.cpp
     src/architecture/llvm_mc_assembler.cpp
+    src/architecture/x86_fixups.cpp
     src/capabilities/evidence.cpp
     src/capabilities/render.cpp
     src/capabilities/registry.cpp
@@ -570,6 +571,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_codegen_provider_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_codegen_provider_tests)
     add_test(NAME codegen_provider COMMAND binobf_codegen_provider_tests)
+
+    add_executable(binobf_x86_fixup_tests tests/unit/x86_fixup_tests.cpp)
+    target_link_libraries(binobf_x86_fixup_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_x86_fixup_tests)
+    add_test(NAME x86_fixup COMMAND binobf_x86_fixup_tests)
 
     add_executable(binobf_object_analyzer_tests tests/unit/object_analyzer_tests.cpp)
     target_link_libraries(binobf_object_analyzer_tests PRIVATE binobf::core)

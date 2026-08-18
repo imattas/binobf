@@ -46,7 +46,7 @@ TEST_CASE(unimplemented_callable_services_fail_with_stable_diagnostics) {
 
     const auto fixup = backend.value()->fixup_semantics(binobf::BinaryFormat::COFF, 0xffffU);
     REQUIRE(!fixup.has_value());
-    REQUIRE_EQ(fixup.error().code, "architecture.service_unsupported");
+    REQUIRE_EQ(fixup.error().code, "architecture.unsupported_fixup");
 
     binobf::AbiAdapterRequest abi{};
     abi.architecture = binobf::Architecture::X86;
@@ -65,7 +65,7 @@ TEST_CASE(unimplemented_callable_services_fail_with_stable_diagnostics) {
     REQUIRE_EQ(plan.error().code, "architecture.service_unsupported");
 }
 
-TEST_CASE(fixup_encoding_rejects_a_zero_width_before_dispatch) {
+TEST_CASE(fixup_encoding_accepts_the_zero_width_noop_shape) {
     auto backend = binobf::make_architecture_backend(binobf::Architecture::X86);
     REQUIRE(backend.has_value());
 
@@ -73,8 +73,8 @@ TEST_CASE(fixup_encoding_rejects_a_zero_width_before_dispatch) {
     semantics.bitWidth = 0;
     const auto encoded = backend.value()->encode_fixup(semantics, 0);
 
-    REQUIRE(!encoded.has_value());
-    REQUIRE_EQ(encoded.error().code, "architecture.invalid_fixup");
+    REQUIRE(encoded.has_value());
+    REQUIRE(encoded.value().fieldBytes.empty());
 }
 
 TEST_CASE(backend_service_records_are_unique_sorted_and_evidence_bound) {

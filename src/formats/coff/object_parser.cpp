@@ -1,4 +1,5 @@
 #include "../object_parser_internal.hpp"
+#include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
 #include <array>
@@ -585,6 +586,27 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             if (symbolIndex >= symbolIds.size() || !symbolIds[symbolIndex].has_value()) {
                 return failure("coff.invalid", "COFF relocation symbol index is invalid");
             }
+            std::int64_t addend = 0;
+            if (detection.architecture == Architecture::X86) {
+                const auto semantics = binobf::detail::x86_fixup_semantics(
+                    BinaryFormat::COFF, *rawType);
+                if (!semantics.has_value()) {
+                    return failure("coff.invalid", semantics.error().message);
+                }
+                const auto byteCount = static_cast<std::size_t>(
+                    semantics.value().bitWidth / 8U);
+                const auto& contents = image.sections[sectionIndex].contents;
+                if (*offset > contents.size() || byteCount > contents.size() - *offset) {
+                    return failure("coff.invalid", "COFF relocation field is out of range");
+                }
+                const auto decoded = binobf::detail::decode_x86_fixup(
+                    semantics.value(),
+                    std::span<const std::byte>{contents}.subspan(*offset, byteCount));
+                if (!decoded.has_value()) {
+                    return failure("coff.invalid", decoded.error().message);
+                }
+                addend = decoded.value();
+            }
             image.relocations.push_back(Relocation{
                 .id = ids.allocate(),
                 .formatIndex = relocationIndex++,
@@ -594,7 +616,7 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
                 .kind = relocation_kind(detection.architecture, *rawType),
                 .rawType = *rawType,
                 .targetSymbol = symbolIds[symbolIndex],
-                .addend = 0,
+                .addend = addend,
                 .lineage = {},
             });
         }

@@ -1,4 +1,5 @@
 #include "../object_writer_internal.hpp"
+#include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
 #include <array>
@@ -367,6 +368,30 @@ auto write_coff_object(const BinaryImage& image)
             std::copy(
                 section.contents.begin(), section.contents.end(),
                 output.data() + encoded.rawOffset);
+        }
+        if (image.architecture == Architecture::X86) {
+            for (const auto* relocation : encoded.relocations) {
+                const auto semantics = binobf::detail::x86_fixup_semantics(
+                    BinaryFormat::COFF, relocation->rawType);
+                if (!semantics.has_value()) {
+                    return failure(semantics.error().code, semantics.error().message);
+                }
+                const auto fixup = binobf::detail::encode_x86_fixup(
+                    semantics.value(), relocation->addend);
+                if (!fixup.has_value()) {
+                    return failure(fixup.error().code, fixup.error().message);
+                }
+                const auto byteCount = fixup.value().fieldBytes.size();
+                if (relocation->offset > section.contents.size()
+                    || byteCount > section.contents.size()
+                        - static_cast<std::size_t>(relocation->offset)) {
+                    return failure("object.size_limit", "COFF relocation field is out of range");
+                }
+                std::copy(
+                    fixup.value().fieldBytes.begin(), fixup.value().fieldBytes.end(),
+                    output.data() + static_cast<std::size_t>(encoded.rawOffset)
+                        + static_cast<std::size_t>(relocation->offset));
+            }
         }
         for (const auto& safeSeh : image.coffSafeSehEntries) {
             if (safeSeh.section != section.id) continue;

@@ -49,6 +49,17 @@ enum class MachineFixupKind : std::uint8_t {
     AArch64Call26,
     AArch64Page21,
     AArch64PageOffset12,
+    Segment12,
+    MetadataToken32,
+    SectionIndex16,
+    SectionRelative7,
+    GotOffset32,
+    GotPcRelative32,
+    Size32,
+    TlsOffset32,
+    TlsGot32,
+    TlsGeneralDynamic32,
+    TlsLocalDynamic32,
 };
 
 struct MachineCodeLimits {

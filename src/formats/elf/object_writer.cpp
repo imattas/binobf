@@ -1,4 +1,5 @@
 #include "../object_writer_internal.hpp"
+#include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -439,15 +440,25 @@ auto write_elf_object(const BinaryImage& image)
             }
             auto targetBytes = std::span<std::byte>{target->bytes};
             for (const auto* relocation : relocations->second) {
-                if (relocation->rawType == 0) continue;
-                if (relocation->addend < std::numeric_limits<std::int32_t>::min()
-                    || relocation->addend > std::numeric_limits<std::int32_t>::max()
-                    || relocation->offset > targetBytes.size()
-                    || 4U > targetBytes.size() - static_cast<std::size_t>(relocation->offset)) {
+                const auto semantics = binobf::detail::x86_fixup_semantics(
+                    BinaryFormat::ELF, relocation->rawType);
+                if (!semantics.has_value()) {
+                    return failure(semantics.error().code, semantics.error().message);
+                }
+                const auto encoded = binobf::detail::encode_x86_fixup(
+                    semantics.value(), relocation->addend);
+                if (!encoded.has_value()) {
+                    return failure(encoded.error().code, encoded.error().message);
+                }
+                const auto byteCount = encoded.value().fieldBytes.size();
+                if (relocation->offset > targetBytes.size()
+                    || byteCount > targetBytes.size()
+                        - static_cast<std::size_t>(relocation->offset)) {
                     return failure("object.size_limit", "ELF REL implicit addend is out of range");
                 }
-                put_i32(targetBytes, static_cast<std::size_t>(relocation->offset),
-                        static_cast<std::int32_t>(relocation->addend));
+                std::copy(
+                    encoded.value().fieldBytes.begin(), encoded.value().fieldBytes.end(),
+                    targetBytes.data() + static_cast<std::size_t>(relocation->offset));
             }
         }
     }

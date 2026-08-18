@@ -1,4 +1,5 @@
 #include "llvm_fixups.hpp"
+#include "x86_fixups.hpp"
 
 #include <binobf/core/types.hpp>
 
@@ -60,27 +61,20 @@ struct FixupShape {
     std::span<const std::byte> bytes,
     std::uint64_t offset) -> Result<FixupShape, Diagnostic> {
     switch (architecture) {
-    case Architecture::X86:
-        switch (type) {
-        case llvm::COFF::IMAGE_REL_I386_DIR16:
-            return Result<FixupShape, Diagnostic>::success(
-                absolute(MachineFixupKind::Absolute16, 16U));
-        case llvm::COFF::IMAGE_REL_I386_REL16:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::PcRelative16, 16U, 2U, 2));
-        case llvm::COFF::IMAGE_REL_I386_DIR32:
-            return Result<FixupShape, Diagnostic>::success(
-                absolute(MachineFixupKind::Absolute32, 32U));
-        case llvm::COFF::IMAGE_REL_I386_REL32:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::PcRelative32, 32U, 4U, 4));
-        case llvm::COFF::IMAGE_REL_I386_SECREL:
-            return Result<FixupShape, Diagnostic>::success(
-                absolute(MachineFixupKind::SectionRelative32, 32U));
-        default:
-            break;
+    case Architecture::X86: {
+        const auto semantics = x86_fixup_semantics(BinaryFormat::COFF, type);
+        if (semantics.has_value()) {
+            return Result<FixupShape, Diagnostic>::success(FixupShape{
+                semantics.value().kind,
+                semantics.value().bitWidth,
+                semantics.value().isSigned,
+                semantics.value().pcRelative,
+                static_cast<std::uint8_t>(semantics.value().bitWidth / 8U),
+                semantics.value().pcBias,
+            });
         }
         break;
+    }
     case Architecture::X86_64:
         switch (type) {
         case llvm::COFF::IMAGE_REL_AMD64_ADDR64:
@@ -166,40 +160,20 @@ struct FixupShape {
     Architecture architecture,
     std::uint64_t type) -> Result<FixupShape, Diagnostic> {
     switch (architecture) {
-    case Architecture::X86:
-        switch (type) {
-        case llvm::ELF::R_386_8:
-            return Result<FixupShape, Diagnostic>::success(
-                absolute(MachineFixupKind::Absolute8, 8U));
-        case llvm::ELF::R_386_16:
-            return Result<FixupShape, Diagnostic>::success(
-                absolute(MachineFixupKind::Absolute16, 16U));
-        case llvm::ELF::R_386_32:
-            return Result<FixupShape, Diagnostic>::success(
-                absolute(MachineFixupKind::Absolute32, 32U));
-        case llvm::ELF::R_386_PC8:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::PcRelative8, 8U, 1U));
-        case llvm::ELF::R_386_PC16:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::PcRelative16, 16U, 2U));
-        case llvm::ELF::R_386_PC32:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::PcRelative32, 32U, 4U));
-        case llvm::ELF::R_386_PLT32:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::PltRelative32, 32U, 4U));
-        case llvm::ELF::R_386_GOT32:
-        case llvm::ELF::R_386_GOT32X:
+    case Architecture::X86: {
+        const auto semantics = x86_fixup_semantics(BinaryFormat::ELF, type);
+        if (semantics.has_value()) {
             return Result<FixupShape, Diagnostic>::success(FixupShape{
-                MachineFixupKind::GotRelative32, 32U, false, false, 4U, 0});
-        case llvm::ELF::R_386_GOTPC:
-            return Result<FixupShape, Diagnostic>::success(
-                relative(MachineFixupKind::GotRelative32, 32U, 4U));
-        default:
-            break;
+                semantics.value().kind,
+                semantics.value().bitWidth,
+                semantics.value().isSigned,
+                semantics.value().pcRelative,
+                static_cast<std::uint8_t>(semantics.value().bitWidth / 8U),
+                semantics.value().pcBias,
+            });
         }
         break;
+    }
     case Architecture::X86_64:
         switch (type) {
         case llvm::ELF::R_X86_64_8:

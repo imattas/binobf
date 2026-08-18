@@ -447,7 +447,7 @@ git commit -m "feat: support extended i386 ELF objects"
 - Consumes: COFF i386 and ELF i386 raw relocation numbers plus normalized addends.
 - Produces: inverse `fixup_semantics()`/`encode_fixup()` services for all declared x86 families.
 
-- [ ] **Step 1: Write table-driven fixup goldens**
+- [x] **Step 1: Write table-driven fixup goldens**
 
 For COFF cover `ABSOLUTE`, `DIR16`, `REL16`, `DIR32`, `DIR32NB`, `SEG12`, `SECTION`, `SECREL`,
 `TOKEN`, `SECREL7`, and `REL32`. For ELF cover `R_386_NONE`, `32`, `PC32`, `GOT32`, `PLT32`,
@@ -457,7 +457,7 @@ For COFF cover `ABSOLUTE`, `DIR16`, `REL16`, `DIR32`, `DIR32NB`, `SEG12`, `SECTI
 asserts stable kind, width, signedness, PC-relative flag/bias, implicit-addend
 state, zero/nonzero addend bytes, signed boundaries, and one-step overflow rejection.
 
-- [ ] **Step 2: Extend stable fixup kinds**
+- [x] **Step 2: Extend stable fixup kinds**
 
 Add only provider-neutral kinds required by the tables:
 
@@ -469,26 +469,26 @@ TlsOffset32, TlsGot32, TlsGeneralDynamic32, TlsLocalDynamic32,
 
 Update all exhaustive switches and `operator<=>` tests.
 
-- [ ] **Step 3: Implement constexpr semantics tables**
+- [x] **Step 3: Implement constexpr semantics tables**
 
 Use sorted private rows keyed by format/raw type. Reject duplicate table keys in a static assertion.
 Unknown values return `architecture.unsupported_fixup` naming architecture, format, and raw number.
 Encode with checked signed/unsigned bounds and little-endian bytes of exactly `bitWidth / 8`.
 
-- [ ] **Step 4: Cross-check LLVM normalization and object writers**
+- [x] **Step 4: Cross-check LLVM normalization and object writers**
 
 For each LLVM-emitted x86 external reference, normalize the object relocation, encode its addend,
 and require equality with the extracted section field. Add a parse-write-parse test proving REL
 implicit addends and COFF PC bias survive unchanged.
 
-- [ ] **Step 5: Run fixup/provider tests**
+- [x] **Step 5: Run fixup/provider tests**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_fixup_tests binobf_codegen_provider_tests
 ctest --test-dir build\m13-dev -R "x86_fixup|codegen_provider" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit x86 fixup services**
+- [x] **Step 6: Commit x86 fixup services**
 
 ```powershell
 git add CMakeLists.txt include/binobf/architecture/codegen.hpp src/architecture tests/unit/x86_fixup_tests.cpp tests/unit/codegen_provider_tests.cpp

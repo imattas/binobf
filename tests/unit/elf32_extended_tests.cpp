@@ -125,8 +125,9 @@ auto extended_image() -> binobf::BinaryImage {
     auto text = make_section(1, 1, 1, ".text", 6, 4);
     text.contents.resize(24, std::byte{0});
     text.logicalSize = text.contents.size();
+    constexpr std::array<std::int32_t, 5> relAddends{1, -2, -3, -4, -5};
     for (std::size_t index = 0; index < 5; ++index) {
-        put_i32(text.contents, index * 4U, -static_cast<std::int32_t>(index + 1U));
+        put_i32(text.contents, index * 4U, relAddends[index]);
     }
     auto tls = make_section(2, 2, 1, ".tdata", 0x403, 4);
     tls.contents.resize(4, std::byte{0});
@@ -208,7 +209,7 @@ auto extended_image() -> binobf::BinaryImage {
             .targetSymbol = relTypes[index] == 18
                 ? std::optional{binobf::EntityId{23}}
                 : std::optional{binobf::EntityId{21}},
-            .addend = -static_cast<std::int64_t>(index + 1U),
+            .addend = relAddends[index],
             .lineage = {},
         });
     }
@@ -266,10 +267,10 @@ TEST_CASE(elf32_extended_metadata_groups_symbols_and_relocations_round_trip) {
                binobf::TlsModel::GeneralDynamic);
     REQUIRE_EQ(parsed.value().relocations.size(), std::size_t{6});
     constexpr std::array<std::uint64_t, 6> expectedTypes{3, 4, 9, 10, 18, 1};
+    constexpr std::array<std::int64_t, 5> expectedAddends{1, -2, -3, -4, -5};
     for (std::size_t index = 0; index < 5; ++index) {
         REQUIRE_EQ(parsed.value().relocations[index].rawType, expectedTypes[index]);
-        REQUIRE_EQ(parsed.value().relocations[index].addend,
-                   -static_cast<std::int64_t>(index + 1U));
+        REQUIRE_EQ(parsed.value().relocations[index].addend, expectedAddends[index]);
     }
     REQUIRE_EQ(parsed.value().relocations.back().rawType, expectedTypes.back());
     REQUIRE_EQ(parsed.value().relocations.back().addend, INT64_C(-7));

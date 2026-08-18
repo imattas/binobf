@@ -1,7 +1,7 @@
 #include "../object_parser_internal.hpp"
+#include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
-#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -197,13 +197,17 @@ auto implicit_i386_addend(
     std::span<const std::byte> contents,
     std::uint64_t offset,
     std::uint64_t rawType) -> std::optional<std::int64_t> {
-    if (rawType == 0) return INT64_C(0);
+    const auto semantics = binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
+    if (!semantics.has_value()) return std::nullopt;
     const auto hostOffset = to_size(offset);
     if (!hostOffset) return std::nullopt;
-    const auto value = span_u32(contents, *hostOffset);
-    return value.has_value()
-        ? std::optional<std::int64_t>{std::bit_cast<std::int32_t>(*value)}
-        : std::nullopt;
+    const auto byteCount = static_cast<std::size_t>(semantics.value().bitWidth / 8U);
+    if (*hostOffset > contents.size() || byteCount > contents.size() - *hostOffset) {
+        return std::nullopt;
+    }
+    const auto decoded = binobf::detail::decode_x86_fixup(
+        semantics.value(), contents.subspan(*hostOffset, byteCount));
+    return decoded.has_value() ? std::optional{decoded.value()} : std::nullopt;
 }
 
 auto tls_model_for_i386_relocation(std::uint64_t rawType) noexcept

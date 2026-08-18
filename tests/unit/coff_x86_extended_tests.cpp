@@ -277,11 +277,39 @@ TEST_CASE(coff_x86_all_defined_relocation_types_round_trip_without_loss) {
     for (std::size_t index = 0; index < rawTypes.size(); ++index) {
         REQUIRE_EQ(parsed.relocations[index].rawType,
                    static_cast<std::uint64_t>(rawTypes[index]));
+        REQUIRE_EQ(parsed.relocations[index].addend, INT64_C(0));
     }
+}
+
+TEST_CASE(coff_x86_pc_relative_bias_is_inverse_across_write_and_parse) {
+    auto image = base_image();
+    image.sections[0].contents.assign(4, std::byte{0xff});
+    image.sections[0].logicalSize = image.sections[0].contents.size();
+    image.symbols.push_back(undefined_symbol(3, 1, "target"));
+    image.relocations.push_back(binobf::Relocation{
+        .id = binobf::EntityId{10},
+        .formatIndex = 0,
+        .formatTableIndex = 1,
+        .section = binobf::EntityId{1},
+        .offset = 0,
+        .kind = binobf::RelocationKind::PcRelative,
+        .rawType = 0x0014,
+        .targetSymbol = binobf::EntityId{3},
+        .addend = -4,
+        .lineage = {},
+    });
+
+    const auto parsed = round_trip(image);
+    REQUIRE_EQ(parsed.relocations.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.relocations[0].addend, INT64_C(-4));
+    REQUIRE_EQ(parsed.sections[0].contents,
+               std::vector<std::byte>(4, std::byte{0}));
 }
 
 TEST_CASE(coff_x86_relocation_overflow_round_trips_65536_real_entries) {
     auto image = base_image();
+    image.sections[0].contents.resize(4, std::byte{0});
+    image.sections[0].logicalSize = image.sections[0].contents.size();
     image.sections[0].formatFlags |= relocationOverflowFlag;
     image.symbols.push_back(undefined_symbol(3, 1, "target"));
     constexpr std::size_t relocationCount = 65'536;

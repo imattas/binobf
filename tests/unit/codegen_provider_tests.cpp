@@ -269,6 +269,23 @@ TEST_CASE(codegen_provider_normalizes_external_call_fixups) {
                     " expected=" +
                     std::to_string(static_cast<unsigned int>(item.kind)));
         }
+        if (item.architecture == binobf::Architecture::X86) {
+            auto backend = binobf::make_architecture_backend(binobf::Architecture::X86);
+            REQUIRE(backend.has_value());
+            const auto rawType = item.format == binobf::BinaryFormat::COFF
+                ? UINT64_C(0x14)
+                : UINT64_C(2);
+            const auto semantics = backend.value()->fixup_semantics(item.format, rawType);
+            REQUIRE(semantics.has_value());
+            const auto encoded = backend.value()->encode_fixup(
+                semantics.value(), fixup.addend);
+            REQUIRE(encoded.has_value());
+            const auto begin = emission.value().bytes.begin()
+                + static_cast<std::ptrdiff_t>(fixup.offset);
+            const std::vector<std::byte> field(
+                begin, begin + static_cast<std::ptrdiff_t>(encoded.value().fieldBytes.size()));
+            REQUIRE_EQ(field, encoded.value().fieldBytes);
+        }
         const auto repeated = provider.value()->emit(request);
         REQUIRE(repeated.has_value());
         REQUIRE_EQ(repeated.value().fixups, emission.value().fixups);
@@ -425,6 +442,19 @@ TEST_CASE(codegen_provider_preserves_i386_got_relocation_semantics_and_addends) 
                binobf::MachineFixupKind::GotRelative32);
     REQUIRE(!got.value().fixups.front().pcRelative);
     REQUIRE_EQ(got.value().fixups.front().addend, 7);
+    auto backend = binobf::make_architecture_backend(binobf::Architecture::X86);
+    REQUIRE(backend.has_value());
+    const auto gotSemantics = backend.value()->fixup_semantics(
+        binobf::BinaryFormat::ELF, 3U);
+    REQUIRE(gotSemantics.has_value());
+    const auto gotField = backend.value()->encode_fixup(
+        gotSemantics.value(), got.value().fixups.front().addend);
+    REQUIRE(gotField.has_value());
+    const auto gotOffset = static_cast<std::size_t>(got.value().fixups.front().offset);
+    REQUIRE_EQ(std::vector<std::byte>(
+                   got.value().bytes.begin() + static_cast<std::ptrdiff_t>(gotOffset),
+                   got.value().bytes.begin() + static_cast<std::ptrdiff_t>(gotOffset + 4U)),
+               gotField.value().fieldBytes);
 
     request.assembly = "lea eax, [_GLOBAL_OFFSET_TABLE_ + 11]\n";
     const auto gotPc = provider.value()->emit(request);
@@ -433,9 +463,21 @@ TEST_CASE(codegen_provider_preserves_i386_got_relocation_semantics_and_addends) 
     }
     REQUIRE_EQ(gotPc.value().fixups.size(), 1U);
     REQUIRE_EQ(gotPc.value().fixups.front().kind,
-               binobf::MachineFixupKind::GotRelative32);
+               binobf::MachineFixupKind::GotPcRelative32);
     REQUIRE(gotPc.value().fixups.front().pcRelative);
     REQUIRE_EQ(gotPc.value().fixups.front().addend, 13);
+    const auto gotPcSemantics = backend.value()->fixup_semantics(
+        binobf::BinaryFormat::ELF, 10U);
+    REQUIRE(gotPcSemantics.has_value());
+    const auto gotPcField = backend.value()->encode_fixup(
+        gotPcSemantics.value(), gotPc.value().fixups.front().addend);
+    REQUIRE(gotPcField.has_value());
+    const auto gotPcOffset = static_cast<std::size_t>(gotPc.value().fixups.front().offset);
+    REQUIRE_EQ(std::vector<std::byte>(
+                   gotPc.value().bytes.begin() + static_cast<std::ptrdiff_t>(gotPcOffset),
+                   gotPc.value().bytes.begin()
+                       + static_cast<std::ptrdiff_t>(gotPcOffset + 4U)),
+               gotPcField.value().fieldBytes);
 }
 
 int main() {

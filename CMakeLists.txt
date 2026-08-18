@@ -107,6 +107,7 @@ if(BINOBF_ENABLE_UNDEFINED_SANITIZER OR BINOBF_ENABLE_ADDRESS_SANITIZER)
 endif()
 
 set(BINOBF_CORE_SOURCES
+    src/architecture/capstone_backend.cpp
     src/capabilities/evidence.cpp
     src/capabilities/render.cpp
     src/capabilities/registry.cpp
@@ -469,6 +470,14 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_instruction_decoder_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_instruction_decoder_tests)
     add_test(NAME instruction_decoder COMMAND binobf_instruction_decoder_tests)
+
+    add_executable(
+        binobf_architecture_backend_tests
+        tests/unit/architecture_backend_tests.cpp
+    )
+    target_link_libraries(binobf_architecture_backend_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_architecture_backend_tests)
+    add_test(NAME architecture_backend COMMAND binobf_architecture_backend_tests)
 
     add_executable(binobf_object_analyzer_tests tests/unit/object_analyzer_tests.cpp)
     target_link_libraries(binobf_object_analyzer_tests PRIVATE binobf::core)

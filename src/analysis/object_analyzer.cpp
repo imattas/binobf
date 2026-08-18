@@ -1,6 +1,6 @@
 #include <binobf/analysis/object_analyzer.hpp>
 
-#include <binobf/analysis/instruction_decoder.hpp>
+#include <binobf/architecture/backend.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -439,12 +439,12 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
             "analysis.unsupported_architecture",
             "cannot analyze an object with unknown architecture"));
     }
-    auto decoderResult = make_instruction_decoder();
-    if (!decoderResult.has_value()) {
+    auto backendResult = make_architecture_backend(input.architecture);
+    if (!backendResult.has_value()) {
         return Result<AnalysisReport, Diagnostic>::failure(
-            std::move(decoderResult).error());
+            std::move(backendResult).error());
     }
-    auto decoder = std::move(decoderResult).value();
+    auto backend = std::move(backendResult).value();
     AnalysisReport report{.image = input, .diagnostics = {}};
     report.image.instructions.clear();
     report.image.basicBlocks.clear();
@@ -574,7 +574,7 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
                 .sectionId = candidate.section->id,
                 .sectionOffset = cursor,
             };
-            auto decoded = decoder->decode(request);
+            auto decoded = backend->decode(request);
             Instruction instruction;
             if (!decoded.has_value()) {
                 const auto width = fallback_width(report.image.architecture, remaining);

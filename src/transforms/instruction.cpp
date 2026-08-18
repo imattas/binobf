@@ -1,7 +1,7 @@
 #include <binobf/transforms/instruction.hpp>
 
-#include <binobf/analysis/instruction_decoder.hpp>
 #include <binobf/analysis/object_analyzer.hpp>
+#include <binobf/architecture/backend.hpp>
 #include <binobf/support/deterministic_rng.hpp>
 
 #include <algorithm>
@@ -204,13 +204,11 @@ auto successful_result(PassStatistics statistics)
 }
 
 auto decoded_replacement(
+    const ArchitectureBackend& backend,
     const Instruction& source,
-    Architecture architecture,
     std::span<const std::byte> replacement) -> std::optional<Instruction> {
-    auto decoder = make_instruction_decoder();
-    if (!decoder.has_value()) return std::nullopt;
-    auto decoded = decoder.value()->decode(DecodeRequest{
-        .architecture = architecture,
+    auto decoded = backend.decode(DecodeRequest{
+        .architecture = backend.architecture(),
         .bytes = replacement,
         .address = source.address,
         .instructionId = source.id,
@@ -240,6 +238,12 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(
+                std::move(backendResult).error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         DeterministicRng rng{context.seed() ^ substitutionSalt};
         TransformId transform;
@@ -274,7 +278,7 @@ public:
                     const auto mask = static_cast<unsigned int>(rng.uniform(255) + 1U);
                     replacement.back() ^= static_cast<std::byte>(mask);
                     const auto decoded = decoded_replacement(
-                        *instruction, image.architecture, replacement);
+                        *backend, *instruction, replacement);
                     accepted = decoded.has_value()
                         && decoded->encoding.size() == replacement.size()
                         && decoded->mnemonic == "nop"
@@ -361,6 +365,12 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(
+                std::move(backendResult).error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         DeterministicRng rng{context.seed() ^ constantSalt};
         TransformId transform;
@@ -452,7 +462,7 @@ public:
                     replacement[fill + 2] = static_cast<std::byte>(rng.uniform(4));
                 }
                 const auto decoded = decoded_replacement(
-                    *instruction, image.architecture,
+                    *backend, *instruction,
                     std::span<const std::byte>{replacement}.first(
                         replacementRex != 0 ? 7U : 6U));
                 if (!decoded.has_value() || decoded->mnemonic != "mov") {

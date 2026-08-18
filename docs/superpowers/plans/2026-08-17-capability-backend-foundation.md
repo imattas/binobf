@@ -592,7 +592,7 @@ ctest --test-dir build\m12-verify-debug `
 
 Expected: both tests pass and all generated text remains current and deterministic.
 
-- [ ] **Step 7: Commit registry-backed presentation**
+- [x] **Step 7: Commit registry-backed presentation**
 
 ```powershell
 git add CMakeLists.txt README.md include/binobf/capabilities/render.hpp `
@@ -623,7 +623,7 @@ git commit -m "refactor: render capability claims from registry"
   `make_architecture_backend(Architecture)`, and a compatibility `make_instruction_decoder()`
   dispatcher.
 
-- [ ] **Step 1: Write failing backend identity, service, and mismatch tests**
+- [x] **Step 1: Write failing backend identity, service, and mismatch tests**
 
 Create `tests/unit/architecture_backend_tests.cpp`:
 
@@ -672,7 +672,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: Register the test and verify the missing backend contract**
+- [x] **Step 2: Register the test and verify the missing backend contract**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_architecture_backend_tests
@@ -680,7 +680,7 @@ cmake --build build\m12-verify-debug --target binobf_architecture_backend_tests
 
 Expected: compilation fails because `binobf/architecture/backend.hpp` is absent.
 
-- [ ] **Step 3: Define the backend service and decoder interface**
+- [x] **Step 3: Define the backend service and decoder interface**
 
 Create `include/binobf/architecture/backend.hpp`:
 
@@ -731,7 +731,7 @@ Keep `DecodeRequest::architecture` during this migration so mismatches are diagn
 table truthfully marks only currently implemented services supported; it mirrors matrix states for
 analysis/code generation and contains evidence IDs for supported decode.
 
-- [ ] **Step 4: Move Capstone ownership into fixed-architecture backend instances**
+- [x] **Step 4: Move Capstone ownership into fixed-architecture backend instances**
 
 Move the Capstone implementation to `src/architecture/capstone_backend.cpp`. Construct each backend
 with one `Architecture`, call `Handle::open(architecture_)`, and reject a decode request whose
@@ -742,13 +742,13 @@ Keep `make_instruction_decoder()` in `src/analysis/capstone_instruction_decoder.
 compatibility object. Its `decode` creates the matching architecture backend and delegates once.
 This avoids breaking installed consumers while internal paths migrate.
 
-- [ ] **Step 5: Route object analysis and instruction reanalysis through one backend instance**
+- [x] **Step 5: Route object analysis and instruction reanalysis through one backend instance**
 
 In `analyze_object`, create one backend for `input.architecture` before function decoding and reuse
 it for every instruction. In instruction transforms, create one backend for the image architecture
 and reuse it for post-transform re-decoding. Propagate backend creation diagnostics unchanged.
 
-- [ ] **Step 6: Run golden decoder, analyzer, transform, and backend tests**
+- [x] **Step 6: Run golden decoder, analyzer, transform, and backend tests**
 
 ```powershell
 cmake --build build\m12-verify-debug --target `

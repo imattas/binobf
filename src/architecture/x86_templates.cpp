@@ -62,11 +62,11 @@ auto checked_displacement(
     }
     const auto source = request.source->address.value;
     const auto target = *request.targetAddress;
-    if (source > std::numeric_limits<std::uint32_t>::max()
-        || target > std::numeric_limits<std::uint32_t>::max()
-        || source > std::numeric_limits<std::uint32_t>::max() - size) {
+    if (source > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+        || target > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+        || source > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) - size) {
         return failure<std::int64_t>(
-            "architecture.target_out_of_range", "i386 branch target is outside 32-bit range");
+            "architecture.target_out_of_range", "x86 branch target is outside signed address range");
     }
     const auto displacement = static_cast<std::int64_t>(target)
         - static_cast<std::int64_t>(source + size);
@@ -104,10 +104,13 @@ auto emit_bytes(
             "architecture.resource_limit", "x86 template exceeds the request limits");
     }
     MachineAssemblyRequest assemblyRequest{};
-    assemblyRequest.architecture = Architecture::X86;
+    assemblyRequest.architecture = request.architecture;
     assemblyRequest.format = request.format;
     assemblyRequest.triple = request.format == BinaryFormat::COFF
-        ? "i686-pc-windows-msvc" : "i386-unknown-linux-gnu";
+        ? (request.architecture == Architecture::X86_64
+                ? "x86_64-pc-windows-msvc" : "i686-pc-windows-msvc")
+        : (request.architecture == Architecture::X86_64
+                ? "x86_64-unknown-linux-gnu" : "i386-unknown-linux-gnu");
     assemblyRequest.syntax = MachineSyntax::Intel;
     assemblyRequest.baseAddress = request.source.has_value()
         ? request.source->address : BinaryAddress{};
@@ -139,7 +142,7 @@ auto emit_bytes(
 auto emit_x86_transform(
     const MachineTransformRequest& request,
     const CodegenProvider& codegen) -> Result<MachineTransformEmission, Diagnostic> {
-    if (request.architecture != Architecture::X86) {
+    if (request.architecture != Architecture::X86 && request.architecture != Architecture::X86_64) {
         return failure<MachineTransformEmission>(
             "architecture.request_mismatch", "x86 template request has the wrong architecture");
     }

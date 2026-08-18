@@ -18,6 +18,12 @@ auto backend() -> std::unique_ptr<binobf::ArchitectureBackend> {
     return std::move(result).value();
 }
 
+auto backend_x64() -> std::unique_ptr<binobf::ArchitectureBackend> {
+    auto result = binobf::make_architecture_backend(binobf::Architecture::X86_64);
+    if (!result.has_value()) throw std::runtime_error(result.error().message);
+    return std::move(result).value();
+}
+
 auto source_instruction(std::uint64_t address = 0x1000U) -> binobf::Instruction {
     binobf::Instruction result{};
     result.id = binobf::EntityId{1};
@@ -78,6 +84,22 @@ TEST_CASE(x86_instruction_equivalents_are_exact_and_fully_decodable) {
         REQUIRE(!emitted.value().readsFlags);
         REQUIRE(!emitted.value().writesFlags);
     }
+}
+
+TEST_CASE(x86_64_supports_relocation_free_nop_equivalents) {
+    auto fixed = backend_x64();
+    binobf::MachineTransformRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.kind = binobf::MachineTransformKind::InstructionEquivalent;
+    request.source = source_instruction();
+    request.exactSize = 5;
+    const auto emitted = fixed->emit_transform(request);
+    REQUIRE(emitted.has_value());
+    REQUIRE_EQ(emitted.value().emission.bytes.size(), std::size_t{5});
+    REQUIRE_EQ(emitted.value().controlFlow, binobf::MachineControlFlow::Fallthrough);
+    REQUIRE(!emitted.value().readsFlags);
+    REQUIRE(!emitted.value().writesFlags);
 }
 
 TEST_CASE(x86_constant_templates_materialize_eax_and_ecx) {

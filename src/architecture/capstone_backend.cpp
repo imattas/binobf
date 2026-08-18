@@ -301,7 +301,7 @@ public:
                 "transform request architecture does not match the fixed backend");
         }
         Result<MachineTransformEmission, Diagnostic> emitted =
-            architecture_ == Architecture::X86
+            architecture_ == Architecture::X86 || architecture_ == Architecture::X86_64
             ? detail::emit_x86_transform(request, *codegen_)
             : architecture_ == Architecture::ARM64
                 ? detail::emit_arm64_transform(request, *codegen_)

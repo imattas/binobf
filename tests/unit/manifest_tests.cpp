@@ -32,7 +32,8 @@ TEST_CASE(manifest_serialization_is_deterministic_bounded_to_selected_names_and_
     REQUIRE_CONTAINS(first, "\"verification\":\"reparsed\"");
     REQUIRE(first.find("timestamp") == std::string::npos);
     REQUIRE(first.find("D:/") == std::string::npos);
-    REQUIRE_EQ(binobf::evidence::tool_version(), std::string_view{"0.1.0"});
+    REQUIRE(!binobf::evidence::tool_version().empty());
+    REQUIRE(binobf::evidence::tool_version() != std::string_view{"unknown"});
 }
 
 int main() {

@@ -1,6 +1,7 @@
 #include "../test_support.hpp"
 
 #include <binobf/cli/command.hpp>
+#include <binobf/capabilities/render.hpp>
 #include <binobf/formats/archive.hpp>
 #include <binobf/formats/object_parser.hpp>
 #include <binobf/formats/object_writer.hpp>
@@ -350,29 +351,24 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
     std::ostringstream errors;
     const std::array formats{"formats"sv};
     REQUIRE_EQ(binobf::cli::run_cli(formats, output, errors), 0);
-    REQUIRE_CONTAINS(output.str(), "PE");
-    REQUIRE_CONTAINS(output.str(), "COFF");
-    REQUIRE_CONTAINS(output.str(), "ELF");
-    REQUIRE_CONTAINS(output.str(), "archive");
-    REQUIRE_CONTAINS(output.str(), "detection=supported");
-    REQUIRE_CONTAINS(output.str(), "linked-parsing=supported");
-    REQUIRE_CONTAINS(output.str(), "linked-emission=supported");
-    REQUIRE_CONTAINS(output.str(), "linked-debug-strip=supported");
-    REQUIRE_CONTAINS(output.str(), "baseline-transformation=supported");
-    REQUIRE_CONTAINS(output.str(), "verification=supported");
-    REQUIRE_CONTAINS(output.str(), "vm-protection=restricted");
+    REQUIRE_EQ(
+        output.str(),
+        "PE detection=supported parsing=n/a emission=supported linked-parsing=supported verification=supported baseline-transformation=supported strip-debug machine-code-transformation=planned vm-lowering=n/a vm-protection=n/a\n"
+        "COFF detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
+        "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported including linked machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
+        "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=unsupported vm-protection=unsupported\n");
+    REQUIRE(errors.str().empty());
 
     output.str({});
     errors.str({});
     const std::array architectures{"architectures"sv};
     REQUIRE_EQ(binobf::cli::run_cli(architectures, output, errors), 0);
-    REQUIRE_CONTAINS(output.str(), "x86 detection=supported");
-    REQUIRE_CONTAINS(output.str(), "x86-64 detection=supported");
-    REQUIRE_CONTAINS(output.str(), "arm64 detection=supported");
-    REQUIRE_CONTAINS(output.str(), "decoder=supported");
-    REQUIRE_CONTAINS(output.str(), "x86-64 detection=supported decoder=supported object-analysis=supported");
-    REQUIRE_CONTAINS(output.str(), "object-analysis=experimental");
-    REQUIRE_CONTAINS(output.str(), "codegen=planned");
+    REQUIRE_EQ(
+        output.str(),
+        "x86 detection=supported decoder=supported object-analysis=experimental codegen=planned\n"
+        "x86-64 detection=supported decoder=supported object-analysis=supported codegen=restricted object backend\n"
+        "arm64 detection=supported decoder=supported object-analysis=experimental codegen=planned\n");
+    REQUIRE(errors.str().empty());
 }
 
 TEST_CASE(analyze_reports_normalized_object_counts_without_modifying_input) {
@@ -567,23 +563,7 @@ TEST_CASE(passes_command_reports_baseline_capabilities) {
     std::ostringstream output;
     std::ostringstream errors;
     REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
-    REQUIRE_CONTAINS(output.str(), "strip-debug");
-    REQUIRE_CONTAINS(output.str(), "rename-private-symbols");
-    REQUIRE_CONTAINS(output.str(), "cleanup-metadata");
-    REQUIRE_CONTAINS(output.str(), "strip-local-symbols");
-    REQUIRE_CONTAINS(output.str(), "object=supported");
-    REQUIRE_CONTAINS(output.str(), "x86-64=supported");
-    REQUIRE_CONTAINS(output.str(), "instruction-substitution");
-    REQUIRE_CONTAINS(output.str(), "constant-rewriting");
-    REQUIRE_CONTAINS(output.str(), "branch-inversion");
-    REQUIRE_CONTAINS(output.str(), "block-splitting");
-    REQUIRE_CONTAINS(output.str(), "dead-code-insertion");
-    REQUIRE_CONTAINS(output.str(), "block-reordering");
-    REQUIRE_CONTAINS(output.str(), "function-reordering");
-    REQUIRE_CONTAINS(output.str(), "risk=medium");
-    REQUIRE_CONTAINS(output.str(), "x86=experimental");
-    REQUIRE_CONTAINS(output.str(), "arm64=experimental");
-    REQUIRE_CONTAINS(output.str(), "post-link=unsupported");
+    REQUIRE_EQ(output.str(), binobf::render_pass_capabilities_text());
     REQUIRE(errors.str().empty());
 }
 

@@ -489,7 +489,7 @@ ctest --test-dir build\m12-verify-debug `
 Expected: all four tests pass, profiles retain their order, and an unknown pass still exits with
 the existing diagnostic.
 
-- [ ] **Step 6: Commit the pass registry**
+- [x] **Step 6: Commit the pass registry**
 
 ```powershell
 git add CMakeLists.txt include/binobf/transforms/registry.hpp `
@@ -516,7 +516,7 @@ git commit -m "refactor: centralize transform pass registration"
 - Produces: `render_format_capabilities_text()`, `render_architecture_capabilities_text()`,
   `render_pass_capabilities_text()`, and `render_feature_matrix_markdown()`.
 
-- [ ] **Step 1: Write failing exact-render tests**
+- [x] **Step 1: Write failing exact-render tests**
 
 Create `tests/unit/capability_render_tests.cpp` with assertions that:
 
@@ -539,7 +539,7 @@ REQUIRE_CONTAINS(
 Add a second case that checks the markdown renderer emits the exact 9-row format table and 3-row
 architecture table in deterministic order.
 
-- [ ] **Step 2: Register the test and confirm the missing-renderer failure**
+- [x] **Step 2: Register the test and confirm the missing-renderer failure**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_capability_render_tests
@@ -547,7 +547,7 @@ cmake --build build\m12-verify-debug --target binobf_capability_render_tests
 
 Expected: compile failure because `binobf/capabilities/render.hpp` is absent.
 
-- [ ] **Step 3: Implement deterministic rendering from registry records**
+- [x] **Step 3: Implement deterministic rendering from registry records**
 
 Declare the four functions in `include/binobf/capabilities/render.hpp`, each returning
 `std::string`. Implement fixed presentation order arrays and look up every cell by `CapabilityKey`.
@@ -560,13 +560,13 @@ For pass output, instantiate each `registered_passes()` factory once, read `name
 post-link fields from those values. Do not duplicate pass names or requirement claims in the
 renderer.
 
-- [ ] **Step 4: Replace the CLI's hard-coded capability strings**
+- [x] **Step 4: Replace the CLI's hard-coded capability strings**
 
 Change `print_formats`, `print_architectures`, and `print_passes` to write the corresponding
 renderer result. Update CLI tests to compare the entire expected output, not isolated substrings.
 This test must prove output is byte-stable and still reflects the current non-supported statuses.
 
-- [ ] **Step 5: Bind the README tables to generated markdown**
+- [x] **Step 5: Bind the README tables to generated markdown**
 
 Wrap the two README tables with these markers:
 
@@ -581,7 +581,7 @@ between the markers, and compares them with `render_feature_matrix_markdown`. Re
 command with `${CMAKE_CURRENT_SOURCE_DIR}/README.md`. A table edit without a registry change must
 fail this test.
 
-- [ ] **Step 6: Run renderer and CLI tests**
+- [x] **Step 6: Run renderer and CLI tests**
 
 ```powershell
 cmake --build build\m12-verify-debug --target `

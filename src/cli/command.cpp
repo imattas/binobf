@@ -1,6 +1,8 @@
 #include <binobf/cli/command.hpp>
 
 #include <binobf/analysis/object_analyzer.hpp>
+#include <binobf/capabilities/render.hpp>
+#include <binobf/capabilities/registry.hpp>
 #include <binobf/config/config.hpp>
 #include <binobf/core/diagnostic.hpp>
 #include <binobf/core/types.hpp>
@@ -1331,63 +1333,15 @@ auto transform(
 }
 
 void print_formats(std::ostream& output) {
-    output
-        << "PE detection=supported linked-parsing=supported linked-emission=supported"
-           " linked-verification=supported linked-debug-strip=supported\n"
-        << "COFF detection=supported parsing=supported emission=supported verification=supported"
-           " baseline-transformation=supported machine-code-transformation=supported"
-           " vm-lowering=restricted vm-protection=restricted\n"
-        << "ELF detection=supported parsing=supported emission=supported verification=supported"
-           " baseline-transformation=supported machine-code-transformation=supported"
-           " vm-lowering=restricted vm-protection=restricted"
-           " linked-parsing=supported linked-emission=supported"
-           " linked-verification=supported linked-debug-strip=supported\n"
-        << "archive detection=supported parsing=supported emission=supported"
-           " verification=supported object-member-transformation=supported\n";
+    output << render_format_capabilities_text(builtin_capability_registry());
 }
 
 void print_architectures(std::ostream& output) {
-    output
-        << "x86 detection=supported decoder=supported object-analysis=experimental codegen=planned\n"
-        << "x86-64 detection=supported decoder=supported object-analysis=supported"
-           " object-transforms=supported vm-lowering=restricted"
-           " vm-protection=restricted codegen=restricted\n"
-        << "arm64 detection=supported decoder=supported object-analysis=experimental codegen=planned\n";
+    output << render_architecture_capabilities_text(builtin_capability_registry());
 }
 
 void print_passes(std::ostream& output) {
-    output
-        << "strip-debug risk=low object=supported formats=COFF,ELF"
-           " x86=experimental x86-64=supported arm64=experimental"
-           " post-link=supported formats=PE,ELF address-change=no\n"
-        << "cleanup-metadata risk=low object=supported formats=COFF,ELF"
-           " x86=experimental x86-64=supported arm64=experimental post-link=unsupported\n"
-        << "strip-local-symbols risk=low object=supported formats=COFF,ELF"
-           " relocations=required x86=experimental x86-64=supported"
-           " arm64=experimental post-link=unsupported\n"
-        << "rename-private-symbols risk=low object=supported formats=COFF,ELF"
-           " x86=experimental x86-64=supported arm64=experimental post-link=unsupported\n"
-        << "instruction-substitution risk=medium object=supported formats=COFF,ELF"
-           " cfg=no relocations=overlap-checked size-change=no"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n"
-        << "constant-rewriting risk=medium object=supported formats=COFF,ELF"
-           " cfg=no relocations=overlap-checked size-change=no"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n"
-        << "branch-inversion risk=medium object=supported formats=COFF,ELF"
-           " cfg=yes relocations=overlap-checked size-change=no"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n"
-        << "dead-code-insertion risk=medium object=supported formats=COFF,ELF"
-           " cfg=yes relocations=overlap-checked size-change=no side-effects=none"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n"
-        << "block-splitting risk=medium object=supported formats=COFF,ELF"
-           " cfg=yes relocations=overlap-checked size-change=no"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n"
-        << "block-reordering risk=medium object=supported formats=COFF,ELF"
-           " cfg=yes relocations=none size-change=no entry=pinned"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n"
-        << "function-reordering risk=medium object=supported formats=COFF,ELF"
-           " cfg=yes relocations=required size-change=no"
-           " x86=unsupported x86-64=supported arm64=unsupported post-link=unsupported\n";
+    output << render_pass_capabilities_text();
 }
 
 struct VmLowerOptions {

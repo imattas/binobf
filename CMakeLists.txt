@@ -108,6 +108,7 @@ endif()
 
 set(BINOBF_CORE_SOURCES
     src/capabilities/evidence.cpp
+    src/capabilities/render.cpp
     src/capabilities/registry.cpp
     src/formats/archive.cpp
     src/formats/archive_writer.cpp
@@ -369,6 +370,17 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_capability_registry_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_capability_registry_tests)
     add_test(NAME capability_registry COMMAND binobf_capability_registry_tests)
+
+    add_executable(
+        binobf_capability_render_tests
+        tests/unit/capability_render_tests.cpp
+    )
+    target_link_libraries(binobf_capability_render_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_capability_render_tests)
+    add_test(
+        NAME capability_render
+        COMMAND binobf_capability_render_tests "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+    )
 
     add_executable(binobf_diagnostic_tests tests/unit/diagnostic_tests.cpp)
     target_link_libraries(binobf_diagnostic_tests PRIVATE binobf::core)

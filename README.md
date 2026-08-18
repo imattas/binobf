@@ -10,6 +10,7 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 
 ## Current feature matrix
 
+<!-- binobf:feature-matrix:start -->
 | Capability | PE | COFF object | ELF | Archive |
 |---|---:|---:|---:|---:|
 | Header/container detection | supported | supported | supported | supported |
@@ -17,17 +18,17 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 | Linked-image detailed parsing | supported | n/a | supported | n/a |
 | Structural verification | supported | supported | supported | supported |
 | Exact linked/object emission | supported | supported | supported | supported |
-| Baseline metadata transformations | `strip-debug` | supported | supported, including linked | supported per object member |
+| Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported per object member |
 | x86-64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |
 | Selected x86-64 function VM lowering | n/a | restricted | restricted | unsupported |
 | Embedded selected-function VM protection | n/a | restricted | restricted | unsupported |
-| Standalone architecture-neutral VM core | n/a | n/a | n/a | n/a |
 
 | Architecture | Detection | Decoder | Object analysis | Code generation |
 |---|---:|---:|---:|---:|
 | x86 | supported | supported | experimental | planned |
 | x86-64 | supported | supported | supported | restricted object backend |
 | ARM64 | supported | supported | experimental | planned |
+<!-- binobf:feature-matrix:end -->
 
 PE classification includes executables, DLLs, and `.sys` files after a valid PE header is established. ELF classification includes relocatable objects, executables, and shared objects. GNU/BSD-style `ar` containers and Microsoft COFF `.lib` files expose resolved member names, ELF/COFF objects, import records, metadata, architecture, and symbol-to-member relationships.
 

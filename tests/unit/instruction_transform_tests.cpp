@@ -421,7 +421,7 @@ TEST_CASE(function_reordering_declines_unrelocated_cross_function_direct_calls) 
 
 TEST_CASE(instruction_passes_decline_unsupported_architectures_and_report_medium_risk) {
     auto image = make_image(bytes({0x90, 0xc3}));
-    image.architecture = binobf::Architecture::ARM64;
+    image.architecture = binobf::Architecture::Unknown;
     add_function(image, 2, "unsupported", 0, 2);
     auto pass = binobf::make_instruction_substitution_pass();
     const auto requirements = pass->requirements();

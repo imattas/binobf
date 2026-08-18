@@ -573,14 +573,14 @@ git commit -m "feat: own ARM64 object unwind metadata"
 - Consumes: complete ARM64 analysis, templates, fixups, unwind ownership, and rewrite plans.
 - Produces: all seven eligible transformations on ARM64 COFF/ELF.
 
-- [ ] **Step 1: Add RED per-pass integration cases**
+- [x] **Step 1: Add RED per-pass integration cases**
 
 For both formats, require `Applied`, nonzero exact statistics, deterministic seeded bytes, successful
 reparse/reanalysis, and semantic preservation. Add `Unchanged` for no candidate and `Unsupported`
 for unknown metadata, misalignment, incomplete CFG, indirect control flow, optional ISA, and
 out-of-range branch repair.
 
-- [ ] **Step 2: Prove architecture gating**
+- [x] **Step 2: Prove architecture gating**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_transform_integration_tests
@@ -588,26 +588,26 @@ cmake --build build\m13-verify-debug --target binobf_arm64_transform_integration
 
 Expected: target missing, then ARM64 declines on x86-only pass logic.
 
-- [ ] **Step 3: Remove x86 assumptions from exact passes**
+- [x] **Step 3: Remove x86 assumptions from exact passes**
 
 Select by decoded semantics/backend support. Require four-byte windows, fixed source coverage,
 relocation non-overlap, unchanged address/size, and decoded-effect equality. Use normalized register
 and condition names.
 
-- [ ] **Step 4: Generalize layout passes**
+- [x] **Step 4: Generalize layout passes**
 
 Build orders from CFG entities; request A64 direct branches; remap branch26/19/14 and ADR/ADRP/low12
 groups; update symbols, groups, unwind, and lineage; then run the shared verifier. Reject branches
 requiring a veneer inside the object transaction.
 
-- [ ] **Step 5: Run transform and rewrite tests**
+- [x] **Step 5: Run transform and rewrite tests**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_instruction_transform_tests binobf_arm64_transform_integration_tests binobf_object_rewrite_tests
 ctest --test-dir build\m13-verify-debug -C Debug -R "^(instruction_transforms|arm64_transform_integration|object_rewrite)$" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit ARM64 transformations**
+- [x] **Step 6: Commit ARM64 transformations**
 
 ```powershell
 git add CMakeLists.txt src/transforms tests/unit/instruction_transform_tests.cpp tests/integration/arm64_transform_integration_tests.cpp

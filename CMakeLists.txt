@@ -1231,6 +1231,50 @@ if(BINOBF_BUILD_TESTS)
                 "${BINOBF_X86_TRANSFORM_PATTERN_ELF}"
         )
 
+        set(BINOBF_ARM64_TRANSFORM_PATTERN_COFF
+            "${CMAKE_CURRENT_BINARY_DIR}/fixtures/arm64-transform-patterns.obj")
+        set(BINOBF_ARM64_TRANSFORM_PATTERN_ELF
+            "${CMAKE_CURRENT_BINARY_DIR}/fixtures/arm64-transform-patterns.o")
+        add_custom_command(
+            OUTPUT "${BINOBF_ARM64_TRANSFORM_PATTERN_COFF}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/fixtures"
+            COMMAND "${CMAKE_C_COMPILER}" --target=aarch64-pc-windows-msvc
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/transform_patterns.S"
+                -o "${BINOBF_ARM64_TRANSFORM_PATTERN_COFF}"
+            DEPENDS tests/fixtures/arm64/transform_patterns.S
+            VERBATIM
+        )
+        add_custom_command(
+            OUTPUT "${BINOBF_ARM64_TRANSFORM_PATTERN_ELF}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/fixtures"
+            COMMAND "${CMAKE_C_COMPILER}" --target=aarch64-unknown-linux-gnu
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/transform_patterns.S"
+                -o "${BINOBF_ARM64_TRANSFORM_PATTERN_ELF}"
+            DEPENDS tests/fixtures/arm64/transform_patterns.S
+            VERBATIM
+        )
+        add_custom_target(
+            binobf_fixture_arm64_transform_patterns
+            DEPENDS "${BINOBF_ARM64_TRANSFORM_PATTERN_COFF}" "${BINOBF_ARM64_TRANSFORM_PATTERN_ELF}"
+        )
+
+        add_executable(
+            binobf_arm64_transform_integration_tests
+            tests/integration/arm64_transform_integration_tests.cpp
+        )
+        target_link_libraries(binobf_arm64_transform_integration_tests PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_arm64_transform_integration_tests)
+        add_dependencies(
+            binobf_arm64_transform_integration_tests
+            binobf_fixture_arm64_transform_patterns
+        )
+        add_test(
+            NAME arm64_transform_integration
+            COMMAND binobf_arm64_transform_integration_tests
+                "${BINOBF_ARM64_TRANSFORM_PATTERN_COFF}"
+                "${BINOBF_ARM64_TRANSFORM_PATTERN_ELF}"
+        )
+
         set(BINOBF_X86_OBJECT_CORPUS_DIR
             "${CMAKE_CURRENT_BINARY_DIR}/x86-object-corpus")
         set(BINOBF_X86_OBJECT_CORPUS_STAMP

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -28,15 +29,11 @@ constexpr std::uint64_t constantSalt = UINT64_C(0x636f6e7374616e74);
 constexpr std::uint64_t deadCodeSalt = UINT64_C(0x646561642d636f64);
 constexpr std::uint64_t layoutSalt = UINT64_C(0x6c61796f75742d76);
 
-auto diagnostic(
-    DiagnosticSeverity severity,
-    std::string code,
-    std::string message) -> Diagnostic {
+auto diagnostic(DiagnosticSeverity severity, std::string code, std::string message) -> Diagnostic {
     return Diagnostic{severity, std::move(code), std::move(message)};
 }
 
-auto machine_requirements(bool requiresCfg, bool requiresFullRelocations)
-    -> PassRequirements {
+auto machine_requirements(bool requiresCfg, bool requiresFullRelocations) -> PassRequirements {
     return PassRequirements{
         .requiresCfg = requiresCfg,
         .requiresFullRelocations = requiresFullRelocations,
@@ -45,83 +42,80 @@ auto machine_requirements(bool requiresCfg, bool requiresFullRelocations)
         .supportedPostLink = false,
         .risk = PassRisk::Medium,
         .formats = {BinaryFormat::COFF, BinaryFormat::ELF},
-        .architectures = {Architecture::X86, Architecture::X86_64},
+        .architectures = {Architecture::X86, Architecture::X86_64, Architecture::ARM64},
     };
 }
 
 auto supports_machine_pass(const BinaryImage& image) -> bool {
-    return image.type == BinaryType::RelocatableObject
-        && (image.architecture == Architecture::X86
-            || image.architecture == Architecture::X86_64)
-        && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF)
-        && std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
-            return unwind.format == UnwindFormat::Unknown;
-        });
+    return image.type == BinaryType::RelocatableObject &&
+           (image.architecture == Architecture::X86 || image.architecture == Architecture::X86_64 ||
+            image.architecture == Architecture::ARM64) &&
+           (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF) &&
+           std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
+               return unwind.format == UnwindFormat::Unknown;
+           });
+}
+
+auto uses_object_rewrite(Architecture architecture) noexcept -> bool {
+    return architecture == Architecture::X86 || architecture == Architecture::ARM64;
 }
 
 auto find_section(BinaryImage& image, EntityId id) -> Section* {
-    const auto found = std::find_if(
-        image.sections.begin(), image.sections.end(), [id](const auto& section) {
-            return section.id == id;
-        });
+    const auto found = std::find_if(image.sections.begin(),
+                                    image.sections.end(),
+                                    [id](const auto& section) { return section.id == id; });
     return found == image.sections.end() ? nullptr : &*found;
 }
 
 auto find_instruction(const BinaryImage& image, EntityId id) -> const Instruction* {
-    const auto found = std::find_if(
-        image.instructions.begin(), image.instructions.end(), [id](const auto& instruction) {
-            return instruction.id == id;
-        });
+    const auto found = std::find_if(image.instructions.begin(),
+                                    image.instructions.end(),
+                                    [id](const auto& instruction) { return instruction.id == id; });
     return found == image.instructions.end() ? nullptr : &*found;
 }
 
 auto find_symbol(const BinaryImage& image, EntityId id) -> const Symbol* {
-    const auto found = std::find_if(
-        image.symbols.begin(), image.symbols.end(), [id](const auto& symbol) {
-            return symbol.id == id;
-        });
+    const auto found = std::find_if(image.symbols.begin(),
+                                    image.symbols.end(),
+                                    [id](const auto& symbol) { return symbol.id == id; });
     return found == image.symbols.end() ? nullptr : &*found;
 }
 
-auto relocation_overlaps(
-    const BinaryImage& image,
-    EntityId section,
-    std::uint64_t begin,
-    std::uint64_t size) -> bool {
+auto relocation_overlaps(const BinaryImage& image,
+                         EntityId section,
+                         std::uint64_t begin,
+                         std::uint64_t size) -> bool {
     if (size > std::numeric_limits<std::uint64_t>::max() - begin) return true;
     const auto end = begin + size;
-    return std::any_of(
-        image.relocations.begin(), image.relocations.end(),
-        [section, begin, end](const auto& relocation) {
-            return relocation.section == section
-                && relocation.offset >= begin && relocation.offset < end;
-        });
+    return std::any_of(image.relocations.begin(),
+                       image.relocations.end(),
+                       [section, begin, end](const auto& relocation) {
+                           return relocation.section == section && relocation.offset >= begin &&
+                                  relocation.offset < end;
+                       });
 }
 
-auto range_has_interior_target(
-    const BinaryImage& image,
-    EntityId section,
-    std::uint64_t begin,
-    std::uint64_t end) -> bool {
+auto range_has_interior_target(const BinaryImage& image,
+                               EntityId section,
+                               std::uint64_t begin,
+                               std::uint64_t end) -> bool {
     const auto symbolTargets = std::any_of(
         image.symbols.begin(), image.symbols.end(), [section, begin, end](const auto& symbol) {
-            return symbol.defined && symbol.section == section
-                && symbol.address.value > begin && symbol.address.value < end;
+            return symbol.defined && symbol.section == section && symbol.address.value > begin &&
+                   symbol.address.value < end;
         });
     if (symbolTargets) return true;
-    return std::any_of(
-        image.instructions.begin(), image.instructions.end(),
-        [section, begin, end](const auto& instruction) {
-            return instruction.section == section && instruction.directTarget.has_value()
-                && instruction.directTarget->value > begin
-                && instruction.directTarget->value < end;
-        });
+    return std::any_of(image.instructions.begin(),
+                       image.instructions.end(),
+                       [section, begin, end](const auto& instruction) {
+                           return instruction.section == section &&
+                                  instruction.directTarget.has_value() &&
+                                  instruction.directTarget->value > begin &&
+                                  instruction.directTarget->value < end;
+                       });
 }
 
-void append_lineage(
-    Section& section,
-    TransformId transform,
-    std::string_view passName) {
+void append_lineage(Section& section, TransformId transform, std::string_view passName) {
     section.lineage.parents.push_back(TransformationRecord{
         .transform = transform,
         .source = section.id,
@@ -129,16 +123,15 @@ void append_lineage(
     });
 }
 
-void clear_changed_coff_section_checksums(
-    BinaryImage& image,
-    const std::unordered_set<std::uint64_t>& sectionIds,
-    TransformId transform,
-    std::string_view passName) {
+void clear_changed_coff_section_checksums(BinaryImage& image,
+                                          const std::unordered_set<std::uint64_t>& sectionIds,
+                                          TransformId transform,
+                                          std::string_view passName) {
     if (image.format != BinaryFormat::COFF) return;
     for (auto& symbol : image.symbols) {
-        if (symbol.kind != SymbolKind::Section || !symbol.section.has_value()
-            || !sectionIds.contains(symbol.section->value())
-            || symbol.auxiliaryData.size() < 12) continue;
+        if (symbol.kind != SymbolKind::Section || !symbol.section.has_value() ||
+            !sectionIds.contains(symbol.section->value()) || symbol.auxiliaryData.size() < 12)
+            continue;
         const auto begin = symbol.auxiliaryData.begin() + 8;
         const auto end = symbol.auxiliaryData.begin() + 12;
         if (std::all_of(begin, end, [](std::byte value) { return value == std::byte{0}; })) {
@@ -153,45 +146,39 @@ void clear_changed_coff_section_checksums(
     }
 }
 
-auto verify_functions(
-    const BinaryImage& image,
-    const std::unordered_set<std::uint64_t>& symbolIds,
-    std::string_view passName) -> std::optional<Diagnostic> {
+auto verify_functions(const BinaryImage& image,
+                      const std::unordered_set<std::uint64_t>& symbolIds,
+                      std::string_view passName) -> std::optional<Diagnostic> {
     const auto analyzed = analyze_object(image);
     if (!analyzed.has_value()) {
-        return diagnostic(
-            DiagnosticSeverity::Error,
-            "pass.semantic_verification_failed",
-            std::string{passName} + " could not reanalyze its candidate: "
-                + analyzed.error().code + ": " + analyzed.error().message);
+        return diagnostic(DiagnosticSeverity::Error,
+                          "pass.semantic_verification_failed",
+                          std::string{passName} + " could not reanalyze its candidate: " +
+                              analyzed.error().code + ": " + analyzed.error().message);
     }
     for (const auto symbolId : symbolIds) {
-        const auto found = std::find_if(
-            analyzed.value().image.functions.begin(),
-            analyzed.value().image.functions.end(),
-            [symbolId](const auto& function) {
-                return function.symbol.has_value()
-                    && function.symbol->value() == symbolId;
-            });
+        const auto found = std::find_if(analyzed.value().image.functions.begin(),
+                                        analyzed.value().image.functions.end(),
+                                        [symbolId](const auto& function) {
+                                            return function.symbol.has_value() &&
+                                                   function.symbol->value() == symbolId;
+                                        });
         if (found == analyzed.value().image.functions.end() || !found->complete) {
-            return diagnostic(
-                DiagnosticSeverity::Error,
-                "pass.semantic_verification_failed",
-                std::string{passName}
-                    + " produced an incomplete or undiscoverable function");
+            return diagnostic(DiagnosticSeverity::Error,
+                              "pass.semantic_verification_failed",
+                              std::string{passName} +
+                                  " produced an incomplete or undiscoverable function");
         }
     }
     return std::nullopt;
 }
 
-auto unchanged_result(
-    PassStatistics statistics,
-    std::string_view passName) -> Result<TransformResult, Diagnostic> {
+auto unchanged_result(PassStatistics statistics, std::string_view passName)
+    -> Result<TransformResult, Diagnostic> {
     std::vector<Diagnostic> diagnostics;
-    diagnostics.push_back(diagnostic(
-        DiagnosticSeverity::Info,
-        "pass.no_eligible_instructions",
-        std::string{passName} + " found no proven-safe candidate"));
+    diagnostics.push_back(diagnostic(DiagnosticSeverity::Info,
+                                     "pass.no_eligible_instructions",
+                                     std::string{passName} + " found no proven-safe candidate"));
     return Result<TransformResult, Diagnostic>::success(TransformResult{
         .changed = false,
         .statistics = statistics,
@@ -199,8 +186,7 @@ auto unchanged_result(
     });
 }
 
-auto successful_result(PassStatistics statistics)
-    -> Result<TransformResult, Diagnostic> {
+auto successful_result(PassStatistics statistics) -> Result<TransformResult, Diagnostic> {
     return Result<TransformResult, Diagnostic>::success(TransformResult{
         .changed = true,
         .statistics = statistics,
@@ -208,10 +194,9 @@ auto successful_result(PassStatistics statistics)
     });
 }
 
-auto decoded_replacement(
-    const ArchitectureBackend& backend,
-    const Instruction& source,
-    std::span<const std::byte> replacement) -> std::optional<Instruction> {
+auto decoded_replacement(const ArchitectureBackend& backend,
+                         const Instruction& source,
+                         std::span<const std::byte> replacement) -> std::optional<Instruction> {
     auto decoded = backend.decode(DecodeRequest{
         .architecture = backend.architecture(),
         .bytes = replacement,
@@ -224,12 +209,11 @@ auto decoded_replacement(
     return std::move(decoded).value();
 }
 
-auto commit_x86_rewrite(
-    BinaryImage& image,
-    const ArchitectureBackend& backend,
-    std::vector<ObjectRewriteRange> ranges,
-    TransformId transform,
-    std::string_view passName) -> Result<std::size_t, Diagnostic> {
+auto commit_object_rewrite(BinaryImage& image,
+                           const ArchitectureBackend& backend,
+                           std::vector<ObjectRewriteRange> ranges,
+                           TransformId transform,
+                           std::string_view passName) -> Result<std::size_t, Diagnostic> {
     ObjectRewriteRequest request{};
     request.ranges = std::move(ranges);
     request.passName = std::string{passName};
@@ -251,6 +235,9 @@ auto commit_x86_rewrite(
 }
 
 auto normalized_condition(std::string_view mnemonic) -> std::optional<std::string> {
+    if (mnemonic.starts_with("b.") && mnemonic.size() > 2U) {
+        return std::string{mnemonic.substr(2U)};
+    }
     if (mnemonic == "je" || mnemonic == "jz") return "equal";
     if (mnemonic == "jne" || mnemonic == "jnz") return "not-equal";
     if (mnemonic == "jb" || mnemonic == "jc" || mnemonic == "jnae") {
@@ -265,6 +252,20 @@ auto normalized_condition(std::string_view mnemonic) -> std::optional<std::strin
 }
 
 auto inverse_condition(std::string_view condition) -> std::optional<std::string> {
+    if (condition == "eq") return "ne";
+    if (condition == "ne") return "eq";
+    if (condition == "hs") return "lo";
+    if (condition == "lo") return "hs";
+    if (condition == "mi") return "pl";
+    if (condition == "pl") return "mi";
+    if (condition == "vs") return "vc";
+    if (condition == "vc") return "vs";
+    if (condition == "hi") return "ls";
+    if (condition == "ls") return "hi";
+    if (condition == "ge") return "lt";
+    if (condition == "lt") return "ge";
+    if (condition == "gt") return "le";
+    if (condition == "le") return "gt";
     if (condition == "equal") return "not-equal";
     if (condition == "not-equal") return "equal";
     if (condition == "unsigned-below") return "unsigned-above-or-equal";
@@ -274,35 +275,39 @@ auto inverse_condition(std::string_view condition) -> std::optional<std::string>
     return std::nullopt;
 }
 
-auto emit_x86_dead_fill(
-    const ArchitectureBackend& backend,
-    BinaryFormat format,
-    std::size_t size) -> Result<std::vector<std::byte>, Diagnostic> {
+auto emit_dead_fill(const ArchitectureBackend& backend,
+                    Architecture architecture,
+                    BinaryFormat format,
+                    std::size_t size) -> Result<std::vector<std::byte>, Diagnostic> {
     std::vector<std::byte> result;
     result.reserve(size);
     while (result.size() < size) {
         MachineTransformRequest request{};
-        request.architecture = Architecture::X86;
+        request.architecture = architecture;
         request.format = format;
         request.kind = MachineTransformKind::DeadCodeFill;
-        request.exactSize = std::min<std::size_t>(15U, size - result.size());
+        request.exactSize = architecture == Architecture::ARM64
+                                ? size - result.size()
+                                : std::min<std::size_t>(15U, size - result.size());
         const auto emitted = backend.emit_transform(request);
         if (!emitted.has_value()) {
             return Result<std::vector<std::byte>, Diagnostic>::failure(emitted.error());
         }
-        result.insert(
-            result.end(), emitted.value().emission.bytes.begin(),
-            emitted.value().emission.bytes.end());
+        result.insert(result.end(),
+                      emitted.value().emission.bytes.begin(),
+                      emitted.value().emission.bytes.end());
     }
     return Result<std::vector<std::byte>, Diagnostic>::success(std::move(result));
 }
 
 class InstructionSubstitutionPass final : public TransformPass {
-public:
+  public:
     auto name() const noexcept -> std::string_view override {
         return "instruction-substitution";
     }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(false, false);
     }
@@ -318,8 +323,7 @@ public:
         }
         auto backendResult = make_architecture_backend(image.architecture);
         if (!backendResult.has_value()) {
-            return Result<TransformResult, Diagnostic>::failure(
-                std::move(backendResult).error());
+            return Result<TransformResult, Diagnostic>::failure(std::move(backendResult).error());
         }
         auto backend = std::move(backendResult).value();
         PassStatistics statistics;
@@ -337,29 +341,39 @@ public:
             }
             for (const auto instructionId : function.instructions) {
                 const auto* instruction = find_instruction(analyzed.value().image, instructionId);
-                if (instruction == nullptr || instruction->mnemonic != "nop"
-                    || instruction->encoding.size() < 3
-                    || instruction->encoding.at(0) != std::byte{0x0f}
-                    || instruction->encoding.at(1) != std::byte{0x1f}) {
+                if (instruction == nullptr) {
+                    continue;
+                }
+                const bool arm64Candidate =
+                    image.architecture == Architecture::ARM64 &&
+                    instruction->encoding.size() == 4U &&
+                    (instruction->mnemonic == "mov" || instruction->mnemonic == "orr");
+                const bool x86Candidate = image.architecture != Architecture::ARM64 &&
+                                          instruction->mnemonic == "nop" &&
+                                          instruction->encoding.size() >= 3U &&
+                                          instruction->encoding.at(0) == std::byte{0x0f} &&
+                                          instruction->encoding.at(1) == std::byte{0x1f};
+                if (!arm64Candidate && !x86Candidate) {
                     continue;
                 }
                 ++statistics.examined;
-                if (relocation_overlaps(
-                        image, instruction->section, instruction->sectionOffset,
-                        instruction->encoding.size())) {
+                if (relocation_overlaps(image,
+                                        instruction->section,
+                                        instruction->sectionOffset,
+                                        instruction->encoding.size())) {
                     ++statistics.skipped;
                     continue;
                 }
-                if (image.architecture == Architecture::X86) {
+                if (uses_object_rewrite(image.architecture)) {
                     MachineTransformRequest request{};
-                    request.architecture = Architecture::X86;
+                    request.architecture = image.architecture;
                     request.format = image.format;
                     request.kind = MachineTransformKind::InstructionEquivalent;
                     request.source = *instruction;
                     request.exactSize = instruction->encoding.size();
                     const auto emitted = backend->emit_transform(request);
-                    if (!emitted.has_value()
-                        || emitted.value().emission.bytes == instruction->encoding) {
+                    if (!emitted.has_value() ||
+                        emitted.value().emission.bytes == instruction->encoding) {
                         ++statistics.skipped;
                         continue;
                     }
@@ -382,33 +396,29 @@ public:
                     replacement = instruction->encoding;
                     const auto mask = static_cast<unsigned int>(rng.uniform(255) + 1U);
                     replacement.back() ^= static_cast<std::byte>(mask);
-                    const auto decoded = decoded_replacement(
-                        *backend, *instruction, replacement);
-                    accepted = decoded.has_value()
-                        && decoded->encoding.size() == replacement.size()
-                        && decoded->mnemonic == "nop"
-                        && decoded->registersRead.empty()
-                        && decoded->registersWritten.empty();
+                    const auto decoded = decoded_replacement(*backend, *instruction, replacement);
+                    accepted = decoded.has_value() &&
+                               decoded->encoding.size() == replacement.size() &&
+                               decoded->mnemonic == "nop" && decoded->registersRead.empty() &&
+                               decoded->registersWritten.empty();
                 }
                 if (!accepted || replacement == instruction->encoding) {
                     ++statistics.skipped;
                     continue;
                 }
                 auto* section = find_section(image, instruction->section);
-                if (section == nullptr
-                    || instruction->sectionOffset > section->contents.size()
-                    || replacement.size()
-                        > section->contents.size()
-                            - static_cast<std::size_t>(instruction->sectionOffset)) {
-                    return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                        DiagnosticSeverity::Error,
-                        "pass.invalid_instruction_range",
-                        "instruction substitution range is outside its section"));
+                if (section == nullptr || instruction->sectionOffset > section->contents.size() ||
+                    replacement.size() > section->contents.size() -
+                                             static_cast<std::size_t>(instruction->sectionOffset)) {
+                    return Result<TransformResult, Diagnostic>::failure(
+                        diagnostic(DiagnosticSeverity::Error,
+                                   "pass.invalid_instruction_range",
+                                   "instruction substitution range is outside its section"));
                 }
-                std::copy(
-                    replacement.begin(), replacement.end(),
-                    section->contents.begin()
-                        + static_cast<std::ptrdiff_t>(instruction->sectionOffset));
+                std::copy(replacement.begin(),
+                          replacement.end(),
+                          section->contents.begin() +
+                              static_cast<std::ptrdiff_t>(instruction->sectionOffset));
                 if (!transform.valid()) transform = context.allocate_transform_id();
                 if (changedSections.insert(section->id.value()).second) {
                     append_lineage(*section, transform, name());
@@ -419,9 +429,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }
@@ -438,7 +448,7 @@ auto read_u32(std::span<const std::byte> bytes, std::size_t offset) -> std::uint
     std::uint32_t result = 0;
     for (std::size_t index = 0; index < 4; ++index) {
         result |= static_cast<std::uint32_t>(std::to_integer<unsigned int>(bytes[offset + index]))
-            << (index * 8U);
+                  << (index * 8U);
     }
     return result;
 }
@@ -447,7 +457,7 @@ auto read_u64(std::span<const std::byte> bytes, std::size_t offset) -> std::uint
     std::uint64_t result = 0;
     for (std::size_t index = 0; index < 8; ++index) {
         result |= static_cast<std::uint64_t>(std::to_integer<unsigned int>(bytes[offset + index]))
-            << (index * 8U);
+                  << (index * 8U);
     }
     return result;
 }
@@ -458,12 +468,49 @@ void append_u32(std::vector<std::byte>& output, std::uint32_t value) {
     }
 }
 
+auto arm64_immediate(const Instruction& instruction) -> std::optional<std::uint64_t> {
+    if (instruction.encoding.size() != 4U || instruction.registersWritten.size() != 1U ||
+        (instruction.mnemonic != "mov" && instruction.mnemonic != "movz" &&
+         instruction.mnemonic != "movn" &&
+         (instruction.mnemonic != "orr" || instruction.operands.find("xzr") == std::string::npos ||
+          instruction.registersRead.size() != 1U ||
+          instruction.registersRead.front().name != "xzr"))) {
+        return std::nullopt;
+    }
+    const auto marker = instruction.operands.find('#');
+    if (marker == std::string::npos || marker + 1U >= instruction.operands.size()) {
+        return std::nullopt;
+    }
+    auto text = std::string_view{instruction.operands}.substr(marker + 1U);
+    if (const auto comma = text.find(','); comma != std::string_view::npos) {
+        text = text.substr(0U, comma);
+    }
+    while (!text.empty() && text.front() == ' ')
+        text.remove_prefix(1U);
+    while (!text.empty() && text.back() == ' ')
+        text.remove_suffix(1U);
+    if (text.empty() || text.front() == '-') return std::nullopt;
+    int base = 10;
+    if (text.starts_with("0x")) {
+        base = 16;
+        text.remove_prefix(2U);
+    }
+    std::uint64_t value = 0;
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value, base);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+        return std::nullopt;
+    }
+    return value;
+}
+
 class ConstantRewritingPass final : public TransformPass {
-public:
+  public:
     auto name() const noexcept -> std::string_view override {
         return "constant-rewriting";
     }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(false, false);
     }
@@ -479,8 +526,7 @@ public:
         }
         auto backendResult = make_architecture_backend(image.architecture);
         if (!backendResult.has_value()) {
-            return Result<TransformResult, Diagnostic>::failure(
-                std::move(backendResult).error());
+            return Result<TransformResult, Diagnostic>::failure(std::move(backendResult).error());
         }
         auto backend = std::move(backendResult).value();
         PassStatistics statistics;
@@ -497,11 +543,50 @@ public:
                 continue;
             }
             for (std::size_t position = 0; position < function.instructions.size(); ++position) {
-                const auto* instruction = find_instruction(
-                    analyzed.value().image, function.instructions[position]);
-                if (instruction == nullptr
-                    || (instruction->mnemonic != "mov"
-                        && instruction->mnemonic != "movabs")) continue;
+                const auto* instruction =
+                    find_instruction(analyzed.value().image, function.instructions[position]);
+                if (instruction == nullptr) continue;
+                if (image.architecture == Architecture::ARM64) {
+                    const auto immediate = arm64_immediate(*instruction);
+                    if (!immediate.has_value()) continue;
+                    ++statistics.examined;
+                    if (relocation_overlaps(image,
+                                            instruction->section,
+                                            instruction->sectionOffset,
+                                            instruction->encoding.size())) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    MachineTransformRequest request{};
+                    request.architecture = Architecture::ARM64;
+                    request.format = image.format;
+                    request.kind = MachineTransformKind::ConstantMaterialization;
+                    request.source = *instruction;
+                    request.constantBits = *immediate;
+                    request.condition = instruction->registersWritten.front().name;
+                    request.exactSize = instruction->encoding.size();
+                    const auto emitted = backend->emit_transform(request);
+                    if (!emitted.has_value() ||
+                        emitted.value().emission.bytes == instruction->encoding) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    if (!transform.valid()) transform = context.allocate_transform_id();
+                    x86Ranges.push_back(ObjectRewriteRange{
+                        instruction->section,
+                        instruction->sectionOffset,
+                        instruction->sectionOffset + instruction->encoding.size(),
+                        instruction->sectionOffset,
+                        emitted.value().emission.bytes,
+                    });
+                    changedSections.insert(instruction->section.value());
+                    changedFunctions.insert(function.symbol->value());
+                    ++statistics.changed;
+                    continue;
+                }
+                if (instruction->mnemonic != "mov" && instruction->mnemonic != "movabs") {
+                    continue;
+                }
                 const auto source = std::span<const std::byte>{instruction->encoding};
                 std::size_t opcodeIndex = 0;
                 std::uint8_t rex = 0;
@@ -519,16 +604,16 @@ public:
                 const auto immediateSize = wide ? std::size_t{8} : std::size_t{4};
                 if (source.size() != opcodeIndex + 1 + immediateSize) continue;
                 ++statistics.examined;
-                const auto registerIndex = static_cast<std::uint8_t>(
-                    (opcode - 0xb8U) + ((rex & 0x01U) != 0 ? 8U : 0U));
+                const auto registerIndex =
+                    static_cast<std::uint8_t>((opcode - 0xb8U) + ((rex & 0x01U) != 0 ? 8U : 0U));
                 std::uint32_t immediate = 0;
                 std::size_t windowSize = source.size();
                 if (wide) {
                     const auto value = read_u64(source, opcodeIndex + 1);
                     immediate = static_cast<std::uint32_t>(value);
                     const auto signedValue = std::bit_cast<std::int64_t>(value);
-                    if (signedValue != static_cast<std::int64_t>(
-                            static_cast<std::int32_t>(immediate))) {
+                    if (signedValue !=
+                        static_cast<std::int64_t>(static_cast<std::int32_t>(immediate))) {
                         ++statistics.skipped;
                         continue;
                     }
@@ -538,15 +623,15 @@ public:
                         ++statistics.skipped;
                         continue;
                     }
-                    const auto* next = find_instruction(
-                        analyzed.value().image, function.instructions[position + 1]);
-                    if (next == nullptr || next->section != instruction->section
-                        || next->sectionOffset != instruction->sectionOffset + source.size()
-                        || next->encoding != std::vector<std::byte>{std::byte{0x90}}
-                        || range_has_interior_target(
-                            analyzed.value().image, instruction->section,
-                            instruction->sectionOffset,
-                            instruction->sectionOffset + source.size() + 1)) {
+                    const auto* next = find_instruction(analyzed.value().image,
+                                                        function.instructions[position + 1]);
+                    if (next == nullptr || next->section != instruction->section ||
+                        next->sectionOffset != instruction->sectionOffset + source.size() ||
+                        next->encoding != std::vector<std::byte>{std::byte{0x90}} ||
+                        range_has_interior_target(analyzed.value().image,
+                                                  instruction->section,
+                                                  instruction->sectionOffset,
+                                                  instruction->sectionOffset + source.size() + 1)) {
                         ++statistics.skipped;
                         continue;
                     }
@@ -571,8 +656,8 @@ public:
                     request.condition = registerIndex == 0U ? "eax" : "ecx";
                     request.exactSize = windowSize;
                     const auto emitted = backend->emit_transform(request);
-                    if (!emitted.has_value()
-                        || emitted.value().emission.bytes.size() != windowSize) {
+                    if (!emitted.has_value() ||
+                        emitted.value().emission.bytes.size() != windowSize) {
                         ++statistics.skipped;
                         continue;
                     }
@@ -593,14 +678,18 @@ public:
                 std::vector<std::byte> replacement;
                 replacement.reserve(windowSize);
                 std::uint8_t replacementRex = 0;
-                if (wide) replacementRex = 0x48U;
-                else if (registerIndex >= 8U) replacementRex = 0x41U;
+                if (wide)
+                    replacementRex = 0x48U;
+                else if (registerIndex >= 8U)
+                    replacementRex = 0x41U;
                 if (registerIndex >= 8U && wide) replacementRex |= 0x01U;
-                if (replacementRex != 0) replacement.push_back(static_cast<std::byte>(replacementRex));
+                if (replacementRex != 0)
+                    replacement.push_back(static_cast<std::byte>(replacementRex));
                 replacement.push_back(std::byte{0xc7});
                 replacement.push_back(static_cast<std::byte>(0xc0U | (registerIndex & 0x07U)));
                 append_u32(replacement, immediate);
-                while (replacement.size() < windowSize) replacement.push_back(std::byte{0x90});
+                while (replacement.size() < windowSize)
+                    replacement.push_back(std::byte{0x90});
                 if (wide && windowSize - (replacementRex != 0 ? 7U : 6U) >= 3U) {
                     const auto fill = replacement.size() - 3;
                     replacement[fill] = std::byte{0x0f};
@@ -608,27 +697,26 @@ public:
                     replacement[fill + 2] = static_cast<std::byte>(rng.uniform(4));
                 }
                 const auto decoded = decoded_replacement(
-                    *backend, *instruction,
-                    std::span<const std::byte>{replacement}.first(
-                        replacementRex != 0 ? 7U : 6U));
+                    *backend,
+                    *instruction,
+                    std::span<const std::byte>{replacement}.first(replacementRex != 0 ? 7U : 6U));
                 if (!decoded.has_value() || decoded->mnemonic != "mov") {
                     ++statistics.skipped;
                     continue;
                 }
                 auto* section = find_section(image, instruction->section);
-                if (section == nullptr
-                    || instruction->sectionOffset > section->contents.size()
-                    || windowSize > section->contents.size()
-                        - static_cast<std::size_t>(instruction->sectionOffset)) {
-                    return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                        DiagnosticSeverity::Error,
-                        "pass.invalid_instruction_range",
-                        "constant rewrite range is outside its section"));
+                if (section == nullptr || instruction->sectionOffset > section->contents.size() ||
+                    windowSize > section->contents.size() -
+                                     static_cast<std::size_t>(instruction->sectionOffset)) {
+                    return Result<TransformResult, Diagnostic>::failure(
+                        diagnostic(DiagnosticSeverity::Error,
+                                   "pass.invalid_instruction_range",
+                                   "constant rewrite range is outside its section"));
                 }
-                std::copy(
-                    replacement.begin(), replacement.end(),
-                    section->contents.begin()
-                        + static_cast<std::ptrdiff_t>(instruction->sectionOffset));
+                std::copy(replacement.begin(),
+                          replacement.end(),
+                          section->contents.begin() +
+                              static_cast<std::ptrdiff_t>(instruction->sectionOffset));
                 if (!transform.valid()) transform = context.allocate_transform_id();
                 if (changedSections.insert(section->id.value()).second) {
                     append_lineage(*section, transform, name());
@@ -640,9 +728,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }
@@ -678,27 +766,28 @@ auto direct_branch_encoding(std::span<const std::byte> bytes) -> std::optional<B
     return std::nullopt;
 }
 
-auto write_displacement(
-    std::vector<std::byte>& bytes,
-    const BranchEncoding& encoding,
-    std::uint64_t instructionAddress,
-    std::uint64_t target) -> bool {
-    if (instructionAddress > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
-        || target > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+auto write_displacement(std::vector<std::byte>& bytes,
+                        const BranchEncoding& encoding,
+                        std::uint64_t instructionAddress,
+                        std::uint64_t target) -> bool {
+    if (instructionAddress > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+        target > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         return false;
     }
-    const auto end = static_cast<std::int64_t>(instructionAddress)
-        + static_cast<std::int64_t>(bytes.size());
+    const auto end =
+        static_cast<std::int64_t>(instructionAddress) + static_cast<std::int64_t>(bytes.size());
     const auto displacement = static_cast<std::int64_t>(target) - end;
     if (encoding.displacementSize == 1) {
-        if (displacement < std::numeric_limits<std::int8_t>::min()
-            || displacement > std::numeric_limits<std::int8_t>::max()) return false;
+        if (displacement < std::numeric_limits<std::int8_t>::min() ||
+            displacement > std::numeric_limits<std::int8_t>::max())
+            return false;
         bytes[encoding.displacementOffset] = static_cast<std::byte>(
             static_cast<std::uint8_t>(static_cast<std::int8_t>(displacement)));
         return true;
     }
-    if (displacement < std::numeric_limits<std::int32_t>::min()
-        || displacement > std::numeric_limits<std::int32_t>::max()) return false;
+    if (displacement < std::numeric_limits<std::int32_t>::min() ||
+        displacement > std::numeric_limits<std::int32_t>::max())
+        return false;
     const auto encoded = static_cast<std::uint32_t>(static_cast<std::int32_t>(displacement));
     for (std::size_t index = 0; index < 4; ++index) {
         bytes[encoding.displacementOffset + index] =
@@ -708,9 +797,13 @@ auto write_displacement(
 }
 
 class BranchInversionPass final : public TransformPass {
-public:
-    auto name() const noexcept -> std::string_view override { return "branch-inversion"; }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+  public:
+    auto name() const noexcept -> std::string_view override {
+        return "branch-inversion";
+    }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(true, false);
     }
@@ -745,42 +838,46 @@ public:
                 ++statistics.skipped;
                 continue;
             }
-            for (std::size_t position = 0; position + 1 < function.instructions.size(); ++position) {
-                const auto* condition = find_instruction(
-                    analyzed.value().image, function.instructions[position]);
-                const auto* jump = find_instruction(
-                    analyzed.value().image, function.instructions[position + 1]);
-                if (condition == nullptr || jump == nullptr
-                    || condition->kind != InstructionKind::ConditionalBranch
-                    || jump->kind != InstructionKind::DirectBranch
-                    || !condition->directTarget.has_value() || !jump->directTarget.has_value()
-                    || condition->section != jump->section
-                    || jump->sectionOffset
-                        != condition->sectionOffset + condition->encoding.size()) {
+            for (std::size_t position = 0; position + 1 < function.instructions.size();
+                 ++position) {
+                const auto* condition =
+                    find_instruction(analyzed.value().image, function.instructions[position]);
+                const auto* jump =
+                    find_instruction(analyzed.value().image, function.instructions[position + 1]);
+                if (condition == nullptr || jump == nullptr ||
+                    condition->kind != InstructionKind::ConditionalBranch ||
+                    jump->kind != InstructionKind::DirectBranch ||
+                    !condition->directTarget.has_value() || !jump->directTarget.has_value() ||
+                    condition->section != jump->section ||
+                    jump->sectionOffset != condition->sectionOffset + condition->encoding.size()) {
                     continue;
                 }
                 const auto conditionEncoding = conditional_encoding(condition->encoding);
                 const auto jumpEncoding = direct_branch_encoding(jump->encoding);
-                if (!conditionEncoding.has_value() || !jumpEncoding.has_value()) continue;
+                const bool arm64Pair = image.architecture == Architecture::ARM64 &&
+                                       condition->encoding.size() == 4U &&
+                                       jump->encoding.size() == 4U;
+                if (!arm64Pair && (!conditionEncoding.has_value() || !jumpEncoding.has_value()))
+                    continue;
                 ++statistics.examined;
                 const auto combinedSize = condition->encoding.size() + jump->encoding.size();
                 if (relocation_overlaps(
-                        image, condition->section, condition->sectionOffset, combinedSize)
-                    || range_has_interior_target(
-                        analyzed.value().image, condition->section,
-                        condition->sectionOffset,
-                        condition->sectionOffset + combinedSize)) {
+                        image, condition->section, condition->sectionOffset, combinedSize) ||
+                    range_has_interior_target(analyzed.value().image,
+                                              condition->section,
+                                              condition->sectionOffset,
+                                              condition->sectionOffset + combinedSize)) {
                     ++statistics.skipped;
                     continue;
                 }
-                if (image.architecture == Architecture::X86) {
+                if (uses_object_rewrite(image.architecture)) {
                     const auto conditionName = normalized_condition(condition->mnemonic);
                     if (!conditionName.has_value()) {
                         ++statistics.skipped;
                         continue;
                     }
                     MachineTransformRequest conditionRequest{};
-                    conditionRequest.architecture = Architecture::X86;
+                    conditionRequest.architecture = image.architecture;
                     conditionRequest.format = image.format;
                     conditionRequest.kind = MachineTransformKind::ConditionalInversion;
                     conditionRequest.source = *condition;
@@ -788,7 +885,7 @@ public:
                     conditionRequest.condition = *conditionName;
                     conditionRequest.exactSize = condition->encoding.size();
                     MachineTransformRequest jumpRequest{};
-                    jumpRequest.architecture = Architecture::X86;
+                    jumpRequest.architecture = image.architecture;
                     jumpRequest.format = image.format;
                     jumpRequest.kind = MachineTransformKind::DirectJump;
                     jumpRequest.source = *jump;
@@ -801,9 +898,9 @@ public:
                         continue;
                     }
                     auto replacement = emittedCondition.value().emission.bytes;
-                    replacement.insert(
-                        replacement.end(), emittedJump.value().emission.bytes.begin(),
-                        emittedJump.value().emission.bytes.end());
+                    replacement.insert(replacement.end(),
+                                       emittedJump.value().emission.bytes.begin(),
+                                       emittedJump.value().emission.bytes.end());
                     if (!transform.valid()) transform = context.allocate_transform_id();
                     x86Ranges.push_back(ObjectRewriteRange{
                         condition->section,
@@ -822,26 +919,28 @@ public:
                 auto replacementJump = jump->encoding;
                 const auto conditionOpcode = conditionEncoding->displacementOffset - 1;
                 replacementCondition[conditionOpcode] ^= std::byte{0x01};
-                if (!write_displacement(
-                        replacementCondition, *conditionEncoding,
-                        condition->address.value, jump->directTarget->value)
-                    || !write_displacement(
-                        replacementJump, *jumpEncoding,
-                        jump->address.value, condition->directTarget->value)) {
+                if (!write_displacement(replacementCondition,
+                                        *conditionEncoding,
+                                        condition->address.value,
+                                        jump->directTarget->value) ||
+                    !write_displacement(replacementJump,
+                                        *jumpEncoding,
+                                        jump->address.value,
+                                        condition->directTarget->value)) {
                     ++statistics.skipped;
                     continue;
                 }
                 auto* section = find_section(image, condition->section);
                 if (section == nullptr) {
-                    return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                        DiagnosticSeverity::Error,
-                        "pass.invalid_instruction_range",
-                        "branch inversion section is missing"));
+                    return Result<TransformResult, Diagnostic>::failure(
+                        diagnostic(DiagnosticSeverity::Error,
+                                   "pass.invalid_instruction_range",
+                                   "branch inversion section is missing"));
                 }
-                auto output = section->contents.begin()
-                    + static_cast<std::ptrdiff_t>(condition->sectionOffset);
-                output = std::copy(
-                    replacementCondition.begin(), replacementCondition.end(), output);
+                auto output = section->contents.begin() +
+                              static_cast<std::ptrdiff_t>(condition->sectionOffset);
+                output =
+                    std::copy(replacementCondition.begin(), replacementCondition.end(), output);
                 std::copy(replacementJump.begin(), replacementJump.end(), output);
                 if (!transform.valid()) transform = context.allocate_transform_id();
                 if (changedSections.insert(section->id.value()).second) {
@@ -854,9 +953,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }
@@ -870,9 +969,13 @@ public:
 };
 
 class BlockSplittingPass final : public TransformPass {
-public:
-    auto name() const noexcept -> std::string_view override { return "block-splitting"; }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+  public:
+    auto name() const noexcept -> std::string_view override {
+        return "block-splitting";
+    }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(true, false);
     }
@@ -909,42 +1012,64 @@ public:
                     analyzed.value().image.basicBlocks.begin(),
                     analyzed.value().image.basicBlocks.end(),
                     [blockId](const auto& candidate) { return candidate.id == blockId; });
-                if (block == analyzed.value().image.basicBlocks.end()
-                    || block->instructions.size() < 3) continue;
-                for (std::size_t position = 1; position + 1 < block->instructions.size(); ++position) {
-                    const auto* instruction = find_instruction(
-                        analyzed.value().image, block->instructions[position]);
-                    if (instruction == nullptr || instruction->mnemonic != "nop"
-                        || instruction->encoding.size() < 2) continue;
+                if (block == analyzed.value().image.basicBlocks.end() ||
+                    block->instructions.size() < 3)
+                    continue;
+                for (std::size_t position = 1; position + 1 < block->instructions.size();
+                     ++position) {
+                    const auto* instruction =
+                        find_instruction(analyzed.value().image, block->instructions[position]);
+                    if (instruction == nullptr || instruction->mnemonic != "nop" ||
+                        instruction->encoding.size() < 2)
+                        continue;
                     ++statistics.examined;
-                    if (relocation_overlaps(
-                            image, instruction->section, instruction->sectionOffset,
-                            instruction->encoding.size())
-                        || range_has_interior_target(
-                            analyzed.value().image, instruction->section,
-                            instruction->sectionOffset,
-                            instruction->sectionOffset + instruction->encoding.size())) {
+                    if (relocation_overlaps(image,
+                                            instruction->section,
+                                            instruction->sectionOffset,
+                                            instruction->encoding.size()) ||
+                        range_has_interior_target(analyzed.value().image,
+                                                  instruction->section,
+                                                  instruction->sectionOffset,
+                                                  instruction->sectionOffset +
+                                                      instruction->encoding.size())) {
                         ++statistics.skipped;
                         continue;
                     }
-                    if (image.architecture == Architecture::X86) {
+                    if (uses_object_rewrite(image.architecture)) {
+                        const auto jumpSize = image.architecture == Architecture::ARM64
+                                                  ? std::size_t{4U}
+                                                  : std::size_t{2U};
+                        if (instruction->encoding.size() < jumpSize) {
+                            ++statistics.skipped;
+                            continue;
+                        }
                         MachineTransformRequest jumpRequest{};
-                        jumpRequest.architecture = Architecture::X86;
+                        jumpRequest.architecture = image.architecture;
                         jumpRequest.format = image.format;
                         jumpRequest.kind = MachineTransformKind::DirectJump;
                         jumpRequest.source = *instruction;
-                        jumpRequest.targetAddress = instruction->address.value + 2U;
-                        jumpRequest.exactSize = 2U;
+                        jumpRequest.targetAddress =
+                            instruction->address.value + instruction->encoding.size();
+                        jumpRequest.exactSize = jumpSize;
                         const auto jump = backend->emit_transform(jumpRequest);
-                        const auto fill = emit_x86_dead_fill(
-                            *backend, image.format, instruction->encoding.size() - 2U);
-                        if (!jump.has_value() || !fill.has_value()) {
+                        if (!jump.has_value()) {
                             ++statistics.skipped;
                             continue;
                         }
                         auto replacement = jump.value().emission.bytes;
-                        replacement.insert(
-                            replacement.end(), fill.value().begin(), fill.value().end());
+                        if (instruction->encoding.size() > jumpSize) {
+                            const auto fill =
+                                emit_dead_fill(*backend,
+                                               image.architecture,
+                                               image.format,
+                                               instruction->encoding.size() - jumpSize);
+                            if (!fill.has_value()) {
+                                ++statistics.skipped;
+                                continue;
+                            }
+                            replacement.insert(
+                                replacement.end(), fill.value().begin(), fill.value().end());
+                        }
                         if (!transform.valid()) transform = context.allocate_transform_id();
                         x86Ranges.push_back(ObjectRewriteRange{
                             instruction->section,
@@ -961,18 +1086,18 @@ public:
                     }
                     auto* section = find_section(image, instruction->section);
                     if (section == nullptr) {
-                        return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                            DiagnosticSeverity::Error,
-                            "pass.invalid_instruction_range",
-                            "block-splitting section is missing"));
+                        return Result<TransformResult, Diagnostic>::failure(
+                            diagnostic(DiagnosticSeverity::Error,
+                                       "pass.invalid_instruction_range",
+                                       "block-splitting section is missing"));
                     }
                     const auto offset = static_cast<std::size_t>(instruction->sectionOffset);
                     section->contents[offset] = std::byte{0xeb};
                     section->contents[offset + 1] = std::byte{0x00};
                     std::fill(
                         section->contents.begin() + static_cast<std::ptrdiff_t>(offset + 2),
-                        section->contents.begin() + static_cast<std::ptrdiff_t>(
-                            offset + instruction->encoding.size()),
+                        section->contents.begin() +
+                            static_cast<std::ptrdiff_t>(offset + instruction->encoding.size()),
                         std::byte{0x90});
                     if (!transform.valid()) transform = context.allocate_transform_id();
                     if (changedSections.insert(section->id.value()).second) {
@@ -988,9 +1113,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }
@@ -1000,24 +1125,25 @@ public:
             return Result<TransformResult, Diagnostic>::failure(*error);
         }
         const auto after = analyze_object(image);
-        if (!after.has_value()
-            || after.value().image.basicBlocks.size()
-                <= analyzed.value().image.basicBlocks.size()) {
-            return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                DiagnosticSeverity::Error,
-                "pass.semantic_verification_failed",
-                "block-splitting did not create an additional CFG block"));
+        if (!after.has_value() ||
+            after.value().image.basicBlocks.size() <= analyzed.value().image.basicBlocks.size()) {
+            return Result<TransformResult, Diagnostic>::failure(
+                diagnostic(DiagnosticSeverity::Error,
+                           "pass.semantic_verification_failed",
+                           "block-splitting did not create an additional CFG block"));
         }
         return successful_result(statistics);
     }
 };
 
 class DeadCodeInsertionPass final : public TransformPass {
-public:
+  public:
     auto name() const noexcept -> std::string_view override {
         return "dead-code-insertion";
     }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(true, false);
     }
@@ -1051,29 +1177,46 @@ public:
             }
             std::vector<const Instruction*> candidates;
             for (const auto instructionId : function.instructions) {
-                const auto* instruction = find_instruction(
-                    analyzed.value().image, instructionId);
-                if (instruction == nullptr || instruction->mnemonic != "nop"
-                    || instruction->encoding.size() < 3
-                    || instruction->encoding.size() > 129) {
+                const auto* instruction = find_instruction(analyzed.value().image, instructionId);
+                if (instruction == nullptr || instruction->mnemonic != "nop" ||
+                    instruction->encoding.size() < 3 || instruction->encoding.size() > 129) {
                     continue;
                 }
                 ++statistics.examined;
-                const auto end = instruction->sectionOffset + instruction->encoding.size();
+                auto windowSize = instruction->encoding.size();
+                if (image.architecture == Architecture::ARM64) {
+                    const auto adjacent = std::find_if(
+                        function.instructions.begin(),
+                        function.instructions.end(),
+                        [&](const auto nextId) {
+                            const auto* next = find_instruction(analyzed.value().image, nextId);
+                            return next != nullptr && next->section == instruction->section &&
+                                   next->sectionOffset ==
+                                       instruction->sectionOffset + instruction->encoding.size() &&
+                                   next->mnemonic == "nop" && next->encoding.size() == 4U;
+                        });
+                    if (adjacent == function.instructions.end()) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    windowSize += 4U;
+                }
+                const auto end = instruction->sectionOffset + windowSize;
                 const bool hasNextInstruction = std::any_of(
-                    function.instructions.begin(), function.instructions.end(),
+                    function.instructions.begin(),
+                    function.instructions.end(),
                     [&](const auto nextId) {
                         const auto* next = find_instruction(analyzed.value().image, nextId);
-                        return next != nullptr && next->section == instruction->section
-                            && next->sectionOffset == end;
+                        return next != nullptr && next->section == instruction->section &&
+                               next->sectionOffset == end;
                     });
-                if (!hasNextInstruction
-                    || relocation_overlaps(
-                        image, instruction->section, instruction->sectionOffset,
-                        instruction->encoding.size())
-                    || range_has_interior_target(
-                        analyzed.value().image, instruction->section,
-                        instruction->sectionOffset, end)) {
+                if (!hasNextInstruction ||
+                    relocation_overlaps(
+                        image, instruction->section, instruction->sectionOffset, windowSize) ||
+                    range_has_interior_target(analyzed.value().image,
+                                              instruction->section,
+                                              instruction->sectionOffset,
+                                              end)) {
                     ++statistics.skipped;
                     continue;
                 }
@@ -1082,30 +1225,33 @@ public:
             if (candidates.empty()) continue;
             rng.shuffle(candidates);
             const auto* instruction = candidates.front();
-            if (image.architecture == Architecture::X86) {
+            if (uses_object_rewrite(image.architecture)) {
+                const auto windowSize = image.architecture == Architecture::ARM64
+                                            ? std::size_t{8U}
+                                            : instruction->encoding.size();
+                const auto jumpSize =
+                    image.architecture == Architecture::ARM64 ? std::size_t{4U} : std::size_t{2U};
                 MachineTransformRequest jumpRequest{};
-                jumpRequest.architecture = Architecture::X86;
+                jumpRequest.architecture = image.architecture;
                 jumpRequest.format = image.format;
                 jumpRequest.kind = MachineTransformKind::DirectJump;
                 jumpRequest.source = *instruction;
-                jumpRequest.targetAddress = instruction->address.value
-                    + instruction->encoding.size();
-                jumpRequest.exactSize = 2U;
+                jumpRequest.targetAddress = instruction->address.value + windowSize;
+                jumpRequest.exactSize = jumpSize;
                 const auto jump = backend->emit_transform(jumpRequest);
-                const auto fill = emit_x86_dead_fill(
-                    *backend, image.format, instruction->encoding.size() - 2U);
+                const auto fill = emit_dead_fill(
+                    *backend, image.architecture, image.format, windowSize - jumpSize);
                 if (!jump.has_value() || !fill.has_value()) {
                     ++statistics.skipped;
                     continue;
                 }
                 auto replacement = jump.value().emission.bytes;
-                replacement.insert(
-                    replacement.end(), fill.value().begin(), fill.value().end());
+                replacement.insert(replacement.end(), fill.value().begin(), fill.value().end());
                 if (!transform.valid()) transform = context.allocate_transform_id();
                 x86Ranges.push_back(ObjectRewriteRange{
                     instruction->section,
                     instruction->sectionOffset,
-                    instruction->sectionOffset + instruction->encoding.size(),
+                    instruction->sectionOffset + windowSize,
                     instruction->sectionOffset,
                     std::move(replacement),
                 });
@@ -1116,20 +1262,19 @@ public:
             }
             auto* section = find_section(image, instruction->section);
             if (section == nullptr) {
-                return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                    DiagnosticSeverity::Error,
-                    "pass.invalid_instruction_range",
-                    "dead-code-insertion section is missing"));
+                return Result<TransformResult, Diagnostic>::failure(
+                    diagnostic(DiagnosticSeverity::Error,
+                               "pass.invalid_instruction_range",
+                               "dead-code-insertion section is missing"));
             }
             const auto offset = static_cast<std::size_t>(instruction->sectionOffset);
             const auto skipped = instruction->encoding.size() - 2;
             section->contents[offset] = std::byte{0xeb};
             section->contents[offset + 1] = static_cast<std::byte>(skipped);
-            std::fill(
-                section->contents.begin() + static_cast<std::ptrdiff_t>(offset + 2),
-                section->contents.begin() + static_cast<std::ptrdiff_t>(
-                    offset + instruction->encoding.size()),
-                std::byte{0x90});
+            std::fill(section->contents.begin() + static_cast<std::ptrdiff_t>(offset + 2),
+                      section->contents.begin() +
+                          static_cast<std::ptrdiff_t>(offset + instruction->encoding.size()),
+                      std::byte{0x90});
             if (!transform.valid()) transform = context.allocate_transform_id();
             if (changedSections.insert(section->id.value()).second) {
                 append_lineage(*section, transform, name());
@@ -1139,9 +1284,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }
@@ -1161,9 +1306,8 @@ struct BlockChunk {
     EntityId block;
 };
 
-auto map_block_offset(
-    std::span<const BlockChunk> chunks,
-    std::uint64_t oldOffset) -> std::optional<std::uint64_t> {
+auto map_block_offset(std::span<const BlockChunk> chunks, std::uint64_t oldOffset)
+    -> std::optional<std::uint64_t> {
     for (const auto& chunk : chunks) {
         if (oldOffset >= chunk.oldBegin && oldOffset < chunk.oldEnd) {
             return chunk.newBegin + (oldOffset - chunk.oldBegin);
@@ -1183,8 +1327,7 @@ auto relative_field(const Instruction& instruction) -> std::optional<RelativeFie
     if ((first == 0xe8 || first == 0xe9) && instruction.encoding.size() >= 5) {
         return RelativeField{1, 4};
     }
-    if ((first == 0xeb || (first >= 0x70 && first <= 0x7f))
-        && instruction.encoding.size() >= 2) {
+    if ((first == 0xeb || (first >= 0x70 && first <= 0x7f)) && instruction.encoding.size() >= 2) {
         return RelativeField{1, 1};
     }
     if (first == 0x0f && instruction.encoding.size() >= 6) {
@@ -1192,6 +1335,16 @@ auto relative_field(const Instruction& instruction) -> std::optional<RelativeFie
         if (second >= 0x80 && second <= 0x8f) return RelativeField{2, 4};
     }
     return std::nullopt;
+}
+
+auto has_rewritable_direct_field(const Instruction& instruction, Architecture architecture)
+    -> bool {
+    if (architecture == Architecture::ARM64) {
+        return instruction.encoding.size() == 4U &&
+               (instruction.kind == InstructionKind::DirectBranch ||
+                instruction.kind == InstructionKind::ConditionalBranch);
+    }
+    return relative_field(instruction).has_value();
 }
 
 auto patch_relative(std::vector<std::byte>& contents,
@@ -1203,28 +1356,27 @@ auto patch_relative(std::vector<std::byte>& contents,
         return false;
     }
     const auto next = instructionOffset + instructionSize;
-    if (next > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
-        || target > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+    if (next > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+        target > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
         return false;
     }
-    const auto displacement = static_cast<std::int64_t>(target)
-        - static_cast<std::int64_t>(next);
+    const auto displacement = static_cast<std::int64_t>(target) - static_cast<std::int64_t>(next);
     if (instructionOffset > std::numeric_limits<std::size_t>::max() - field.offset) {
         return false;
     }
     const auto position = static_cast<std::size_t>(instructionOffset) + field.offset;
     if (position > contents.size() || field.width > contents.size() - position) return false;
     if (field.width == 1) {
-        if (displacement < std::numeric_limits<std::int8_t>::min()
-            || displacement > std::numeric_limits<std::int8_t>::max()) {
+        if (displacement < std::numeric_limits<std::int8_t>::min() ||
+            displacement > std::numeric_limits<std::int8_t>::max()) {
             return false;
         }
         contents[position] = static_cast<std::byte>(
             static_cast<std::uint8_t>(static_cast<std::int8_t>(displacement)));
         return true;
     }
-    if (field.width != 4 || displacement < std::numeric_limits<std::int32_t>::min()
-        || displacement > std::numeric_limits<std::int32_t>::max()) {
+    if (field.width != 4 || displacement < std::numeric_limits<std::int32_t>::min() ||
+        displacement > std::numeric_limits<std::int32_t>::max()) {
         return false;
     }
     const auto bits = static_cast<std::uint32_t>(static_cast<std::int32_t>(displacement));
@@ -1235,20 +1387,23 @@ auto patch_relative(std::vector<std::byte>& contents,
 }
 
 class BlockReorderingPass final : public TransformPass {
-public:
+  public:
     auto name() const noexcept -> std::string_view override {
         return "block-reordering";
     }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(true, true);
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
-        return supports_machine_pass(image)
-            && (image.architecture == Architecture::X86 || image.unwindInfo.empty())
-            && std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
-                return unwind.format == UnwindFormat::Unknown;
-            });
+        return supports_machine_pass(image) &&
+               (uses_object_rewrite(image.architecture) || image.unwindInfo.empty()) &&
+               std::none_of(
+                   image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
+                       return unwind.format == UnwindFormat::Unknown;
+                   });
     }
 
     auto run(TransformContext& context, BinaryImage& image) const
@@ -1269,16 +1424,16 @@ public:
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
         for (const auto& function : analyzed.value().image.functions) {
-            if (!function.complete || !function.symbol.has_value()
-                || !function.entryBlock.has_value() || function.basicBlocks.size() < 3
-                || function.size > std::numeric_limits<std::uint64_t>::max()
-                    - function.address.value) {
+            if (!function.complete || !function.symbol.has_value() ||
+                !function.entryBlock.has_value() || function.basicBlocks.size() < 3 ||
+                function.size >
+                    std::numeric_limits<std::uint64_t>::max() - function.address.value) {
                 continue;
             }
-            const bool hasOpaqueUnwind = std::ranges::any_of(
-                image.unwindInfo, [&](const auto& unwind) {
-                    return unwind.function == function.id
-                        && unwind.rewriteState == UnwindRewriteState::Opaque;
+            const bool hasOpaqueUnwind =
+                std::ranges::any_of(image.unwindInfo, [&](const auto& unwind) {
+                    return unwind.function == function.id &&
+                           unwind.rewriteState == UnwindRewriteState::Opaque;
                 });
             if (hasOpaqueUnwind) {
                 statistics.examined += function.basicBlocks.size();
@@ -1294,16 +1449,15 @@ public:
             const auto begin = function.address.value;
             const auto end = begin + function.size;
             const bool hasRelocation = std::any_of(
-                image.relocations.begin(), image.relocations.end(),
-                [&](const auto& relocation) {
-                    return relocation.section == function.section
-                        && relocation.offset >= begin && relocation.offset < end;
+                image.relocations.begin(), image.relocations.end(), [&](const auto& relocation) {
+                    return relocation.section == function.section && relocation.offset >= begin &&
+                           relocation.offset < end;
                 });
-            const bool hasInteriorSymbol = std::any_of(
-                image.symbols.begin(), image.symbols.end(), [&](const auto& symbol) {
-                    return symbol.id != *function.symbol && symbol.kind != SymbolKind::Section
-                        && symbol.defined && symbol.section == function.section
-                        && symbol.address.value >= begin && symbol.address.value < end;
+            const bool hasInteriorSymbol =
+                std::any_of(image.symbols.begin(), image.symbols.end(), [&](const auto& symbol) {
+                    return symbol.id != *function.symbol && symbol.kind != SymbolKind::Section &&
+                           symbol.defined && symbol.section == function.section &&
+                           symbol.address.value >= begin && symbol.address.value < end;
                 });
             if (hasRelocation || hasInteriorSymbol) {
                 statistics.skipped += function.basicBlocks.size();
@@ -1318,22 +1472,21 @@ public:
                     analyzed.value().image.basicBlocks.begin(),
                     analyzed.value().image.basicBlocks.end(),
                     [blockId](const auto& candidate) { return candidate.id == blockId; });
-                if (block == analyzed.value().image.basicBlocks.end()
-                    || block->section != function.section || block->instructions.empty()
-                    || block->hasUnresolvedSuccessor
-                    || std::any_of(block->edges.begin(), block->edges.end(), [](const auto& edge) {
+                if (block == analyzed.value().image.basicBlocks.end() ||
+                    block->section != function.section || block->instructions.empty() ||
+                    block->hasUnresolvedSuccessor ||
+                    std::any_of(block->edges.begin(), block->edges.end(), [](const auto& edge) {
                         return edge.kind == ControlFlowEdgeKind::Fallthrough;
                     })) {
                     valid = false;
                     break;
                 }
-                const auto* terminator = find_instruction(
-                    analyzed.value().image, block->instructions.back());
-                if (terminator == nullptr
-                    || (terminator->kind != InstructionKind::DirectBranch
-                        && terminator->kind != InstructionKind::IndirectBranch
-                        && terminator->kind != InstructionKind::Return
-                        && terminator->kind != InstructionKind::Trap)) {
+                const auto* terminator =
+                    find_instruction(analyzed.value().image, block->instructions.back());
+                if (terminator == nullptr || (terminator->kind != InstructionKind::DirectBranch &&
+                                              terminator->kind != InstructionKind::IndirectBranch &&
+                                              terminator->kind != InstructionKind::Return &&
+                                              terminator->kind != InstructionKind::Trap)) {
                     valid = false;
                     break;
                 }
@@ -1346,8 +1499,8 @@ public:
             std::sort(blocks.begin(), blocks.end(), [](const auto* left, const auto* right) {
                 return left->sectionOffset < right->sectionOffset;
             });
-            if (blocks.front()->sectionOffset != begin
-                || blocks.front()->id != *function.entryBlock) {
+            if (blocks.front()->sectionOffset != begin ||
+                blocks.front()->id != *function.entryBlock) {
                 statistics.skipped += function.basicBlocks.size();
                 continue;
             }
@@ -1355,32 +1508,30 @@ public:
             chunks.reserve(blocks.size());
             for (std::size_t index = 0; index < blocks.size(); ++index) {
                 const auto chunkBegin = blocks[index]->sectionOffset;
-                const auto chunkEnd = index + 1 < blocks.size()
-                    ? blocks[index + 1]->sectionOffset : end;
-                const auto* last = find_instruction(
-                    analyzed.value().image, blocks[index]->instructions.back());
-                if (chunkBegin >= chunkEnd || chunkEnd > end || last == nullptr
-                    || last->sectionOffset > chunkEnd
-                    || last->encoding.size() > chunkEnd - last->sectionOffset) {
+                const auto chunkEnd =
+                    index + 1 < blocks.size() ? blocks[index + 1]->sectionOffset : end;
+                const auto* last =
+                    find_instruction(analyzed.value().image, blocks[index]->instructions.back());
+                if (chunkBegin >= chunkEnd || chunkEnd > end || last == nullptr ||
+                    last->sectionOffset > chunkEnd ||
+                    last->encoding.size() > chunkEnd - last->sectionOffset) {
                     valid = false;
                     break;
                 }
-                chunks.push_back(BlockChunk{
-                    chunkBegin, chunkEnd, 0, blocks[index]->id});
+                chunks.push_back(BlockChunk{chunkBegin, chunkEnd, 0, blocks[index]->id});
             }
             for (const auto instructionId : function.instructions) {
-                const auto* instruction = find_instruction(
-                    analyzed.value().image, instructionId);
-                if (instruction == nullptr || instruction->section != function.section
-                    || instruction->sectionOffset < begin || instruction->sectionOffset >= end) {
+                const auto* instruction = find_instruction(analyzed.value().image, instructionId);
+                if (instruction == nullptr || instruction->section != function.section ||
+                    instruction->sectionOffset < begin || instruction->sectionOffset >= end) {
                     valid = false;
                     break;
                 }
                 if (!instruction->directTarget.has_value()) continue;
                 const auto target = instruction->directTarget->value;
-                if (target < begin || target >= end
-                    || !relative_field(*instruction).has_value()
-                    || instruction->kind == InstructionKind::DirectCall) {
+                if (target < begin || target >= end ||
+                    !has_rewritable_direct_field(*instruction, image.architecture) ||
+                    instruction->kind == InstructionKind::DirectCall) {
                     valid = false;
                     break;
                 }
@@ -1411,12 +1562,12 @@ public:
 
             auto* section = find_section(image, function.section);
             if (section == nullptr || end > section->contents.size()) {
-                return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                    DiagnosticSeverity::Error,
-                    "pass.invalid_instruction_range",
-                    "block-reordering function range is outside its section"));
+                return Result<TransformResult, Diagnostic>::failure(
+                    diagnostic(DiagnosticSeverity::Error,
+                               "pass.invalid_instruction_range",
+                               "block-reordering function range is outside its section"));
             }
-            if (image.architecture == Architecture::X86) {
+            if (uses_object_rewrite(image.architecture)) {
                 std::vector<std::vector<std::byte>> replacements;
                 replacements.reserve(chunks.size());
                 for (const auto& chunk : chunks) {
@@ -1426,18 +1577,20 @@ public:
                 }
                 bool encodable = true;
                 for (const auto instructionId : function.instructions) {
-                    const auto* instruction = find_instruction(
-                        analyzed.value().image, instructionId);
+                    const auto* instruction =
+                        find_instruction(analyzed.value().image, instructionId);
                     if (instruction == nullptr || !instruction->directTarget.has_value()) continue;
-                    const auto chunk = std::find_if(
-                        chunks.begin(), chunks.end(), [&](const auto& candidate) {
-                            return instruction->sectionOffset >= candidate.oldBegin
-                                && instruction->sectionOffset < candidate.oldEnd;
+                    const auto chunk =
+                        std::find_if(chunks.begin(), chunks.end(), [&](const auto& candidate) {
+                            return instruction->sectionOffset >= candidate.oldBegin &&
+                                   instruction->sectionOffset < candidate.oldEnd;
                         });
-                    const auto newInstruction = map_block_offset(chunks, instruction->sectionOffset);
-                    const auto newTarget = map_block_offset(chunks, instruction->directTarget->value);
-                    if (chunk == chunks.end() || !newInstruction.has_value()
-                        || !newTarget.has_value()) {
+                    const auto newInstruction =
+                        map_block_offset(chunks, instruction->sectionOffset);
+                    const auto newTarget =
+                        map_block_offset(chunks, instruction->directTarget->value);
+                    if (chunk == chunks.end() || !newInstruction.has_value() ||
+                        !newTarget.has_value()) {
                         encodable = false;
                         break;
                     }
@@ -1445,7 +1598,7 @@ public:
                     source.address.value = *newInstruction;
                     source.sectionOffset = *newInstruction;
                     MachineTransformRequest request{};
-                    request.architecture = Architecture::X86;
+                    request.architecture = image.architecture;
                     request.format = image.format;
                     request.source = source;
                     request.targetAddress = *newTarget;
@@ -1454,8 +1607,8 @@ public:
                         request.kind = MachineTransformKind::DirectJump;
                     } else if (instruction->kind == InstructionKind::ConditionalBranch) {
                         const auto normalized = normalized_condition(instruction->mnemonic);
-                        const auto preserved = normalized.has_value()
-                            ? inverse_condition(*normalized) : std::nullopt;
+                        const auto preserved =
+                            normalized.has_value() ? inverse_condition(*normalized) : std::nullopt;
                         if (!preserved.has_value()) {
                             encodable = false;
                             break;
@@ -1467,19 +1620,18 @@ public:
                         break;
                     }
                     const auto emitted = backend->emit_transform(request);
-                    if (!emitted.has_value()
-                        || emitted.value().emission.bytes.size() != instruction->encoding.size()) {
+                    if (!emitted.has_value() ||
+                        emitted.value().emission.bytes.size() != instruction->encoding.size()) {
                         encodable = false;
                         break;
                     }
                     const auto chunkIndex = static_cast<std::size_t>(chunk - chunks.begin());
-                    const auto localOffset = static_cast<std::size_t>(
-                        instruction->sectionOffset - chunk->oldBegin);
-                    std::copy(
-                        emitted.value().emission.bytes.begin(),
-                        emitted.value().emission.bytes.end(),
-                        replacements[chunkIndex].begin()
-                            + static_cast<std::ptrdiff_t>(localOffset));
+                    const auto localOffset =
+                        static_cast<std::size_t>(instruction->sectionOffset - chunk->oldBegin);
+                    std::copy(emitted.value().emission.bytes.begin(),
+                              emitted.value().emission.bytes.end(),
+                              replacements[chunkIndex].begin() +
+                                  static_cast<std::ptrdiff_t>(localOffset));
                 }
                 if (!encodable) {
                     statistics.skipped += function.basicBlocks.size();
@@ -1505,27 +1657,26 @@ public:
                 const auto oldBegin = static_cast<std::size_t>(chunks[index].oldBegin);
                 const auto oldEnd = static_cast<std::size_t>(chunks[index].oldEnd);
                 const auto newBegin = static_cast<std::size_t>(chunks[index].newBegin);
-                std::copy(
-                    original.begin() + static_cast<std::ptrdiff_t>(oldBegin),
-                    original.begin() + static_cast<std::ptrdiff_t>(oldEnd),
-                    section->contents.begin() + static_cast<std::ptrdiff_t>(newBegin));
+                std::copy(original.begin() + static_cast<std::ptrdiff_t>(oldBegin),
+                          original.begin() + static_cast<std::ptrdiff_t>(oldEnd),
+                          section->contents.begin() + static_cast<std::ptrdiff_t>(newBegin));
             }
             for (const auto instructionId : function.instructions) {
-                const auto* instruction = find_instruction(
-                    analyzed.value().image, instructionId);
+                const auto* instruction = find_instruction(analyzed.value().image, instructionId);
                 if (instruction == nullptr || !instruction->directTarget.has_value()) continue;
                 const auto newInstruction = map_block_offset(chunks, instruction->sectionOffset);
                 const auto newTarget = map_block_offset(chunks, instruction->directTarget->value);
                 const auto field = relative_field(*instruction);
-                if (!newInstruction.has_value() || !newTarget.has_value()
-                    || !field.has_value()
-                    || !patch_relative(
-                        section->contents, *newInstruction, instruction->encoding.size(),
-                        *field, *newTarget)) {
-                    return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                        DiagnosticSeverity::Error,
-                        "pass.branch_out_of_range",
-                        "block-reordering could not encode a moved direct branch"));
+                if (!newInstruction.has_value() || !newTarget.has_value() || !field.has_value() ||
+                    !patch_relative(section->contents,
+                                    *newInstruction,
+                                    instruction->encoding.size(),
+                                    *field,
+                                    *newTarget)) {
+                    return Result<TransformResult, Diagnostic>::failure(
+                        diagnostic(DiagnosticSeverity::Error,
+                                   "pass.branch_out_of_range",
+                                   "block-reordering could not encode a moved direct branch"));
                 }
             }
             if (!transform.valid()) transform = context.allocate_transform_id();
@@ -1533,21 +1684,21 @@ public:
                 append_lineage(*section, transform, name());
             }
             for (auto& symbol : image.symbols) {
-                if (!symbol.defined || symbol.section != function.section
-                    || symbol.address.value < begin || symbol.address.value >= end) {
+                if (!symbol.defined || symbol.section != function.section ||
+                    symbol.address.value < begin || symbol.address.value >= end) {
                     continue;
                 }
                 const auto mapped = map_block_offset(chunks, symbol.address.value);
                 if (!mapped.has_value()) {
-                    return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                        DiagnosticSeverity::Error,
-                        "pass.unmapped_symbol",
-                        "block-reordering could not map a function symbol"));
+                    return Result<TransformResult, Diagnostic>::failure(
+                        diagnostic(DiagnosticSeverity::Error,
+                                   "pass.unmapped_symbol",
+                                   "block-reordering could not map a function symbol"));
                 }
                 if (*mapped != symbol.address.value) {
                     symbol.address.value = *mapped;
-                    symbol.lineage.parents.push_back(TransformationRecord{
-                        transform, symbol.id, std::string{name()}});
+                    symbol.lineage.parents.push_back(
+                        TransformationRecord{transform, symbol.id, std::string{name()}});
                 }
             }
             changedFunctions.insert(function.symbol->value());
@@ -1555,9 +1706,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }
@@ -1577,9 +1728,8 @@ struct FunctionChunk {
     EntityId symbol;
 };
 
-auto map_offset(
-    std::span<const FunctionChunk> chunks,
-    std::uint64_t oldOffset) -> std::optional<std::uint64_t> {
+auto map_offset(std::span<const FunctionChunk> chunks, std::uint64_t oldOffset)
+    -> std::optional<std::uint64_t> {
     for (const auto& chunk : chunks) {
         if (oldOffset >= chunk.oldBegin && oldOffset < chunk.oldEnd) {
             return chunk.newBegin + (oldOffset - chunk.oldBegin);
@@ -1589,21 +1739,26 @@ auto map_offset(
 }
 
 class FunctionReorderingPass final : public TransformPass {
-public:
-    auto name() const noexcept -> std::string_view override { return "function-reordering"; }
-    auto dependencies() const -> std::vector<std::string> override { return {}; }
+  public:
+    auto name() const noexcept -> std::string_view override {
+        return "function-reordering";
+    }
+    auto dependencies() const -> std::vector<std::string> override {
+        return {};
+    }
     auto requirements() const -> PassRequirements override {
         return machine_requirements(true, true);
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
-        return supports_machine_pass(image)
-            && (image.architecture == Architecture::X86 || image.unwindInfo.empty())
-            && std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
-                return unwind.format == UnwindFormat::Unknown;
-            })
-            && std::none_of(image.sections.begin(), image.sections.end(), [](const auto& section) {
-                return section.kind == SectionKind::Debug;
-            });
+        return supports_machine_pass(image) &&
+               (uses_object_rewrite(image.architecture) || image.unwindInfo.empty()) &&
+               std::none_of(
+                   image.unwindInfo.begin(),
+                   image.unwindInfo.end(),
+                   [](const auto& unwind) { return unwind.format == UnwindFormat::Unknown; }) &&
+               std::none_of(image.sections.begin(), image.sections.end(), [](const auto& section) {
+                   return section.kind == SectionKind::Debug;
+               });
     }
 
     auto run(TransformContext& context, BinaryImage& image) const
@@ -1631,12 +1786,12 @@ public:
             }
             if (functions.size() < 2) continue;
             statistics.examined += functions.size();
-            const bool hasOpaqueUnwind = std::ranges::any_of(
-                image.unwindInfo, [&](const auto& unwind) {
-                    return unwind.rewriteState == UnwindRewriteState::Opaque
-                        && std::ranges::any_of(functions, [&](const auto* function) {
-                            return unwind.function == function->id;
-                        });
+            const bool hasOpaqueUnwind =
+                std::ranges::any_of(image.unwindInfo, [&](const auto& unwind) {
+                    return unwind.rewriteState == UnwindRewriteState::Opaque &&
+                           std::ranges::any_of(functions, [&](const auto* function) {
+                               return unwind.function == function->id;
+                           });
                 });
             if (hasOpaqueUnwind) {
                 statistics.skipped += functions.size();
@@ -1653,8 +1808,8 @@ public:
             });
             std::vector<bool> selected(functions.size(), false);
             for (std::size_t index = 0; index < functions.size(); ++index) {
-                selected[index] = context.is_function_selected(
-                    analyzed.value().image, *functions[index]);
+                selected[index] =
+                    context.is_function_selected(analyzed.value().image, *functions[index]);
             }
             std::vector<FunctionChunk> chunks;
             chunks.reserve(functions.size());
@@ -1662,10 +1817,10 @@ public:
             for (std::size_t index = 0; index < functions.size(); ++index) {
                 const auto begin = functions[index]->address.value;
                 const auto end = index + 1 < functions.size()
-                    ? functions[index + 1]->address.value
-                    : static_cast<std::uint64_t>(section.contents.size());
-                if (begin >= end || end > section.contents.size()
-                    || functions[index]->size > end - begin) {
+                                     ? functions[index + 1]->address.value
+                                     : static_cast<std::uint64_t>(section.contents.size());
+                if (begin >= end || end > section.contents.size() ||
+                    functions[index]->size > end - begin) {
                     rangesValid = false;
                     break;
                 }
@@ -1684,14 +1839,15 @@ public:
             for (const auto* function : functions) {
                 const auto functionEnd = function->address.value + function->size;
                 for (const auto instructionId : function->instructions) {
-                    const auto* instruction = find_instruction(
-                        analyzed.value().image, instructionId);
+                    const auto* instruction =
+                        find_instruction(analyzed.value().image, instructionId);
                     if (instruction == nullptr || !instruction->directTarget.has_value()) continue;
                     const auto target = instruction->directTarget->value;
-                    const bool insideFunction = target >= function->address.value
-                        && target < functionEnd;
+                    const bool insideFunction =
+                        target >= function->address.value && target < functionEnd;
                     const bool hasRelocation = std::any_of(
-                        instruction->references.begin(), instruction->references.end(),
+                        instruction->references.begin(),
+                        instruction->references.end(),
                         [](const auto& reference) { return reference.relocation.has_value(); });
                     if (!insideFunction && !hasRelocation) {
                         controlFlowRelocatable = false;
@@ -1705,7 +1861,8 @@ public:
                 continue;
             }
             std::vector<std::size_t> order(chunks.size());
-            for (std::size_t index = 0; index < order.size(); ++index) order[index] = index;
+            for (std::size_t index = 0; index < order.size(); ++index)
+                order[index] = index;
             std::vector<bool> reordered(chunks.size(), false);
             std::size_t reorderedCount = 0;
             for (std::size_t runBegin = 0; runBegin < selected.size();) {
@@ -1714,7 +1871,8 @@ public:
                     continue;
                 }
                 auto runEnd = runBegin + 1;
-                while (runEnd < selected.size() && selected[runEnd]) ++runEnd;
+                while (runEnd < selected.size() && selected[runEnd])
+                    ++runEnd;
                 if (runEnd - runBegin >= 2) {
                     std::vector<std::size_t> permutation;
                     permutation.reserve(runEnd - runBegin);
@@ -1750,11 +1908,12 @@ public:
 
             bool referencesSupported = true;
             for (const auto& relocation : image.relocations) {
-                if (image.architecture == Architecture::X86) break;
+                if (uses_object_rewrite(image.architecture)) break;
                 if (!relocation.targetSymbol.has_value()) continue;
                 const auto* target = find_symbol(image, *relocation.targetSymbol);
-                if (target == nullptr || target->kind != SymbolKind::Section
-                    || target->section != section.id) continue;
+                if (target == nullptr || target->kind != SymbolKind::Section ||
+                    target->section != section.id)
+                    continue;
                 bool mapped = false;
                 if (image.format == BinaryFormat::COFF) {
                     referencesSupported = false;
@@ -1768,9 +1927,8 @@ public:
                         });
                     if (exactSymbol && map_offset(chunks, oldTarget).has_value()) mapped = true;
                 }
-                if (!mapped && relocation.section == section.id
-                    && relocation.kind == RelocationKind::PcRelative
-                    && relocation.addend >= -4) {
+                if (!mapped && relocation.section == section.id &&
+                    relocation.kind == RelocationKind::PcRelative && relocation.addend >= -4) {
                     const auto oldTarget = static_cast<std::uint64_t>(relocation.addend + 4);
                     if (map_offset(chunks, oldTarget).has_value()) mapped = true;
                 }
@@ -1784,7 +1942,7 @@ public:
                 continue;
             }
 
-            if (image.architecture == Architecture::X86) {
+            if (uses_object_rewrite(image.architecture)) {
                 if (!transform.valid()) transform = context.allocate_transform_id();
                 for (const auto& chunk : chunks) {
                     x86Ranges.push_back(ObjectRewriteRange{
@@ -1810,24 +1968,25 @@ public:
             for (const auto index : order) {
                 const auto begin = static_cast<std::size_t>(chunks[index].oldBegin);
                 const auto end = static_cast<std::size_t>(chunks[index].oldEnd);
-                std::copy(
-                    originalContents.begin() + static_cast<std::ptrdiff_t>(begin),
-                    originalContents.begin() + static_cast<std::ptrdiff_t>(end),
-                    section.contents.begin() + static_cast<std::ptrdiff_t>(outputOffset));
+                std::copy(originalContents.begin() + static_cast<std::ptrdiff_t>(begin),
+                          originalContents.begin() + static_cast<std::ptrdiff_t>(end),
+                          section.contents.begin() + static_cast<std::ptrdiff_t>(outputOffset));
                 outputOffset += end - begin;
             }
             if (!transform.valid()) transform = context.allocate_transform_id();
             append_lineage(section, transform, name());
             changedSections.insert(section.id.value());
             for (auto& symbol : image.symbols) {
-                if (!symbol.defined || symbol.section != section.id
-                    || symbol.kind == SymbolKind::Section) continue;
+                if (!symbol.defined || symbol.section != section.id ||
+                    symbol.kind == SymbolKind::Section)
+                    continue;
                 if (const auto mapped = map_offset(chunks, symbol.address.value)) {
                     if (*mapped != symbol.address.value) {
                         symbol.address.value = *mapped;
-                        symbol.lineage.parents.push_back(TransformationRecord{
-                            .transform = transform, .source = symbol.id,
-                            .passName = std::string{name()}});
+                        symbol.lineage.parents.push_back(
+                            TransformationRecord{.transform = transform,
+                                                 .source = symbol.id,
+                                                 .passName = std::string{name()}});
                     }
                 }
             }
@@ -1835,17 +1994,18 @@ public:
                 if (relocation.section == section.id) {
                     const auto mapped = map_offset(chunks, relocation.offset);
                     if (!mapped.has_value()) {
-                        return Result<TransformResult, Diagnostic>::failure(diagnostic(
-                            DiagnosticSeverity::Error,
-                            "pass.unmapped_relocation",
-                            "function reordering could not map a relocation site"));
+                        return Result<TransformResult, Diagnostic>::failure(
+                            diagnostic(DiagnosticSeverity::Error,
+                                       "pass.unmapped_relocation",
+                                       "function reordering could not map a relocation site"));
                     }
                     relocation.offset = *mapped;
                 }
                 if (!relocation.targetSymbol.has_value()) continue;
                 const auto* target = find_symbol(image, *relocation.targetSymbol);
-                if (target == nullptr || target->kind != SymbolKind::Section
-                    || target->section != section.id) continue;
+                if (target == nullptr || target->kind != SymbolKind::Section ||
+                    target->section != section.id)
+                    continue;
                 if (relocation.section != section.id && relocation.addend >= 0) {
                     const auto oldTarget = static_cast<std::uint64_t>(relocation.addend);
                     const auto exactSymbol = std::any_of(
@@ -1853,7 +2013,8 @@ public:
                             return function->address.value == oldTarget;
                         });
                     if (exactSymbol) {
-                        relocation.addend = static_cast<std::int64_t>(*map_offset(chunks, oldTarget));
+                        relocation.addend =
+                            static_cast<std::int64_t>(*map_offset(chunks, oldTarget));
                         continue;
                     }
                 }
@@ -1869,9 +2030,9 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
-        if (image.architecture == Architecture::X86) {
-            const auto rewritten = commit_x86_rewrite(
-                image, *backend, std::move(x86Ranges), transform, name());
+        if (uses_object_rewrite(image.architecture)) {
+            const auto rewritten =
+                commit_object_rewrite(image, *backend, std::move(x86Ranges), transform, name());
             if (!rewritten.has_value()) {
                 return Result<TransformResult, Diagnostic>::failure(rewritten.error());
             }

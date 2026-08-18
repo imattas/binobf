@@ -34,20 +34,16 @@ auto parse_register(std::string_view text) -> std::optional<RegisterName> {
     unsigned int index = 0;
     for (std::size_t position = 1; position < text.size(); ++position) {
         const auto character = static_cast<unsigned char>(text[position]);
-        if (std::isdigit(character) == 0)
-            return std::nullopt;
+        if (std::isdigit(character) == 0) return std::nullopt;
         index = index * 10U + static_cast<unsigned int>(character - '0');
-        if (index > 30U)
-            return std::nullopt;
+        if (index > 30U) return std::nullopt;
     }
-    if (text.size() > 2U && text[1] == '0')
-        return std::nullopt;
+    if (text.size() > 2U && text[1] == '0') return std::nullopt;
     return RegisterName{std::string{text}, static_cast<std::uint8_t>(index), text.front() == 'x'};
 }
 
 auto valid_symbol(std::string_view symbol) noexcept -> bool {
-    if (symbol.empty())
-        return false;
+    if (symbol.empty()) return false;
     const auto first = static_cast<unsigned char>(symbol.front());
     if (std::isalpha(first) == 0 && symbol.front() != '_' && symbol.front() != '.' &&
         symbol.front() != '$') {
@@ -59,7 +55,7 @@ auto valid_symbol(std::string_view symbol) noexcept -> bool {
     });
 }
 
-auto append_word(std::vector<std::byte> &bytes, std::uint32_t word) -> void {
+auto append_word(std::vector<std::byte>& bytes, std::uint32_t word) -> void {
     for (unsigned int shift = 0; shift < 32U; shift += 8U) {
         bytes.push_back(static_cast<std::byte>((word >> shift) & 0xffU));
     }
@@ -70,8 +66,7 @@ auto byte_assembly(std::span<const std::byte> bytes) -> std::string {
     std::string result{".byte "};
     result.reserve(7U + bytes.size() * 6U);
     for (std::size_t index = 0; index < bytes.size(); ++index) {
-        if (index != 0U)
-            result += ", ";
+        if (index != 0U) result += ", ";
         const auto value = std::to_integer<unsigned int>(bytes[index]);
         result += "0x";
         result += digits[(value >> 4U) & 0xfU];
@@ -81,7 +76,8 @@ auto byte_assembly(std::span<const std::byte> bytes) -> std::string {
     return result;
 }
 
-auto assembly_request(const MachineTransformRequest &request, std::string assembly,
+auto assembly_request(const MachineTransformRequest& request,
+                      std::string assembly,
                       std::size_t instructionCount) -> MachineAssemblyRequest {
     MachineAssemblyRequest result{};
     result.architecture = Architecture::ARM64;
@@ -96,9 +92,12 @@ auto assembly_request(const MachineTransformRequest &request, std::string assemb
     return result;
 }
 
-auto emit_words(const MachineTransformRequest &request, const CodegenProvider &codegen,
-                std::span<const std::uint32_t> words, MachineControlFlow controlFlow,
-                bool readsFlags, std::vector<std::string> clobbers = {})
+auto emit_words(const MachineTransformRequest& request,
+                const CodegenProvider& codegen,
+                std::span<const std::uint32_t> words,
+                MachineControlFlow controlFlow,
+                bool readsFlags,
+                std::vector<std::string> clobbers = {})
     -> Result<MachineTransformEmission, Diagnostic> {
     std::vector<std::byte> bytes;
     bytes.reserve(words.size() * 4U);
@@ -131,7 +130,8 @@ auto emit_words(const MachineTransformRequest &request, const CodegenProvider &c
     });
 }
 
-auto checked_displacement(const MachineTransformRequest &request, std::int64_t minimum,
+auto checked_displacement(const MachineTransformRequest& request,
+                          std::int64_t minimum,
                           std::int64_t maximum) -> Result<std::int64_t, Diagnostic> {
     if (!request.source.has_value() || !request.targetAddress.has_value()) {
         return failure<std::int64_t>("architecture.invalid_template",
@@ -207,7 +207,7 @@ auto inverted_condition(std::string_view condition) -> std::optional<std::uint8_
     return found == entries.end() ? std::nullopt : std::optional<std::uint8_t>{found->inverse};
 }
 
-auto move_wide_words(const RegisterName &destination, std::uint64_t value)
+auto move_wide_words(const RegisterName& destination, std::uint64_t value)
     -> std::vector<std::uint32_t> {
     const auto laneCount = destination.is64Bit ? std::size_t{4} : std::size_t{2};
     std::array<std::uint16_t, 4> lanes{};
@@ -215,10 +215,12 @@ auto move_wide_words(const RegisterName &destination, std::uint64_t value)
         lanes[lane] = static_cast<std::uint16_t>((value >> (lane * 16U)) & 0xffffU);
     }
     const auto nonzero = static_cast<std::size_t>(
-        std::count_if(lanes.begin(), lanes.begin() + static_cast<std::ptrdiff_t>(laneCount),
+        std::count_if(lanes.begin(),
+                      lanes.begin() + static_cast<std::ptrdiff_t>(laneCount),
                       [](std::uint16_t lane) { return lane != 0U; }));
     const auto nonones = static_cast<std::size_t>(
-        std::count_if(lanes.begin(), lanes.begin() + static_cast<std::ptrdiff_t>(laneCount),
+        std::count_if(lanes.begin(),
+                      lanes.begin() + static_cast<std::ptrdiff_t>(laneCount),
                       [](std::uint16_t lane) { return lane != 0xffffU; }));
     const bool useMovn = std::max(std::size_t{1}, nonones) < std::max(std::size_t{1}, nonzero);
     const auto defaultLane = useMovn ? UINT16_C(0xffff) : UINT16_C(0);
@@ -238,15 +240,15 @@ auto move_wide_words(const RegisterName &destination, std::uint64_t value)
                      (static_cast<std::uint32_t>(seedImmediate) << 5U) | destination.index);
     const auto movkBase = widthBase | UINT32_C(0x72800000);
     for (std::size_t lane = 0; lane < laneCount; ++lane) {
-        if (lane == seedLane || lanes[lane] == defaultLane)
-            continue;
+        if (lane == seedLane || lanes[lane] == defaultLane) continue;
         result.push_back(movkBase | (static_cast<std::uint32_t>(lane) << 21U) |
                          (static_cast<std::uint32_t>(lanes[lane]) << 5U) | destination.index);
     }
     return result;
 }
 
-auto emit_symbol_branch(const MachineTransformRequest &request, const CodegenProvider &codegen,
+auto emit_symbol_branch(const MachineTransformRequest& request,
+                        const CodegenProvider& codegen,
                         bool call) -> Result<MachineTransformEmission, Diagnostic> {
     if (!valid_symbol(request.condition)) {
         return failure<MachineTransformEmission>("architecture.invalid_template",
@@ -272,8 +274,7 @@ auto emit_symbol_branch(const MachineTransformRequest &request, const CodegenPro
             "architecture.template_verification_failed",
             "ARM64 symbolic branch did not emit its exact typed fixup");
     }
-    if (call)
-        emission.value().clobberedRegisters = {"x30"};
+    if (call) emission.value().clobberedRegisters = {"x30"};
     return Result<MachineTransformEmission, Diagnostic>::success(MachineTransformEmission{
         .emission = std::move(emission).value(),
         .instructionCount = 1,
@@ -286,7 +287,7 @@ auto emit_symbol_branch(const MachineTransformRequest &request, const CodegenPro
 
 } // namespace
 
-auto emit_arm64_transform(const MachineTransformRequest &request, const CodegenProvider &codegen)
+auto emit_arm64_transform(const MachineTransformRequest& request, const CodegenProvider& codegen)
     -> Result<MachineTransformEmission, Diagnostic> {
     if (request.architecture != Architecture::ARM64) {
         return failure<MachineTransformEmission>(
@@ -312,9 +313,11 @@ auto emit_arm64_transform(const MachineTransformRequest &request, const CodegenP
             return failure<MachineTransformEmission>("architecture.resource_limit",
                                                      "ARM64 dead-code fill exceeds request limits");
         }
-        return emit_words(request, codegen,
+        return emit_words(request,
+                          codegen,
                           std::vector<std::uint32_t>(request.exactSize / 4U, UINT32_C(0xd503201f)),
-                          MachineControlFlow::Fallthrough, false);
+                          MachineControlFlow::Fallthrough,
+                          false);
     }
 
     if (request.kind == MachineTransformKind::InstructionEquivalent) {
@@ -333,7 +336,8 @@ auto emit_arm64_transform(const MachineTransformRequest &request, const CodegenP
             request.source->registersWritten.size() != 1U) {
             return failure<MachineTransformEmission>(
                 "architecture.invalid_template",
-                "ARM64 copy equivalence requires one explicit source and destination");
+                "ARM64 copy equivalence requires one explicit source and "
+                "destination");
         }
         const auto source = parse_register(request.source->registersRead.front().name);
         const auto destination = parse_register(request.source->registersWritten.front().name);
@@ -342,11 +346,11 @@ auto emit_arm64_transform(const MachineTransformRequest &request, const CodegenP
             return failure<MachineTransformEmission>(
                 "architecture.invalid_template", "ARM64 copy registers are invalid or mismatched");
         }
-        const auto base = destination->is64Bit ? UINT32_C(0xaa0003e0) : UINT32_C(0x2a0003e0);
-        const std::array words{base | (static_cast<std::uint32_t>(source->index) << 16U) |
+        const auto base = destination->is64Bit ? UINT32_C(0x91000000) : UINT32_C(0x11000000);
+        const std::array words{base | (static_cast<std::uint32_t>(source->index) << 5U) |
                                destination->index};
-        return emit_words(request, codegen, words, MachineControlFlow::Fallthrough, false,
-                          {destination->text});
+        return emit_words(
+            request, codegen, words, MachineControlFlow::Fallthrough, false, {destination->text});
     }
 
     if (request.kind == MachineTransformKind::ConstantMaterialization) {
@@ -356,17 +360,26 @@ auto emit_arm64_transform(const MachineTransformRequest &request, const CodegenP
              *request.constantBits > std::numeric_limits<std::uint32_t>::max())) {
             return failure<MachineTransformEmission>(
                 "architecture.invalid_template",
-                "ARM64 constant template requires x0-x30 or w0-w30 and a fitting value");
+                "ARM64 constant template requires x0-x30 or w0-w30 and a fitting "
+                "value");
         }
-        const auto words = move_wide_words(*destination, *request.constantBits);
+        std::vector<std::uint32_t> words;
+        if (*request.constantBits == 0U) {
+            const auto base = destination->is64Bit ? UINT32_C(0xca000000) : UINT32_C(0x4a000000);
+            words.push_back(base | (static_cast<std::uint32_t>(destination->index) << 16U) |
+                            (static_cast<std::uint32_t>(destination->index) << 5U) |
+                            destination->index);
+        } else {
+            words = move_wide_words(*destination, *request.constantBits);
+        }
         const auto exactSize = words.size() * 4U;
         if (request.exactSize != 0U && request.exactSize != exactSize) {
             return failure<MachineTransformEmission>(
                 "architecture.exact_size_unavailable",
                 "ARM64 constant template size must match its shortest sequence");
         }
-        return emit_words(request, codegen, words, MachineControlFlow::Fallthrough, false,
-                          {destination->text});
+        return emit_words(
+            request, codegen, words, MachineControlFlow::Fallthrough, false, {destination->text});
     }
 
     if (request.kind == MachineTransformKind::ConditionalInversion) {
@@ -414,8 +427,11 @@ auto emit_arm64_transform(const MachineTransformRequest &request, const CodegenP
         const auto immediate =
             static_cast<std::uint32_t>(displacement.value() / 4) & UINT32_C(0x03ffffff);
         const std::array words{(call ? UINT32_C(0x94000000) : UINT32_C(0x14000000)) | immediate};
-        return emit_words(request, codegen, words,
-                          call ? MachineControlFlow::Call : MachineControlFlow::Direct, false,
+        return emit_words(request,
+                          codegen,
+                          words,
+                          call ? MachineControlFlow::Call : MachineControlFlow::Direct,
+                          false,
                           call ? std::vector<std::string>{"x30"} : std::vector<std::string>{});
     }
 

@@ -643,39 +643,39 @@ git commit -m "refactor: attach LLVM codegen providers to backends"
 - Consumes: complete Track 2 provider and IR.
 - Produces: release evidence without matrix promotion.
 
-- [ ] **Step 1: Add bounded provider fuzzing**
+- [x] **Step 1: Add bounded provider fuzzing**
 
 Map arbitrary input to one of three architectures, two formats, and an allowlisted token stream;
 cap assembly at 64 KiB and provider limits below production defaults. Emit or return a diagnostic,
 repeat the request for deterministic equality, and never execute emitted bytes. Add 2,000 runs to
 `fuzz-smoke` with a seed corpus for all six architecture/format pairs.
 
-- [ ] **Step 2: Document provider and IR contracts**
+- [x] **Step 2: Document provider and IR contracts**
 
 Document the pinned hash, private component boundary, directive allowlist, independent re-decode,
 canonical IR types/storage/memory/calls/control flow/unwind, fallback transform boundary, and the
 rule that provider presence does not promote codegen support.
 
-- [ ] **Step 3: Run standalone headers and installed consumer**
+- [x] **Step 3: Run standalone headers and installed consumer**
 
 Compile every public header standalone. Install to fresh `build/track18-install`; compile a consumer
 that creates all providers/backends, emits and verifies one golden per architecture, constructs and
 validates a typed memory/call/unwind module, validates capability evidence, and exits zero.
 
-- [ ] **Step 4: Run complete project gates**
+- [x] **Step 4: Run complete project gates**
 
 Run full Debug, Release, and UBSan builds/CTest; `fuzz-smoke`; 47-plus whole-production analyzer
 units including new provider sources; `git diff --check`; tracked-artifact and unfinished-marker
 checks; and the installed consumer. Confirm README/CLI matrices retain current statuses.
 
-- [ ] **Step 5: Commit Track 2 release evidence**
+- [x] **Step 5: Commit Track 2 release evidence**
 
 ```powershell
 git add CMakeLists.txt docs tests/fuzz/codegen_fuzzer.cpp
 git commit -m "test: gate LLVM provider and expanded native IR"
 ```
 
-- [ ] **Step 6: Record Track 2 completion**
+- [x] **Step 6: Record Track 2 completion**
 
 Mark this plan complete and check only Track 2 in the umbrella program checklist. Confirm a clean
 `main` worktree. Track 3 is the full x86 object backend; do not claim overall completion.

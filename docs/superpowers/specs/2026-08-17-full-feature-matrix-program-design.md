@@ -210,7 +210,7 @@ The work is implemented as separately designed and gated tracks in dependency or
 
 1. [x] **Capability contract and backend interfaces.** Typed registry, acceptance-test binding,
    architecture provider contracts, and migration of existing x86-64 behavior without regressions.
-2. [ ] **LLVM MC provider and expanded native IR.** Private pinned dependency, types, validation,
+2. [x] **LLVM MC provider and expanded native IR.** Private pinned dependency, types, validation,
    emission/fixup round trips, and independent re-decoding.
 3. [ ] **Full x86 object backend.** Analysis, code generation, ABI/unwind, all object transforms, COFF and
    ELF compiler corpora, native 32-bit execution, and matrix promotion.

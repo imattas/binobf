@@ -10,7 +10,7 @@ ctest --test-dir build/debug --output-on-failure
 
 Production code is C++20. Public interfaces live under `include/binobf`; implementations mirror those paths under `src`; the process entry point lives under `tools/binobf`; tests are split into unit, integration, and differential directories.
 
-For robustness work, use a dedicated UBSan build and the seed-backed libFuzzer smoke target. The fuzzer build creates valid COFF, ELF, PE, archive, VM, TOML-configuration, and lineage-JSON corpus entries before mutation and never executes parsed native code. Use the opt-in benchmark only for regression evidence, never as a correctness assertion. Exact commands and platform limits are in [Hardening](hardening.md).
+For robustness work, use a dedicated UBSan build and the seed-backed libFuzzer smoke target. The fuzzer build creates valid COFF, ELF, PE, archive, VM, TOML-configuration, lineage-JSON, and six architecture/format code-generation corpus entries before mutation and never executes parsed or emitted native code. Use the opt-in benchmark only for regression evidence, never as a correctness assertion. Exact commands and platform limits are in [Hardening](hardening.md).
 
 ## Change workflow
 
@@ -34,11 +34,15 @@ Machine-code decoding uses the private Capstone adapter. Public headers expose o
 
 Architecture work is registered through `ArchitectureBackend`. A backend instance owns one fixed architecture, rejects mismatched requests, and publishes truthful service levels. New decode, analysis, code-generation, fixup, ABI, or unwind support must update both the backend service and matching capability evidence without exposing provider-library types.
 
+Machine emission goes through the backend-owned `CodegenProvider`. Keep LLVM includes, targets, definitions, and link dependencies private. Provider-generated assembly may use labels, instructions, `.text`, syntax selection, bounded alignment/data directives, and `.globl`; file input, macros, conditionals, custom sections, debug/visibility directives, target options, and binary inclusion are rejected before LLVM parsing. Symbol ceilings count unique labels and every `.globl` operand before parsing, then count the emitted object symbols again so implicit externals cannot bypass a caller's lower limit. Normalize every relocation into `MachineFixup`, reject unknown kinds, extract only the requested executable section, and re-decode the complete byte stream independently. A provider instance is not evidence for promoting the architecture code-generation matrix cell.
+
 VM changes must preserve explicit width semantics and validate before allocation or execution. Every new opcode needs IR validation, assembler/decoder round-trip, malformed-record coverage, interpreter success/failure cases, and disassembly text. Internal calls must use fresh bounded frames and validated targets/arguments; native calls go only through `VmNativeCallBridge`; memory accesses go only through `VmMemory`. Do not add ambient host access to the interpreter.
 
 Native lifting changes must start from structured decoder operands, never parsed disassembly text. Add golden machine bytes, explicit ABI bindings, fallback diagnostics, and native-vs-lowered differential execution. A new native instruction is not supported merely because its result looks right: width, flags consumed by later branches, control-flow targets, relocations, and ABI observability must all be modeled or rejected.
 
 Advanced IR control-flow changes require deterministic seeds, post-transform validation, structural tests, and native-vs-transformed differential execution. Bogus edges must be valid, side-effect-free, program-local, and independent of timing or environmental state. Outlining requires proven live-ins and safe exits. Internal call graphs must remain acyclic and within both IR call-depth and VM frame-depth limits.
+
+Canonical native IR changes must use `IrType`, `IrValue`, declared storage/address records, explicit function signatures and ABI bindings, declared external calls, complete switch/indirect targets, and validated unwind regions. Void returns/calls use absent optional values; non-void forms require exact destinations. Pointer arithmetic must fit its declared width, indirect targets must be address-width integers or pointers, and readonly provenance must be propagated at each program point with conservative CFG merges. Never add a duplicate width-only compatibility field. A fallback requires complete conservative effects; transforms query `fallback_blocks_rewrite` for the region they intend to change. VM lowering either maps a supported scalar-integer node or returns `vm.unsupported_native_ir` with the exact node and source instruction.
 
 ## Adding a format adapter
 

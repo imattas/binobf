@@ -284,6 +284,200 @@ TEST_CASE(native_ir_validator_rejects_invalid_storage_addresses_and_readonly_sto
     REQUIRE_EQ(result.error().code, "ir.readonly_store");
 }
 
+TEST_CASE(native_ir_readonly_provenance_is_program_point_and_path_sound) {
+    using namespace binobf::ir;
+    const IrType integer{IrTypeKind::Integer, 64U};
+    auto function = memory_function();
+    function.storageLocations = {
+        IrStorageLocation{IrStorageKind::Local, integer, "readonly", 0, 8U, 8U,
+                          0U, true},
+        IrStorageLocation{IrStorageKind::Local, integer, "writable", 0, 8U, 8U,
+                          0U, false},
+    };
+    function.blocks[0].instructions = {
+        IrAddressOf{IrVariable{0}, 0U, binobf::EntityId{42}},
+        IrStore{integer, IrAddress{IrVariable{0}, std::nullopt, 1U, 0, 0U, 8U},
+                IrIntegerConstant{integer, 1U}, IrByteOrder::Little, false,
+                IrAtomicOrdering::None, binobf::EntityId{43}, std::nullopt},
+        IrAddressOf{IrVariable{0}, 1U, binobf::EntityId{44}},
+        IrLoad{integer, IrVariable{1},
+               IrAddress{IrVariable{0}, std::nullopt, 1U, 0, 0U, 8U},
+               IrByteOrder::Little, false, IrAtomicOrdering::None,
+               binobf::EntityId{45}, std::nullopt},
+        IrReturn{integer, IrVariable{1}, binobf::EntityId{46}},
+    };
+    auto result = validate_function(function);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.readonly_store");
+
+    function.blocks[0].instructions = {
+        IrAddressOf{IrVariable{0}, 0U, binobf::EntityId{42}},
+        IrPointerOffset{IrVariable{0}, IrVariable{0},
+                        IrIntegerConstant{integer, 0U}, binobf::EntityId{43}},
+        IrStore{integer, IrAddress{IrVariable{0}, std::nullopt, 1U, 0, 0U, 8U},
+                IrIntegerConstant{integer, 1U}, IrByteOrder::Little, false,
+                IrAtomicOrdering::None, binobf::EntityId{44}, std::nullopt},
+        IrLoad{integer, IrVariable{1},
+               IrAddress{IrVariable{0}, std::nullopt, 1U, 0, 0U, 8U},
+               IrByteOrder::Little, false, IrAtomicOrdering::None,
+               binobf::EntityId{45}, std::nullopt},
+        IrReturn{integer, IrVariable{1}, binobf::EntityId{46}},
+    };
+    result = validate_function(function);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.readonly_store");
+
+    function.blocks[0].instructions = {
+        IrAddressOf{IrVariable{0}, 1U, binobf::EntityId{42}},
+        IrStore{integer, IrAddress{IrVariable{0}, std::nullopt, 1U, 0, 0U, 8U},
+                IrIntegerConstant{integer, 1U}, IrByteOrder::Little, false,
+                IrAtomicOrdering::None, binobf::EntityId{43}, std::nullopt},
+        IrAddressOf{IrVariable{0}, 0U, binobf::EntityId{44}},
+        IrLoad{integer, IrVariable{1},
+               IrAddress{IrVariable{0}, std::nullopt, 1U, 0, 0U, 8U},
+               IrByteOrder::Little, false, IrAtomicOrdering::None,
+               binobf::EntityId{45}, std::nullopt},
+        IrReturn{integer, IrVariable{1}, binobf::EntityId{46}},
+    };
+    result = validate_function(function);
+    REQUIRE(result.has_value());
+
+    function.arguments = {
+        IrArgumentBinding{0U, IrVariable{2U}, IrType{IrTypeKind::Integer, 32U}},
+    };
+    function.signature.parameterTypes = {IrType{IrTypeKind::Integer, 32U}};
+    function.signature.parameterBindings = {
+        IrStorageLocation{IrStorageKind::Register,
+                          IrType{IrTypeKind::Integer, 32U}, "selector", 0, 4U, 4U},
+    };
+    function.blocks = {
+        IrBlock{IrBlockId{0U}, binobf::EntityId{50U}, {
+            IrMove{integer, IrVariable{1U}, IrImmediateOperand{integer, 0U},
+                   binobf::EntityId{51U}},
+            IrCompare{IrType{IrTypeKind::Integer, 32U}, IrVariable{2U},
+                      IrImmediateOperand{IrType{IrTypeKind::Integer, 32U}, 0U},
+                      binobf::EntityId{52U}},
+            IrConditionalJump{IrCondition::Equal, IrBlockId{1U}, IrBlockId{2U},
+                              binobf::EntityId{53U}},
+        }},
+        IrBlock{IrBlockId{1U}, binobf::EntityId{54U}, {
+            IrAddressOf{IrVariable{0U}, 0U, binobf::EntityId{55U}},
+            IrJump{IrBlockId{3U}, binobf::EntityId{56U}},
+        }},
+        IrBlock{IrBlockId{2U}, binobf::EntityId{57U}, {
+            IrAddressOf{IrVariable{0U}, 1U, binobf::EntityId{58U}},
+            IrJump{IrBlockId{3U}, binobf::EntityId{59U}},
+        }},
+        IrBlock{IrBlockId{3U}, binobf::EntityId{60U}, {
+            IrStore{integer,
+                    IrAddress{IrVariable{0U}, std::nullopt, 1U, 0, 0U, 8U},
+                    IrIntegerConstant{integer, 1U}, IrByteOrder::Little, false,
+                    IrAtomicOrdering::None, binobf::EntityId{61U}, std::nullopt},
+            IrReturn{integer, IrVariable{1U}, binobf::EntityId{62U}},
+        }},
+    };
+    result = validate_function(function);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.readonly_store");
+}
+
+TEST_CASE(native_ir_models_void_returns_and_internal_calls_consistently) {
+    using namespace binobf::ir;
+    const IrType voidType{IrTypeKind::Void, 0U};
+    const IrFunctionSignature voidSignature{
+        .callingConvention = IrCallingConvention::C,
+        .parameterTypes = {},
+        .returnType = voidType,
+        .variadic = false,
+        .parameterBindings = {},
+        .returnBinding = std::nullopt,
+        .clobbers = {},
+        .mayUnwind = false,
+    };
+    IrFunction callee{
+        .sourceFunction = binobf::EntityId{100U},
+        .name = "callee",
+        .arguments = {},
+        .returnType = voidType,
+        .variableTypes = {},
+        .storageLocations = {},
+        .signature = voidSignature,
+        .entry = IrBlockId{0U},
+        .blocks = {IrBlock{IrBlockId{0U}, binobf::EntityId{101U}, {
+            IrReturn{voidType, std::nullopt, binobf::EntityId{102U}},
+        }}},
+        .unwindRegions = {},
+    };
+    IrFunction caller = callee;
+    caller.sourceFunction = binobf::EntityId{200U};
+    caller.name = "caller";
+    caller.blocks[0].instructions = {
+        IrInternalCall{callee.sourceFunction, voidType, std::nullopt, {},
+                       binobf::EntityId{201U}, std::nullopt},
+        IrReturn{voidType, std::nullopt, binobf::EntityId{202U}},
+    };
+    const auto valid = validate_module(IrModule{
+        .entryFunction = caller.sourceFunction,
+        .declarations = {},
+        .functions = {caller, callee},
+    });
+    REQUIRE(valid.has_value());
+
+    caller.variableTypes = {IrWidth::U32};
+    caller.blocks[0].instructions[0] = IrInternalCall{
+        callee.sourceFunction, voidType, IrVariable{0U}, {},
+        binobf::EntityId{201U}, std::nullopt};
+    const auto invalidCall = validate_function(caller);
+    REQUIRE(!invalidCall.has_value());
+    REQUIRE_EQ(invalidCall.error().code, "ir.type_mismatch");
+
+    auto nonVoid = arithmetic_function();
+    nonVoid.blocks[0].instructions.back() = IrReturn{
+        IrWidth::U32, std::nullopt, binobf::EntityId{32U}};
+    const auto missingReturnValue = validate_function(nonVoid);
+    REQUIRE(!missingReturnValue.has_value());
+    REQUIRE_EQ(missingReturnValue.error().code, "ir.type_mismatch");
+}
+
+TEST_CASE(native_ir_rejects_unrepresentable_pointer_arithmetic_and_bad_jump_types) {
+    using namespace binobf::ir;
+    auto address = memory_function();
+    address.variableTypes[0] = IrType{IrTypeKind::Pointer, 32U};
+    std::get<IrLoad>(address.blocks[0].instructions[1]).address.displacement =
+        static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) + 1;
+    auto result = validate_function(address);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_address");
+
+    auto offset = memory_function();
+    offset.variableTypes[0] = IrType{IrTypeKind::Pointer, 32U};
+    offset.blocks[0].instructions.insert(
+        offset.blocks[0].instructions.begin() + 1,
+        IrPointerOffset{
+            IrVariable{0U}, IrVariable{0U},
+            IrIntegerConstant{IrType{IrTypeKind::Integer, 64U},
+                              std::uint64_t{1U} << 32U},
+            binobf::EntityId{47U}});
+    result = validate_function(offset);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_address");
+
+    auto indirect = arithmetic_function();
+    const IrType floating{IrTypeKind::FloatingPoint, 32U};
+    indirect.variableTypes[2] = floating;
+    indirect.blocks[0].instructions = {
+        IrMove{floating, IrVariable{2U}, IrImmediateOperand{floating, 0U},
+               binobf::EntityId{30U}},
+        IrIndirectJump{IrVariable{2U}, {IrBlockId{1U}}, binobf::EntityId{31U}},
+    };
+    indirect.blocks.push_back(IrBlock{
+        IrBlockId{1U}, binobf::EntityId{21U},
+        {IrReturn{IrWidth::U32, IrVariable{0U}, binobf::EntityId{32U}}}});
+    result = validate_function(indirect);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_indirect_jump");
+}
+
 TEST_CASE(native_ir_validator_rejects_memory_type_cast_atomic_and_limit_errors) {
     using namespace binobf::ir;
     auto mismatch = memory_function();

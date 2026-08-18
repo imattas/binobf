@@ -124,9 +124,17 @@ auto validate_address(
         baseType.addressSpace != address.addressSpace) {
         return failure("ir.invalid_address", "IR address base is not a matching pointer");
     }
+    if (baseType.bits == 32U &&
+        (address.displacement < std::numeric_limits<std::int32_t>::min() ||
+         address.displacement > std::numeric_limits<std::int32_t>::max())) {
+        return failure(
+            "ir.invalid_address",
+            "IR address displacement exceeds the pointer width");
+    }
     if (address.index.has_value()) {
         if (!variable_valid(function, *address.index) ||
-            function.variableTypes[address.index->index].kind != IrTypeKind::Integer) {
+            function.variableTypes[address.index->index].kind != IrTypeKind::Integer ||
+            function.variableTypes[address.index->index].bits > baseType.bits) {
             return failure("ir.invalid_address", "IR address index is not an integer variable");
         }
     }
@@ -300,7 +308,7 @@ auto reads_of(const IrInstruction& instruction) -> std::vector<IrVariable> {
         } else if constexpr (std::is_same_v<T, IrIndirectJump>) {
             reads.push_back(item.target);
         } else if constexpr (std::is_same_v<T, IrReturn>) {
-            reads.push_back(item.value);
+            if (item.value.has_value()) reads.push_back(*item.value);
         } else if constexpr (std::is_same_v<T, IrLoad>) {
             add_address_reads(item.address, reads);
         } else if constexpr (std::is_same_v<T, IrStore>) {
@@ -324,12 +332,14 @@ auto writes_of(const IrInstruction& instruction) -> std::vector<IrVariable> {
         if constexpr (std::is_same_v<T, IrMove>
             || std::is_same_v<T, IrBinaryOperation>
             || std::is_same_v<T, IrUnaryOperation>
-            || std::is_same_v<T, IrInternalCall>
             || std::is_same_v<T, IrLoad>
             || std::is_same_v<T, IrAddressOf>
             || std::is_same_v<T, IrPointerOffset>
             || std::is_same_v<T, IrCast>) {
             return {item.destination};
+        } else if constexpr (std::is_same_v<T, IrInternalCall>) {
+            return item.destination.has_value() ? std::vector<IrVariable>{*item.destination}
+                                                : std::vector<IrVariable>{};
         } else if constexpr (std::is_same_v<T, IrExternalCall>) {
             return item.destination.has_value() ? std::vector<IrVariable>{*item.destination}
                                                 : std::vector<IrVariable>{};
@@ -590,48 +600,6 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
         }
     }
 
-    std::vector<std::optional<std::size_t>> storageProvenance(
-        function.variableTypes.size());
-    for (std::size_t iteration = 0U;
-         iteration <= function.variableTypes.size(); ++iteration) {
-        bool changedProvenance = false;
-        for (const auto& block : function.blocks) {
-            for (const auto& instruction : block.instructions) {
-                if (const auto* addressOf = std::get_if<IrAddressOf>(&instruction)) {
-                    if (variable_valid(function, addressOf->destination) &&
-                        addressOf->storageIndex < function.storageLocations.size() &&
-                        storageProvenance[addressOf->destination.index] !=
-                            addressOf->storageIndex) {
-                        storageProvenance[addressOf->destination.index] =
-                            addressOf->storageIndex;
-                        changedProvenance = true;
-                    }
-                } else if (const auto* offset = std::get_if<IrPointerOffset>(&instruction)) {
-                    if (variable_valid(function, offset->destination) &&
-                        variable_valid(function, offset->pointer) &&
-                        storageProvenance[offset->destination.index] !=
-                            storageProvenance[offset->pointer.index]) {
-                        storageProvenance[offset->destination.index] =
-                            storageProvenance[offset->pointer.index];
-                        changedProvenance = true;
-                    }
-                } else if (const auto* cast = std::get_if<IrCast>(&instruction)) {
-                    const auto* source = std::get_if<IrVariableOperand>(&cast->source);
-                    if (cast->kind == IrCastKind::Bitcast && source != nullptr &&
-                        variable_valid(function, cast->destination) &&
-                        variable_valid(function, source->variable) &&
-                        storageProvenance[cast->destination.index] !=
-                            storageProvenance[source->variable.index]) {
-                        storageProvenance[cast->destination.index] =
-                            storageProvenance[source->variable.index];
-                        changedProvenance = true;
-                    }
-                }
-            }
-        }
-        if (!changedProvenance) break;
-    }
-
     std::vector<std::vector<std::size_t>> predecessors(function.blocks.size());
     std::size_t memoryOperationCount = 0U;
     std::size_t callCount = 0U;
@@ -738,12 +706,19 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
                     }
                     return operand_valid(function, item.right, item.type);
                 } else if constexpr (std::is_same_v<T, IrReturn>) {
-                    if (!variable_valid(function, item.value)) {
-                        return failure("ir.variable_out_of_range", "IR return variable is out of range");
-                    }
-                    if (item.type != function.returnType
-                        || function.variableTypes[item.value.index] != item.type) {
+                    if (item.type != function.returnType) {
                         return failure("ir.type_mismatch", "IR return type does not match");
+                    }
+                    if (item.type.kind == IrTypeKind::Void) {
+                        if (item.value.has_value()) {
+                            return failure(
+                                "ir.type_mismatch",
+                                "void IR return cannot carry a value");
+                        }
+                    } else if (!item.value.has_value() ||
+                               !variable_valid(function, *item.value) ||
+                               function.variableTypes[item.value->index] != item.type) {
+                        return failure("ir.type_mismatch", "IR return value does not match");
                     }
                 } else if constexpr (std::is_same_v<T, IrInternalCall>) {
                     ++callCount;
@@ -755,12 +730,18 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
                             "ir.invalid_internal_call_target",
                             "IR internal call target ID is invalid");
                     }
-                    if (!variable_valid(function, item.destination)) {
-                        return failure(
-                            "ir.variable_out_of_range",
-                            "IR internal-call destination is out of range");
+                    if (!validate_type(item.resultType).has_value()) {
+                        return failure("ir.invalid_type", "IR internal-call result type is invalid");
                     }
-                    if (function.variableTypes[item.destination.index] != item.resultType) {
+                    if (item.resultType.kind == IrTypeKind::Void) {
+                        if (item.destination.has_value()) {
+                            return failure(
+                                "ir.type_mismatch",
+                                "void IR internal call cannot have a destination");
+                        }
+                    } else if (!item.destination.has_value() ||
+                               !variable_valid(function, *item.destination) ||
+                               function.variableTypes[item.destination->index] != item.resultType) {
                         return failure(
                             "ir.type_mismatch",
                             "IR internal-call result type does not match its destination");
@@ -849,6 +830,14 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
                         return failure(
                             "ir.invalid_indirect_jump", "IR indirect-jump variable is invalid");
                     }
+                    const auto& targetType = function.variableTypes[item.target.index];
+                    if ((targetType.kind != IrTypeKind::Pointer &&
+                         targetType.kind != IrTypeKind::Integer) ||
+                        (targetType.bits != 32U && targetType.bits != 64U)) {
+                        return failure(
+                            "ir.invalid_indirect_jump",
+                            "IR indirect-jump target must be an address-width integer or pointer");
+                    }
                 } else if constexpr (std::is_same_v<T, IrAddressOf>) {
                     if (!variable_valid(function, item.destination) ||
                         item.storageIndex >= function.storageLocations.size() ||
@@ -897,11 +886,6 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
                         item.atomicOrdering == IrAtomicOrdering::AcquireRelease) {
                         return failure("ir.invalid_atomic", "IR store atomic ordering is invalid");
                     }
-                    const auto provenance = storageProvenance[item.address.base.index];
-                    if (provenance.has_value() &&
-                        function.storageLocations[*provenance].readonly) {
-                        return failure("ir.readonly_store", "IR store targets readonly storage");
-                    }
                     if (item.unwindRegion.has_value() &&
                         !unwindRegions.contains(*item.unwindRegion)) {
                         return failure("ir.invalid_unwind", "IR store unwind region does not exist");
@@ -918,6 +902,13 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
                         !offsetType.has_value() ||
                         offsetType.value().kind != IrTypeKind::Integer) {
                         return failure("ir.invalid_address", "IR pointer offset types are invalid");
+                    }
+                    if (const auto* constant = std::get_if<IrIntegerConstant>(&item.offset);
+                        constant != nullptr && pointer.bits < 64U &&
+                        (constant->bits >> pointer.bits) != 0U) {
+                        return failure(
+                            "ir.invalid_address",
+                            "IR pointer offset exceeds the pointer width");
                     }
                 } else if constexpr (std::is_same_v<T, IrCast>) {
                     if (!variable_valid(function, item.destination)) {
@@ -980,6 +971,73 @@ auto validate_function(const IrFunction& function, const IrLimits& limits)
     }
 
     const auto variableCount = function.variableTypes.size();
+    using ReadonlyState = std::vector<bool>;
+    auto transferReadonly = [&](ReadonlyState state, const IrInstruction& instruction) {
+        const auto sourceState = state;
+        for (const auto written : writes_of(instruction)) {
+            if (function.variableTypes[written.index].kind == IrTypeKind::Pointer) {
+                state[written.index] = false;
+            }
+        }
+        if (const auto* addressOf = std::get_if<IrAddressOf>(&instruction)) {
+            state[addressOf->destination.index] =
+                function.storageLocations[addressOf->storageIndex].readonly;
+        } else if (const auto* offset = std::get_if<IrPointerOffset>(&instruction)) {
+            state[offset->destination.index] = sourceState[offset->pointer.index];
+        } else if (const auto* cast = std::get_if<IrCast>(&instruction)) {
+            const auto* source = std::get_if<IrVariableOperand>(&cast->source);
+            if (cast->kind == IrCastKind::Bitcast && source != nullptr &&
+                function.variableTypes[cast->destination.index].kind == IrTypeKind::Pointer) {
+                state[cast->destination.index] = sourceState[source->variable.index];
+            }
+        } else if (const auto* move = std::get_if<IrMove>(&instruction)) {
+            const auto* source = std::get_if<IrVariableOperand>(&move->source);
+            if (source != nullptr &&
+                function.variableTypes[move->destination.index].kind == IrTypeKind::Pointer) {
+                state[move->destination.index] = sourceState[source->variable.index];
+            }
+        }
+        return state;
+    };
+    std::vector<ReadonlyState> readonlyIn(
+        function.blocks.size(), ReadonlyState(variableCount, false));
+    std::vector<ReadonlyState> readonlyOut = readonlyIn;
+    bool readonlyChanged = true;
+    for (std::size_t iteration = 0U;
+         readonlyChanged && iteration <= function.blocks.size(); ++iteration) {
+        readonlyChanged = false;
+        for (std::size_t index = 0U; index < function.blocks.size(); ++index) {
+            ReadonlyState nextIn(variableCount, false);
+            for (const auto predecessor : predecessors[index]) {
+                for (std::size_t variable = 0U; variable < variableCount; ++variable) {
+                    nextIn[variable] = nextIn[variable] || readonlyOut[predecessor][variable];
+                }
+            }
+            if (nextIn != readonlyIn[index]) {
+                readonlyIn[index] = nextIn;
+                readonlyChanged = true;
+            }
+            auto nextOut = readonlyIn[index];
+            for (const auto& instruction : function.blocks[index].instructions) {
+                nextOut = transferReadonly(std::move(nextOut), instruction);
+            }
+            if (nextOut != readonlyOut[index]) {
+                readonlyOut[index] = std::move(nextOut);
+                readonlyChanged = true;
+            }
+        }
+    }
+    for (std::size_t index = 0U; index < function.blocks.size(); ++index) {
+        auto state = readonlyIn[index];
+        for (const auto& instruction : function.blocks[index].instructions) {
+            if (const auto* store = std::get_if<IrStore>(&instruction);
+                store != nullptr && state[store->address.base.index]) {
+                return failure("ir.readonly_store", "IR store may target readonly storage");
+            }
+            state = transferReadonly(std::move(state), instruction);
+        }
+    }
+
     std::vector<std::vector<bool>> in(function.blocks.size(), std::vector<bool>(variableCount, true));
     std::vector<std::vector<bool>> out = in;
     std::vector<bool> flagsIn(function.blocks.size(), true);

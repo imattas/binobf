@@ -318,7 +318,7 @@ struct IrIndirectJump {
 
 struct IrReturn {
     IrType type{IrWidth::U32};
-    IrVariable value;
+    std::optional<IrVariable> value;
     EntityId sourceInstruction;
     auto operator==(const IrReturn&) const -> bool = default;
 };
@@ -326,7 +326,7 @@ struct IrReturn {
 struct IrInternalCall {
     EntityId targetFunction;
     IrType resultType{IrWidth::U32};
-    IrVariable destination;
+    std::optional<IrVariable> destination;
     std::vector<IrOperand> arguments;
     EntityId sourceInstruction;
     std::optional<std::uint32_t> unwindRegion;

@@ -34,6 +34,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -86,7 +87,7 @@ constexpr std::array<std::string_view, 10> kAllowedDirectives{
 
 [[nodiscard]] auto screen_statement(
     std::string_view statement,
-    std::size_t& symbolCount,
+    std::unordered_set<std::string>& symbols,
     const MachineCodeLimits& limits) -> Result<bool, Diagnostic> {
     statement = trim(statement);
     const auto loweredStatement = lowercase(statement);
@@ -105,17 +106,31 @@ constexpr std::array<std::string_view, 10> kAllowedDirectives{
         });
     }
 
-    const auto colon = statement.find(':');
-    const auto whitespace = statement.find_first_of(" \t");
-    if (colon != std::string_view::npos &&
-        (whitespace == std::string_view::npos || colon < whitespace)) {
-        ++symbolCount;
-        if (symbolCount > limits.maxSymbols) {
+    const auto recordSymbol = [&](std::string_view name)
+        -> Result<bool, Diagnostic> {
+        name = trim(name);
+        if (!name.empty()) {
+            symbols.emplace(name);
+        }
+        if (symbols.size() > limits.maxSymbols) {
             return Result<bool, Diagnostic>::failure(Diagnostic{
                 DiagnosticSeverity::Error,
                 "codegen.resource_limit",
                 "the assembly input exceeds the configured symbol limit",
             });
+        }
+        return Result<bool, Diagnostic>::success(true);
+    };
+
+    const auto colon = statement.find(':');
+    const auto possibleLabel = colon == std::string_view::npos
+        ? std::string_view{}
+        : trim(statement.substr(0U, colon));
+    if (!possibleLabel.empty() &&
+        possibleLabel.find_first_of(" \t") == std::string_view::npos) {
+        auto recorded = recordSymbol(possibleLabel);
+        if (!recorded.has_value()) {
+            return recorded;
         }
         statement = trim(statement.substr(colon + 1U));
         if (statement.empty()) {
@@ -138,13 +153,19 @@ constexpr std::array<std::string_view, 10> kAllowedDirectives{
         });
     }
     if (token == ".globl") {
-        ++symbolCount;
-        if (symbolCount > limits.maxSymbols) {
-            return Result<bool, Diagnostic>::failure(Diagnostic{
-                DiagnosticSeverity::Error,
-                "codegen.resource_limit",
-                "the assembly input exceeds the configured symbol limit",
-            });
+        auto operands = tokenEnd == std::string_view::npos
+            ? std::string_view{}
+            : trim(statement.substr(tokenEnd));
+        while (!operands.empty()) {
+            const auto comma = operands.find(',');
+            auto recorded = recordSymbol(operands.substr(0U, comma));
+            if (!recorded.has_value()) {
+                return recorded;
+            }
+            if (comma == std::string_view::npos) {
+                break;
+            }
+            operands = trim(operands.substr(comma + 1U));
         }
     }
     return Result<bool, Diagnostic>::success(true);
@@ -153,7 +174,7 @@ constexpr std::array<std::string_view, 10> kAllowedDirectives{
 [[nodiscard]] auto screen_directives(const MachineAssemblyRequest& request)
     -> Result<bool, Diagnostic> {
     std::size_t lineCount = 0U;
-    std::size_t symbolCount = 0U;
+    std::unordered_set<std::string> symbols;
     std::size_t lineStart = 0U;
     while (lineStart <= request.assembly.size()) {
         const auto lineEnd = request.assembly.find('\n', lineStart);
@@ -178,7 +199,7 @@ constexpr std::array<std::string_view, 10> kAllowedDirectives{
                 : statementEnd - statementStart;
             auto screened = screen_statement(
                 line.substr(statementStart, statementLength),
-                symbolCount,
+                symbols,
                 request.limits);
             if (!screened.has_value()) {
                 return screened;
@@ -405,6 +426,23 @@ void capture_diagnostic(const llvm::SMDiagnostic& diagnostic, void* context) {
                 llvm::toString(objectOrError.takeError()));
     }
     auto object = std::move(*objectOrError);
+
+    std::size_t emittedSymbolCount = 0U;
+    for (const auto& symbol : object->symbols()) {
+        auto nameOrError = symbol.getName();
+        if (!nameOrError) {
+            return failure(
+                "codegen.object_failed",
+                "LLVM could not read an emitted symbol name: " +
+                    llvm::toString(nameOrError.takeError()));
+        }
+        if (!nameOrError->empty() &&
+            ++emittedSymbolCount > request.limits.maxSymbols) {
+            return failure(
+                "codegen.resource_limit",
+                "the emitted object exceeds the configured symbol limit");
+        }
+    }
 
     MachineEmission emission{};
     std::size_t matchingSections = 0U;

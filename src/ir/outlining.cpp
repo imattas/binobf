@@ -72,7 +72,7 @@ auto reads_of(const IrInstruction& instruction) -> std::vector<IrVariable> {
         } else if constexpr (std::is_same_v<T, IrInternalCall>) {
             for (const auto& argument : item.arguments) add_operand_read(argument, reads);
         } else if constexpr (std::is_same_v<T, IrReturn>) {
-            reads.push_back(item.value);
+            if (item.value.has_value()) reads.push_back(*item.value);
         }
     }, instruction);
     return reads;
@@ -83,8 +83,9 @@ auto write_of(const IrInstruction& instruction) -> std::optional<IrVariable> {
         using T = std::decay_t<decltype(item)>;
         if constexpr (std::is_same_v<T, IrMove>
             || std::is_same_v<T, IrBinaryOperation>
-            || std::is_same_v<T, IrUnaryOperation>
-            || std::is_same_v<T, IrInternalCall>) {
+            || std::is_same_v<T, IrUnaryOperation>) {
+            return item.destination;
+        } else if constexpr (std::is_same_v<T, IrInternalCall>) {
             return item.destination;
         }
         return std::nullopt;
@@ -116,12 +117,16 @@ auto remap_instruction(
             item.left = variables.at(item.left.index);
             item.right = remap_operand(std::move(item.right), variables);
         } else if constexpr (std::is_same_v<T, IrInternalCall>) {
-            item.destination = variables.at(item.destination.index);
+            if (item.destination.has_value()) {
+                item.destination = variables.at(item.destination->index);
+            }
             for (auto& argument : item.arguments) {
                 argument = remap_operand(std::move(argument), variables);
             }
         } else if constexpr (std::is_same_v<T, IrReturn>) {
-            item.value = variables.at(item.value.index);
+            if (item.value.has_value()) {
+                item.value = variables.at(item.value->index);
+            }
         }
         return item;
     }, instruction);

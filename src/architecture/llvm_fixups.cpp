@@ -190,8 +190,10 @@ struct FixupShape {
             return Result<FixupShape, Diagnostic>::success(
                 relative(MachineFixupKind::PltRelative32, 32U, 4U));
         case llvm::ELF::R_386_GOT32:
-        case llvm::ELF::R_386_GOTPC:
         case llvm::ELF::R_386_GOT32X:
+            return Result<FixupShape, Diagnostic>::success(FixupShape{
+                MachineFixupKind::GotRelative32, 32U, false, false, 4U, 0});
+        case llvm::ELF::R_386_GOTPC:
             return Result<FixupShape, Diagnostic>::success(
                 relative(MachineFixupKind::GotRelative32, 32U, 4U));
         default:

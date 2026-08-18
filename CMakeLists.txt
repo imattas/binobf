@@ -218,6 +218,7 @@ if(BINOBF_BUILD_FUZZERS)
     binobf_add_fuzzer(binobf_fuzz_vm_bytecode tests/fuzz/vm_bytecode_fuzzer.cpp)
     binobf_add_fuzzer(binobf_fuzz_config tests/fuzz/config_fuzzer.cpp)
     binobf_add_fuzzer(binobf_fuzz_lineage tests/fuzz/lineage_fuzzer.cpp)
+    binobf_add_fuzzer(binobf_fuzz_codegen tests/fuzz/codegen_fuzzer.cpp)
 
     add_executable(binobf_fuzz_seed_generator tests/fuzz/vm_seed_generator.cpp)
     target_link_libraries(binobf_fuzz_seed_generator PRIVATE binobf::core)
@@ -232,6 +233,7 @@ if(BINOBF_BUILD_FUZZERS)
     set(BINOBF_FUZZ_VM_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/vm")
     set(BINOBF_FUZZ_CONFIG_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/config")
     set(BINOBF_FUZZ_LINEAGE_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/lineage")
+    set(BINOBF_FUZZ_CODEGEN_DIR "${BINOBF_FUZZ_CORPUS_ROOT}/codegen")
     set(BINOBF_FUZZ_COFF_SEED "${BINOBF_FUZZ_OBJECT_DIR}/arithmetic.obj")
     set(BINOBF_FUZZ_ELF_SEED "${BINOBF_FUZZ_OBJECT_DIR}/arithmetic.o")
     set(BINOBF_FUZZ_PE_OBJECT "${BINOBF_FUZZ_LINKED_DIR}/linked-pe.obj")
@@ -242,6 +244,14 @@ if(BINOBF_BUILD_FUZZERS)
     set(BINOBF_FUZZ_VM_SEED "${BINOBF_FUZZ_VM_DIR}/program.bvm")
     set(BINOBF_FUZZ_CONFIG_SEED "${BINOBF_FUZZ_CONFIG_DIR}/minimal.toml")
     set(BINOBF_FUZZ_LINEAGE_SEED "${BINOBF_FUZZ_LINEAGE_DIR}/minimal.json")
+    set(BINOBF_FUZZ_CODEGEN_SEEDS
+        "${BINOBF_FUZZ_CODEGEN_DIR}/x86-coff.seed"
+        "${BINOBF_FUZZ_CODEGEN_DIR}/x86-elf.seed"
+        "${BINOBF_FUZZ_CODEGEN_DIR}/x64-coff.seed"
+        "${BINOBF_FUZZ_CODEGEN_DIR}/x64-elf.seed"
+        "${BINOBF_FUZZ_CODEGEN_DIR}/arm64-coff.seed"
+        "${BINOBF_FUZZ_CODEGEN_DIR}/arm64-elf.seed"
+    )
     add_custom_command(
         OUTPUT
             "${BINOBF_FUZZ_COFF_SEED}"
@@ -252,6 +262,7 @@ if(BINOBF_BUILD_FUZZERS)
             "${BINOBF_FUZZ_VM_SEED}"
             "${BINOBF_FUZZ_CONFIG_SEED}"
             "${BINOBF_FUZZ_LINEAGE_SEED}"
+            ${BINOBF_FUZZ_CODEGEN_SEEDS}
         COMMAND "${CMAKE_COMMAND}" -E make_directory
             "${BINOBF_FUZZ_OBJECT_DIR}"
             "${BINOBF_FUZZ_LINKED_DIR}"
@@ -259,6 +270,7 @@ if(BINOBF_BUILD_FUZZERS)
             "${BINOBF_FUZZ_VM_DIR}"
             "${BINOBF_FUZZ_CONFIG_DIR}"
             "${BINOBF_FUZZ_LINEAGE_DIR}"
+            "${BINOBF_FUZZ_CODEGEN_DIR}"
         COMMAND "${CMAKE_C_COMPILER}" --target=x86_64-pc-windows-msvc -gcodeview
             -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arithmetic.c"
             -o "${BINOBF_FUZZ_COFF_SEED}"
@@ -286,6 +298,9 @@ if(BINOBF_BUILD_FUZZERS)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/lineage/minimal.json"
             "${BINOBF_FUZZ_LINEAGE_SEED}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen"
+            "${BINOBF_FUZZ_CODEGEN_DIR}"
         DEPENDS
             binobf_fuzz_seed_generator
             tests/fixtures/arithmetic.c
@@ -293,6 +308,12 @@ if(BINOBF_BUILD_FUZZERS)
             tests/fixtures/linked_elf.S
             tests/fuzz/corpus/config/minimal.toml
             tests/fuzz/corpus/lineage/minimal.json
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/x86-coff.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/x86-elf.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/x64-coff.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/x64-elf.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/arm64-coff.seed
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/corpus/codegen/arm64-elf.seed
         VERBATIM
     )
     add_custom_target(
@@ -306,6 +327,7 @@ if(BINOBF_BUILD_FUZZERS)
             "${BINOBF_FUZZ_VM_SEED}"
             "${BINOBF_FUZZ_CONFIG_SEED}"
             "${BINOBF_FUZZ_LINEAGE_SEED}"
+            ${BINOBF_FUZZ_CODEGEN_SEEDS}
     )
 
     add_custom_target(fuzz-smoke
@@ -324,6 +346,8 @@ if(BINOBF_BUILD_FUZZERS)
             "${BINOBF_FUZZ_CONFIG_DIR}"
         COMMAND binobf_fuzz_lineage -runs=2000 -seed=12012 -max_len=65536 -timeout=5
             "${BINOBF_FUZZ_LINEAGE_DIR}"
+        COMMAND binobf_fuzz_codegen -runs=2000 -seed=12012 -max_len=65536 -timeout=5
+            "${BINOBF_FUZZ_CODEGEN_DIR}"
         DEPENDS
             binobf_fuzz_detector
             binobf_fuzz_object
@@ -332,6 +356,7 @@ if(BINOBF_BUILD_FUZZERS)
             binobf_fuzz_vm_bytecode
             binobf_fuzz_config
             binobf_fuzz_lineage
+            binobf_fuzz_codegen
             binobf_fuzz_corpus
         USES_TERMINAL
     )
@@ -352,6 +377,9 @@ install(TARGETS binobf binobf_core capstone_static
     RUNTIME DESTINATION bin
     ARCHIVE DESTINATION lib
 )
+install(TARGETS ${BINOBF_LLVM_INSTALL_LIBRARIES}
+    ARCHIVE DESTINATION lib
+)
 install(DIRECTORY include/binobf DESTINATION include)
 install(FILES README.md THIRD_PARTY_NOTICES.md DESTINATION share/doc/binobf)
 install(FILES LICENSE DESTINATION share/licenses/binobf)
@@ -365,6 +393,32 @@ install(FILES
 
 if(BINOBF_BUILD_TESTS)
     enable_testing()
+
+    set(_binobf_installed_library_names
+        "${CMAKE_STATIC_LIBRARY_PREFIX}binobf_core${CMAKE_STATIC_LIBRARY_SUFFIX}"
+        "${CMAKE_STATIC_LIBRARY_PREFIX}capstone${CMAKE_STATIC_LIBRARY_SUFFIX}"
+    )
+    foreach(_library IN LISTS BINOBF_LLVM_INSTALL_LIBRARIES)
+        list(APPEND _binobf_installed_library_names
+            "${CMAKE_STATIC_LIBRARY_PREFIX}${_library}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    endforeach()
+    list(JOIN _binobf_installed_library_names "|" _binobf_installed_libraries)
+    add_test(
+        NAME installed_track2_consumer
+        COMMAND "${CMAKE_COMMAND}"
+            "-DBINOBF_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DBINOBF_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            "-DBINOBF_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/installed-track2-consumer"
+            "-DBINOBF_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DBINOBF_CONFIGURATION=${CMAKE_BUILD_TYPE}"
+            "-DBINOBF_UNDEFINED_SANITIZER=${BINOBF_ENABLE_UNDEFINED_SANITIZER}"
+            "-DBINOBF_INSTALLED_LIBRARIES=${_binobf_installed_libraries}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunInstalledConsumer.cmake"
+    )
+    set_tests_properties(installed_track2_consumer PROPERTIES
+        RUN_SERIAL TRUE
+        TIMEOUT 180
+    )
 
     add_executable(binobf_core_types_tests tests/unit/core_types_tests.cpp)
     target_link_libraries(binobf_core_types_tests PRIVATE binobf::core)

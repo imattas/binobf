@@ -381,6 +381,63 @@ TEST_CASE(codegen_provider_rejects_unsupported_and_excessive_fixups) {
     REQUIRE_EQ(excessive.error().code, "codegen.resource_limit");
 }
 
+TEST_CASE(codegen_provider_enforces_unique_symbols_before_and_after_assembly) {
+    auto provider = binobf::make_codegen_provider(binobf::Architecture::X86_64);
+    REQUIRE(provider.has_value());
+    binobf::MachineAssemblyRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.triple = "x86_64-unknown-linux-gnu";
+    request.syntax = binobf::MachineSyntax::Intel;
+    request.limits.maxSymbols = 1U;
+
+    request.assembly = ".globl one\none :\nnop\n";
+    const auto oneSymbol = provider.value()->emit(request);
+    REQUIRE(oneSymbol.has_value());
+
+    request.assembly = ".globl one, two\none :\nnop\ntwo :\nret\n";
+    const auto spacedLabels = provider.value()->emit(request);
+    REQUIRE(!spacedLabels.has_value());
+    REQUIRE_EQ(spacedLabels.error().code, "codegen.resource_limit");
+
+    request.assembly = "call external_one\ncall external_two\n";
+    const auto implicitExternals = provider.value()->emit(request);
+    REQUIRE(!implicitExternals.has_value());
+    REQUIRE_EQ(implicitExternals.error().code, "codegen.resource_limit");
+}
+
+TEST_CASE(codegen_provider_preserves_i386_got_relocation_semantics_and_addends) {
+    auto provider = binobf::make_codegen_provider(binobf::Architecture::X86);
+    REQUIRE(provider.has_value());
+    binobf::MachineAssemblyRequest request{};
+    request.architecture = binobf::Architecture::X86;
+    request.format = binobf::BinaryFormat::ELF;
+    request.triple = "i686-unknown-linux-gnu";
+    request.syntax = binobf::MachineSyntax::Intel;
+
+    request.assembly = "mov eax, dword ptr [external_symbol@GOT + 7]\n";
+    const auto got = provider.value()->emit(request);
+    if (!got.has_value()) {
+        binobf::test::fail(got.error().message, __FILE__, __LINE__);
+    }
+    REQUIRE_EQ(got.value().fixups.size(), 1U);
+    REQUIRE_EQ(got.value().fixups.front().kind,
+               binobf::MachineFixupKind::GotRelative32);
+    REQUIRE(!got.value().fixups.front().pcRelative);
+    REQUIRE_EQ(got.value().fixups.front().addend, 7);
+
+    request.assembly = "lea eax, [_GLOBAL_OFFSET_TABLE_ + 11]\n";
+    const auto gotPc = provider.value()->emit(request);
+    if (!gotPc.has_value()) {
+        binobf::test::fail(gotPc.error().message, __FILE__, __LINE__);
+    }
+    REQUIRE_EQ(gotPc.value().fixups.size(), 1U);
+    REQUIRE_EQ(gotPc.value().fixups.front().kind,
+               binobf::MachineFixupKind::GotRelative32);
+    REQUIRE(gotPc.value().fixups.front().pcRelative);
+    REQUIRE_EQ(gotPc.value().fixups.front().addend, 13);
+}
+
 int main() {
     return binobf::test::run_all();
 }

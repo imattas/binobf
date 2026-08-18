@@ -303,7 +303,12 @@ private:
             patches_.push_back(Patch{
                 report_.program.instructions.size() - 1, branch->falseTarget});
         } else if (const auto* returned = std::get_if<IrReturn>(&instruction)) {
-            emit(vm::VmReturn{vm::VmRegister{returned->value.index}},
+            if (!returned->value.has_value()) {
+                return failure(
+                    "vm.unsupported_native_ir",
+                    "VM lowering does not support a void IR return");
+            }
+            emit(vm::VmReturn{vm::VmRegister{returned->value->index}},
                 returned->sourceInstruction);
         } else if (std::holds_alternative<IrInternalCall>(instruction)) {
             return failure(
@@ -531,6 +536,10 @@ private:
                 report_.program.instructions.size() - 1,
                 ModuleBlockKey{function.sourceFunction.value(), branch->falseTarget.value}});
         } else if (const auto* call = std::get_if<IrInternalCall>(&instruction)) {
+            if (!call->destination.has_value()) {
+                return compatibility_failure(
+                    instruction_name(instruction), instruction_source(instruction));
+            }
             std::vector<vm::VmRegister> arguments;
             arguments.reserve(call->arguments.size());
             for (const auto& argument : call->arguments) {
@@ -541,12 +550,16 @@ private:
                 arguments.push_back(lowered.value());
             }
             emit(vm::VmCall{
-                vm::VmRegister{call->destination.index}, 0, std::move(arguments)},
+                vm::VmRegister{call->destination->index}, 0, std::move(arguments)},
                 call->sourceInstruction);
             callPatches_.push_back(ModuleCallPatch{
                 report_.program.instructions.size() - 1, call->targetFunction});
         } else if (const auto* returned = std::get_if<IrReturn>(&instruction)) {
-            emit(vm::VmReturn{vm::VmRegister{returned->value.index}},
+            if (!returned->value.has_value()) {
+                return compatibility_failure(
+                    instruction_name(instruction), instruction_source(instruction));
+            }
+            emit(vm::VmReturn{vm::VmRegister{returned->value->index}},
                 returned->sourceInstruction);
         } else {
             return compatibility_failure(

@@ -72,6 +72,47 @@ llvm_map_components_to_libnames(BINOBF_LLVM_LIBRARIES
     AArch64AsmParser
 )
 
+# Static consumers need the private LLVM closure because binobf_core is an
+# archive. Keep this list pinned with the LLVM version and the actual link
+# closure exercised by the installed-consumer gate.
+set(BINOBF_LLVM_INSTALL_LIBRARIES
+    LLVMTarget
+    LLVMAnalysis
+    LLVMFrontendHLSL
+    LLVMProfileData
+    LLVMSymbolize
+    LLVMDebugInfoGSYM
+    LLVMDebugInfoPDB
+    LLVMDebugInfoCodeView
+    LLVMDebugInfoMSF
+    LLVMDebugInfoBTF
+    LLVMDebugInfoDWARF
+    LLVMObject
+    LLVMIRReader
+    LLVMBitReader
+    LLVMAsmParser
+    LLVMCore
+    LLVMRemarks
+    LLVMBitstreamReader
+    LLVMTextAPI
+    LLVMX86AsmParser
+    LLVMX86Desc
+    LLVMX86Info
+    LLVMMCDisassembler
+    LLVMAArch64AsmParser
+    LLVMMCParser
+    LLVMAArch64Desc
+    LLVMAArch64Info
+    LLVMMC
+    LLVMDebugInfoDWARFLowLevel
+    LLVMBinaryFormat
+    LLVMTargetParser
+    LLVMCodeGenTypes
+    LLVMAArch64Utils
+    LLVMSupport
+    LLVMDemangle
+)
+
 function(binobf_link_llvm_mc target)
     target_include_directories(${target} SYSTEM PRIVATE
         "${llvm_dependency_SOURCE_DIR}/llvm/include"

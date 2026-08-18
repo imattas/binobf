@@ -26,6 +26,7 @@ The current suite runs warning-as-error Debug and Release builds plus CTest. Tes
 - public verifier reports for compiler-produced COFF/ELF objects and adversarial range corruption;
 - compile-transform-run differential comparison across negative, zero, ordinary, and boundary-style inputs;
 - x86/x86-64/ARM64 decoder golden cases, malformed encodings, symbol-range recovery, CFG edges, relocation overrides, and block liveness;
+- pinned LLVM 22.1.8 provider identity, bounded directive and two-stage symbol screening, exact x86/x86-64/ARM64 COFF/ELF emission, distinct i386 GOT/GOTPC semantics with nonzero addends, normalized fixups, repeated determinism, and independent backend re-decoding;
 - compiler-produced COFF/ELF function, instruction, block, completeness, lineage, and relocation-reference recovery;
 - exact-size substitution, constant, branch-inversion, dead-code insertion, block-splitting, independent-block reordering, and function-reordering unit properties;
 - relocation-aware function reordering, including moved COFF relocation sites and ELF `.eh_frame` section-symbol addends;
@@ -33,8 +34,8 @@ The current suite runs warning-as-error Debug and Release builds plus CTest. Tes
 - native differential execution of code changed by every balanced machine-code pass;
 - VM value/IR validation, all arithmetic/bitwise opcodes, all branch conditions, flags, frame slots, bounded memory, native-call policy, and step exhaustion;
 - every VM opcode through seeded assemble/decode/assemble round trips, all-prefix truncation rejection, targeted record corruption, resource ceilings, stable disassembly, and decoded-vs-source semantic execution;
-- native IR uniqueness, width, variable-definition, target, terminator, fallback, and resource validation;
-- native IR flag-definition dataflow plus module function, signature, target, cycle, and call-depth validation;
+- native IR canonical type/value/storage/address/memory/cast validation, including alignment, readonly, atomic, byte-order, address-space, and aggregate limits;
+- native IR flag-definition and readonly-provenance dataflow plus void/non-void returns and calls, declared internal/external/tail calls, ABI signatures, pointer-width arithmetic, typed switch/indirect targets, fallback effects, unwind ownership/cycles, module function cycles, and call-depth validation;
 - real x86-64 COFF/ELF register/immediate arithmetic and control-flow lifting, explicit ABI argument mapping, and unsupported-memory fallback behavior;
 - linked native COFF execution compared with lowered and assembled/decoded VM execution across zero, signed boundaries, unsigned boundaries, and wrapping arithmetic;
 - transactional `vm lower` CLI emission followed by strict bytecode decoding and execution;
@@ -60,16 +61,18 @@ The current suite runs warning-as-error Debug and Release builds plus CTest. Tes
 - 6,144 generated VM semantic cases across all integer widths, binary operations, conditions, registers, slots, memory, branches, invalid arithmetic, limits, and deterministic replay;
 - 8,960 deterministic parser/decoder mutation invocations with stable repeated outcomes and reconstruction/verification of accepted inputs;
 - a required 19/19 artifact-mutation kill rate across object, linked-image, archive, VM, pass-precondition, and dangling-entity checks;
-- seven seed-backed libFuzzer surfaces covering detection, objects, linked images, archives, VM bytecode, TOML configuration, and lineage JSON without executing parsed native code.
+- eight seed-backed libFuzzer surfaces covering detection, objects, linked images, archives, VM bytecode, TOML configuration, lineage JSON, and bounded six-pair machine emission without executing parsed or emitted native code.
 
 ## Structural verification
 
 `verify_object` is the shared object gate used by the public API, pass manager, and CLI. Object outputs reparse and validate headers, section ranges, symbols, relocations, entity references, rebuilt table ownership, and branch destinations for completely recovered functions before commit. `verify_archive` reparses member layouts and indexes, verifies every recognized object through `verify_object`, and requires each recognized indexed symbol to bind to a defined external symbol in its target member. `verify_linked_image` validates linked section/segment mappings, entry points, imports/exports, relocations, format directories, parsed unwind/resource/debug records, PE signature state, and nonzero PE checksums. Unsupported unwind semantics remain explicit instead of being treated as passed. Machine-code object passes additionally reanalyze each affected function and require complete recovery before commit. Any required-check failure means the transformation fails and no success is reported.
 
+`installed_track2_consumer` is a first-class CTest gate. It removes only its build-local prefix, installs the current configuration, verifies the declared archive closure, compiles against installed headers and libraries in declared link order, then runs x86/x86-64/ARM64 provider, typed-IR, and capability-evidence checks.
+
 ## Differential verification
 
 Harmless C and assembly object fixtures are compiled, transformed, and linked into independent original and transformed native executables. The transformation fixture guarantees that every balanced machine-code pass changes executed code. A separate VM-lowering fixture is compiled as both COFF and ELF; its COFF bytes are parsed and lifted while the exact same object is linked into the differential process and executed as the native oracle. Baseline, flattened, outlined, and split programs are lowered, assembled, decoded, and interpreted before comparison. The transformation harness runs an identical six-case input matrix and byte-compares exit status, stdout, stderr, deterministic output files, explicit function results, and global-data side effects. Timing is never captured or used for semantic equivalence.
 
-Generated property tests compare assembled/decoded VM execution against an independent host oracle. Deterministic robustness tests mutate real compiler/linker-produced fixtures and require stable success or structured failure on repeated input. The artifact mutation suite fails unless every required corrupt object, linked image, archive, VM program, pass precondition, and entity-reference case is killed. Seed-backed compiler-native fuzz targets exercise every implemented parser/decoder boundary using bounded in-memory input, including strict configuration and lineage sidecars.
+Generated property tests compare assembled/decoded VM execution against an independent host oracle. Deterministic robustness tests mutate real compiler/linker-produced fixtures and require stable success or structured failure on repeated input. The artifact mutation suite fails unless every required corrupt object, linked image, archive, VM program, pass precondition, and entity-reference case is killed. Seed-backed compiler-native fuzz targets exercise every implemented parser/decoder boundary using bounded in-memory input, including strict configuration and lineage sidecars. The code-generation target maps arbitrary bytes to allowlisted tokens for x86, x86-64, or ARM64 and COFF or ELF, applies limits below production defaults, emits twice, and requires identical success or structured failure without executing the result.
 
 The local Windows LLVM installation does not include `stl_asan.lib`, so AddressSanitizer executables cannot currently link and CMake reports this combination as unsupported. Windows sanitizer builds use `RelWithDebInfo` because LLVM's sanitizer C++ runtime is incompatible with the Debug MSVC STL iterator ABI. UndefinedBehaviorSanitizer is the required local sanitizer gate; AddressSanitizer remains enabled for supported non-Windows Clang/GNU toolchains.

@@ -30,6 +30,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(BinobfWarnings)
 include(FetchContent)
+include(BinobfLLVM)
 
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared third-party libraries" FORCE)
 set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static third-party libraries" FORCE)
@@ -173,6 +174,7 @@ target_link_libraries(binobf_core PRIVATE
     tomlplusplus::tomlplusplus
     nlohmann_json::nlohmann_json
 )
+binobf_link_llvm_mc(binobf_core)
 binobf_enable_warnings(binobf_core)
 
 if(BINOBF_BUILD_FUZZERS)
@@ -191,6 +193,7 @@ if(BINOBF_BUILD_FUZZERS)
         tomlplusplus::tomlplusplus
         nlohmann_json::nlohmann_json
     )
+    binobf_link_llvm_mc(binobf_fuzz_core)
     target_compile_definitions(binobf_fuzz_core PRIVATE
         BINOBF_VERSION="${PROJECT_VERSION}"
         TOML_EXCEPTIONS=0
@@ -354,6 +357,7 @@ install(FILES
     licenses/CAPSTONE_LICENSE.txt
     licenses/TOMLPLUSPLUS_LICENSE.txt
     licenses/NLOHMANN_JSON_LICENSE.txt
+    licenses/LLVM_LICENSE.txt
     DESTINATION share/licenses/binobf
 )
 

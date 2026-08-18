@@ -1,5 +1,11 @@
 # Third-Party Notices
 
+## LLVM 22.1.8
+
+binobf uses a private, statically linked subset of LLVM MC and LLVM Object for X86 and AArch64 machine-code emission and object inspection. LLVM is distributed under the Apache License 2.0 with LLVM Exceptions; the verbatim upstream license is distributed as `licenses/LLVM_LICENSE.txt`.
+
+The reproducible source dependency is the official `llvm-project-22.1.8.src.tar.xz` release archive (`llvmorg-22.1.8`) with SHA-256 `922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888`.
+
 ## Capstone 5.0.9
 
 The verbatim upstream license is distributed as `licenses/CAPSTONE_LICENSE.txt`.

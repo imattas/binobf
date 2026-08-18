@@ -185,7 +185,7 @@ git commit -m "test: define machine code provider contract"
 - Consumes: the Task 1 public contract.
 - Produces: private LLVM targets and fixed-architecture provider instances.
 
-- [ ] **Step 1: Add a failing provider identity test**
+- [x] **Step 1: Add a failing provider identity test**
 
 Append a test requiring non-empty provider identity and a structured empty-input failure:
 
@@ -211,7 +211,7 @@ TEST_CASE(codegen_provider_rejects_empty_and_mismatched_requests) {
 }
 ```
 
-- [ ] **Step 2: Configure the official archive privately**
+- [x] **Step 2: Configure the official archive privately**
 
 In `cmake/BinobfLLVM.cmake`, set cache values before adding LLVM:
 
@@ -245,27 +245,27 @@ endif()
 
 Map only `Support;Target;MC;MCParser;Object;BinaryFormat;X86Info;X86Desc;X86AsmParser;AArch64Info;AArch64Desc;AArch64AsmParser` and link them privately. Add only LLVM source/generated include directories privately.
 
-- [ ] **Step 3: Add the minimal provider shell**
+- [x] **Step 3: Add the minimal provider shell**
 
 Implement fixed architecture, version, request mismatch, empty assembly, unsupported format/triple,
 and resource-limit checks in `src/architecture/codegen_provider.cpp`. Initialize X86 and AArch64
 target info/MC/parser registrations exactly once with `std::once_flag`. Return
 `codegen.not_implemented` only for non-empty valid assembly until Task 3.
 
-- [ ] **Step 4: Add dependency license evidence**
+- [x] **Step 4: Add dependency license evidence**
 
 Copy LLVM's Apache-2.0-with-LLVM-exception license text from the fetched release into
 `licenses/LLVM_LICENSE.txt`, install it beside existing licenses, and add LLVM 22.1.8 plus the
 archive hash to `THIRD_PARTY_NOTICES.md`.
 
-- [ ] **Step 5: Build the provider target and run identity tests**
+- [x] **Step 5: Build the provider target and run identity tests**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_codegen_provider_tests
 ctest --test-dir build\m12-verify-debug -R '^codegen_provider$' --output-on-failure
 ```
 
-- [ ] **Step 6: Commit the pinned provider foundation**
+- [x] **Step 6: Commit the pinned provider foundation**
 
 ```powershell
 git add CMakeLists.txt cmake/BinobfLLVM.cmake src/architecture/codegen_provider.cpp `

@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install --yes clang lld ninja-build
+        run: sudo apt-get update && sudo apt-get install --yes clang llvm lld ninja-build
 
       - name: Configure
         run: >-

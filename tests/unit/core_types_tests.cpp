@@ -87,6 +87,14 @@ TEST_CASE(source_locations_own_their_file_name) {
     REQUIRE_EQ(location.file, "source.cpp");
 }
 
+TEST_CASE(arm64_unwind_formats_are_distinct_owned_model_values) {
+    REQUIRE(binobf::UnwindFormat::WindowsARM64
+            != binobf::UnwindFormat::DwarfCfi64);
+    binobf::UnwindInfo unwind{};
+    unwind.format = binobf::UnwindFormat::WindowsARM64;
+    REQUIRE_EQ(unwind.format, binobf::UnwindFormat::WindowsARM64);
+}
+
 TEST_CASE(object_metadata_survives_value_copies) {
     binobf::BinaryImage image;
     image.objectMetadata = binobf::ObjectMetadata{

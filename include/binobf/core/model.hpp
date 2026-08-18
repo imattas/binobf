@@ -366,6 +366,8 @@ enum class UnwindFormat : std::uint8_t {
     Unknown,
     WindowsI386,
     DwarfCfi32,
+    WindowsARM64,
+    DwarfCfi64,
 };
 
 enum class UnwindRewriteState : std::uint8_t {

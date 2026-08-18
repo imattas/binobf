@@ -137,6 +137,8 @@ auto argument_registers(NativeAbi abi) -> std::vector<x86_reg> {
     case NativeAbi::WindowsI386Cdecl:
     case NativeAbi::WindowsI386Stdcall:
     case NativeAbi::SystemVI386:
+    case NativeAbi::WindowsARM64:
+    case NativeAbi::AAPCS64:
         return {};
     }
     return {};
@@ -150,6 +152,10 @@ auto is_i386_abi(NativeAbi abi) noexcept -> bool {
         || abi == NativeAbi::SystemVI386;
 }
 
+auto is_arm64_abi(NativeAbi abi) noexcept -> bool {
+    return abi == NativeAbi::WindowsARM64 || abi == NativeAbi::AAPCS64;
+}
+
 auto calling_convention(NativeAbi abi) noexcept -> IrCallingConvention {
     switch (abi) {
     case NativeAbi::WindowsX64: return IrCallingConvention::MicrosoftX64;
@@ -159,6 +165,8 @@ auto calling_convention(NativeAbi abi) noexcept -> IrCallingConvention {
     case NativeAbi::WindowsI386Fastcall: return IrCallingConvention::MicrosoftI386Fastcall;
     case NativeAbi::WindowsI386Thiscall: return IrCallingConvention::MicrosoftI386Thiscall;
     case NativeAbi::SystemVI386: return IrCallingConvention::SystemVI386;
+    case NativeAbi::WindowsARM64: return IrCallingConvention::MicrosoftARM64;
+    case NativeAbi::AAPCS64: return IrCallingConvention::AAPCS64;
     }
     return IrCallingConvention::C;
 }
@@ -945,7 +953,8 @@ auto lift_function(
         return failed("ir.unsupported_architecture", "native lifting requires an x86 architecture");
     }
     if ((image.architecture == Architecture::X86 && !is_i386_abi(signature.abi))
-        || (image.architecture == Architecture::X86_64 && is_i386_abi(signature.abi))) {
+        || (image.architecture == Architecture::X86_64
+            && (is_i386_abi(signature.abi) || is_arm64_abi(signature.abi)))) {
         return failed(
             "ir.abi_architecture_mismatch",
             "native ABI does not match the image architecture");

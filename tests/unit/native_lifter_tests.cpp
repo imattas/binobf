@@ -795,6 +795,32 @@ TEST_CASE(native_lifter_rejects_missing_functions_and_non_x86_64_images) {
     REQUIRE_EQ(result.error().code, "ir.unsupported_architecture");
 }
 
+TEST_CASE(native_lifter_rejects_arm64_abis_until_arm64_lifting_is_supported) {
+    auto image = one_block_image({
+        instruction(30, UINT64_C(0x1000), {0xc3},
+                    binobf::InstructionKind::Return),
+    });
+    auto signature = u32_binary_signature();
+    signature.abi = binobf::ir::NativeAbi::WindowsARM64;
+
+    auto result = binobf::ir::lift_function(
+        image, binobf::EntityId{10}, signature);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.abi_architecture_mismatch");
+
+    image.architecture = binobf::Architecture::ARM64;
+    result = binobf::ir::lift_function(
+        image, binobf::EntityId{10}, signature);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.unsupported_architecture");
+
+    signature.abi = binobf::ir::NativeAbi::AAPCS64;
+    result = binobf::ir::lift_function(
+        image, binobf::EntityId{10}, signature);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.unsupported_architecture");
+}
+
 int main() {
     return binobf::test::run_all();
 }

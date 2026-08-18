@@ -42,7 +42,7 @@
 - Consumes: existing fixup, unwind, ABI, and IR calling-convention records.
 - Produces: `ObjectFixupFieldEncoding`, masked fixup writes, `WindowsARM64`, `AAPCS64`, `WindowsARM64` unwind, and `DwarfCfi64` unwind values used by later tasks.
 
-- [ ] **Step 1: Write failing public-contract tests**
+- [x] **Step 1: Write failing public-contract tests**
 
 ```cpp
 TEST_CASE(arm64_public_contracts_expose_masked_fields_and_platform_abis) {
@@ -66,7 +66,7 @@ Add native-lifter cases mapping `WindowsARM64` to `IrCallingConvention::Microsof
 `AAPCS64` to `IrCallingConvention::AAPCS64`, while the x86-only lifter rejects both with
 `ir.unsupported_architecture`.
 
-- [ ] **Step 2: Run the focused targets and prove RED**
+- [x] **Step 2: Run the focused targets and prove RED**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_core_types_tests binobf_object_backend_contract_tests binobf_native_lifter_tests
@@ -74,7 +74,7 @@ cmake --build build\m13-verify-debug --target binobf_core_types_tests binobf_obj
 
 Expected: compilation fails because the new enums and masked encoding fields do not exist.
 
-- [ ] **Step 3: Add the minimal public model**
+- [x] **Step 3: Add the minimal public model**
 
 Append this enum without renumbering any existing member:
 
@@ -98,7 +98,7 @@ Extend `ObjectFixupSemantics` with `fieldEncoding`, `storageBytes`, `rightShift`
 `AArch64TlsDescriptor` fixup kinds. Append the two ABI, calling-convention, encoding, and format
 values named above. Preserve existing numeric values and equality behavior.
 
-- [ ] **Step 4: Run focused tests and all public headers**
+- [x] **Step 4: Run focused tests and all public headers**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_core_types_tests binobf_object_backend_contract_tests binobf_native_lifter_tests
@@ -108,7 +108,7 @@ ctest --test-dir build\m13-verify-debug -C Debug -R "^(core_types|object_backend
 Compile every `include/binobf/**/*.hpp` standalone with Clang C++20 warnings-as-errors. Expected:
 all focused tests and headers pass.
 
-- [ ] **Step 5: Commit the public contract**
+- [x] **Step 5: Commit the public contract**
 
 ```powershell
 git add include/binobf src/ir/native_lifter.cpp tests/unit/core_types_tests.cpp tests/unit/object_backend_contract_tests.cpp tests/unit/native_lifter_tests.cpp

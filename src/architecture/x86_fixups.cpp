@@ -162,6 +162,7 @@ auto encode_x86_fixup(const ObjectFixupSemantics& semantics, std::int64_t value)
         return Result<ObjectFixupEncoding, Diagnostic>::success(ObjectFixupEncoding{
             .semantics = semantics,
             .fieldBytes = {},
+            .writeMask = {},
         });
     }
 
@@ -191,6 +192,8 @@ auto encode_x86_fixup(const ObjectFixupSemantics& semantics, std::int64_t value)
     return Result<ObjectFixupEncoding, Diagnostic>::success(ObjectFixupEncoding{
         .semantics = semantics,
         .fieldBytes = std::move(bytes),
+        .writeMask = std::vector<std::byte>(
+            static_cast<std::size_t>(semantics.bitWidth / 8U), std::byte{0xff}),
     });
 }
 

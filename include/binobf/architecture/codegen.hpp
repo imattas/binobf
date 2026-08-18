@@ -60,6 +60,16 @@ enum class MachineFixupKind : std::uint8_t {
     TlsGot32,
     TlsGeneralDynamic32,
     TlsLocalDynamic32,
+    AArch64Branch19,
+    AArch64Branch14,
+    AArch64Adr21,
+    AArch64Low12,
+    AArch64MoveWide16,
+    AArch64GotPage21,
+    AArch64GotLow12,
+    AArch64TlsPage21,
+    AArch64TlsLow12,
+    AArch64TlsDescriptor,
 };
 
 struct MachineCodeLimits {

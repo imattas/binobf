@@ -17,6 +17,8 @@ enum class NativeAbi : std::uint8_t {
     WindowsI386Fastcall,
     WindowsI386Thiscall,
     SystemVI386,
+    WindowsARM64,
+    AAPCS64,
 };
 
 struct NativeFunctionSignature {

@@ -39,6 +39,19 @@ enum class UnwindEncoding : std::uint8_t {
     None,
     WindowsI386,
     DwarfCfi32,
+    WindowsARM64,
+    DwarfCfi64,
+};
+
+enum class ObjectFixupFieldEncoding : std::uint8_t {
+    ScalarLittleEndian,
+    AArch64Branch26,
+    AArch64Branch19,
+    AArch64Branch14,
+    AArch64Adr21,
+    AArch64Adrp21,
+    AArch64Low12,
+    AArch64MoveWide16,
 };
 
 enum class UnwindActionKind : std::uint8_t {
@@ -76,6 +89,11 @@ struct ObjectFixupSemantics {
     bool pcRelative{false};
     bool implicitAddend{false};
     std::int8_t pcBias{0};
+    ObjectFixupFieldEncoding fieldEncoding{
+        ObjectFixupFieldEncoding::ScalarLittleEndian};
+    std::uint8_t storageBytes{0};
+    std::uint8_t rightShift{0};
+    std::uint8_t valueShift{0};
 
     auto operator==(const ObjectFixupSemantics&) const -> bool = default;
 };
@@ -83,6 +101,7 @@ struct ObjectFixupSemantics {
 struct ObjectFixupEncoding {
     ObjectFixupSemantics semantics;
     std::vector<std::byte> fieldBytes;
+    std::vector<std::byte> writeMask;
 
     auto operator==(const ObjectFixupEncoding&) const -> bool = default;
 };

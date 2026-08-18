@@ -77,6 +77,24 @@ TEST_CASE(fixup_encoding_accepts_the_zero_width_noop_shape) {
     REQUIRE(encoded.value().fieldBytes.empty());
 }
 
+TEST_CASE(arm64_public_contracts_expose_masked_fields_and_platform_abis) {
+    binobf::ObjectFixupSemantics semantics{};
+    semantics.fieldEncoding =
+        binobf::ObjectFixupFieldEncoding::AArch64Branch26;
+    semantics.storageBytes = 4;
+    semantics.rightShift = 2;
+    REQUIRE_EQ(semantics.storageBytes, std::uint8_t{4});
+
+    binobf::ObjectFixupEncoding encoding{};
+    encoding.fieldBytes.resize(4);
+    encoding.writeMask.resize(4);
+    REQUIRE_EQ(encoding.fieldBytes.size(), encoding.writeMask.size());
+    REQUIRE(binobf::ir::NativeAbi::WindowsARM64
+            != binobf::ir::NativeAbi::AAPCS64);
+    REQUIRE(binobf::UnwindEncoding::WindowsARM64
+            != binobf::UnwindEncoding::DwarfCfi64);
+}
+
 TEST_CASE(backend_service_records_are_unique_sorted_and_evidence_bound) {
     for (const auto architecture : std::array{
              binobf::Architecture::X86,

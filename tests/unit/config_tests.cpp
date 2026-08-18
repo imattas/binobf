@@ -29,6 +29,7 @@ version = 1
 input = "../objects/app.obj"
 output = "../out/app.obf.obj"
 seed = 123456
+jobs = 4
 profile = "balanced"
 dry_run = false
 allow_signature_invalidation = false
@@ -48,6 +49,7 @@ path = "../out/build.lineage.json"
     REQUIRE_EQ(config.input, std::optional{std::filesystem::path{"D:/project/objects/app.obj"}});
     REQUIRE_EQ(config.output, std::optional{std::filesystem::path{"D:/project/out/app.obf.obj"}});
     REQUIRE_EQ(config.seed, std::optional<std::uint64_t>{123456});
+    REQUIRE_EQ(config.jobs, std::optional<std::size_t>{4});
     REQUIRE(config.passes.has_value());
     REQUIRE_EQ(config.passes->size(), std::size_t{11});
     REQUIRE_EQ(config.passes->front(), std::string{"strip-debug"});

@@ -622,6 +622,7 @@ auto parse_transform_options(
             options.passDescription = *configured.passDescription;
         }
         if (configured.seed.has_value()) options.seed = *configured.seed;
+        if (configured.jobs.has_value()) options.jobs = *configured.jobs;
         if (configured.dryRun.has_value()) options.dryRun = *configured.dryRun;
         if (configured.allowSignatureInvalidation.has_value()) {
             options.allowSignatureInvalidation = *configured.allowSignatureInvalidation;
@@ -686,6 +687,7 @@ auto parse_transform_options(
     effective.input = options.input;
     effective.output = options.output;
     effective.seed = options.seed;
+    effective.jobs = options.jobs;
     effective.passes = options.passes;
     effective.passDescription = options.passDescription;
     effective.dryRun = options.dryRun;

@@ -463,6 +463,8 @@ auto canonicalize_transform_config(const TransformConfig& config) -> std::string
     json["dry_run"] = config.dryRun.has_value() ? nlohmann::json(*config.dryRun)
                                                  : nlohmann::json(nullptr);
     json["input"] = json_path(config.input);
+    json["jobs"] = config.jobs.has_value() ? nlohmann::json(*config.jobs)
+                                             : nlohmann::json(nullptr);
     json["lineage_path"] = json_path(config.lineagePath);
     json["manifest"] = nlohmann::json{
         {"enabled",
@@ -521,9 +523,9 @@ auto parse_transform_config(std::span<const std::byte> bytes,
     }
     auto root = std::move(parsedToml).table();
 
-    constexpr std::array<std::string_view, 12> rootKeys{
+    constexpr std::array<std::string_view, 13> rootKeys{
         "version", "input", "output", "seed", "profile", "passes", "dry_run",
-        "allow_signature_invalidation", "preserve_symbols", "selection", "manifest", "lineage"};
+        "allow_signature_invalidation", "preserve_symbols", "selection", "manifest", "lineage", "jobs"};
     if (root.size() > limits.maxArrayEntries) {
         return failure("config.limit", "configuration contains too many root keys");
     }
@@ -575,6 +577,17 @@ auto parse_transform_config(std::span<const std::byte> bytes,
             return failure("config.value", "config.seed must be non-negative");
         }
         config.seed = static_cast<std::uint64_t>(*seed);
+    }
+
+    if (root.contains("jobs")) {
+        const auto jobs = root["jobs"].value<std::int64_t>();
+        if (!jobs.has_value()) {
+            return failure("config.type", "config.jobs must be an integer from 1 through 64");
+        }
+        if (*jobs < 1 || *jobs > 64) {
+            return failure("config.value", "config.jobs must be an integer from 1 through 64");
+        }
+        config.jobs = static_cast<std::size_t>(*jobs);
     }
 
     const auto hasProfile = root.contains("profile");

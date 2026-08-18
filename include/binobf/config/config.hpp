@@ -50,6 +50,7 @@ struct TransformConfig {
     std::optional<std::filesystem::path> input;
     std::optional<std::filesystem::path> output;
     std::optional<std::uint64_t> seed;
+    std::optional<std::size_t> jobs;
     std::optional<std::vector<std::string>> passes;
     std::optional<std::string> passDescription;
     std::optional<bool> dryRun;

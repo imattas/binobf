@@ -1,5 +1,6 @@
 #include <binobf/architecture/backend.hpp>
 
+#include "arm64_fixups.hpp"
 #include "x86_fixups.hpp"
 #include "x86_abi.hpp"
 #include "x86_templates.hpp"
@@ -334,22 +335,28 @@ public:
 
     auto fixup_semantics(BinaryFormat format, std::uint64_t rawType) const
         -> Result<ObjectFixupSemantics, Diagnostic> override {
-        if (architecture_ != Architecture::X86) {
-            return service_failure<ObjectFixupSemantics>(
-                "architecture.unsupported_fixup",
-                "object fixup semantics are implemented only for x86");
+        if (architecture_ == Architecture::X86) {
+            return detail::x86_fixup_semantics(format, rawType);
         }
-        return detail::x86_fixup_semantics(format, rawType);
+        if (architecture_ == Architecture::ARM64) {
+            return detail::arm64_fixup_semantics(format, rawType);
+        }
+        return service_failure<ObjectFixupSemantics>(
+            "architecture.unsupported_fixup",
+            "object fixup semantics are unavailable for this architecture");
     }
 
     auto encode_fixup(const ObjectFixupSemantics& semantics, std::int64_t value) const
         -> Result<ObjectFixupEncoding, Diagnostic> override {
-        if (architecture_ != Architecture::X86) {
-            return service_failure<ObjectFixupEncoding>(
-                "architecture.unsupported_fixup",
-                "object fixup encoding is implemented only for x86");
+        if (architecture_ == Architecture::X86) {
+            return detail::encode_x86_fixup(semantics, value);
         }
-        return detail::encode_x86_fixup(semantics, value);
+        if (architecture_ == Architecture::ARM64) {
+            return detail::encode_arm64_fixup(semantics, value);
+        }
+        return service_failure<ObjectFixupEncoding>(
+            "architecture.unsupported_fixup",
+            "object fixup encoding is unavailable for this architecture");
     }
 
     auto build_abi_adapter(const AbiAdapterRequest& request) const

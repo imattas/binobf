@@ -108,6 +108,7 @@ if(BINOBF_ENABLE_UNDEFINED_SANITIZER OR BINOBF_ENABLE_ADDRESS_SANITIZER)
 endif()
 
 set(BINOBF_CORE_SOURCES
+    src/architecture/arm64_fixups.cpp
     src/architecture/capstone_backend.cpp
     src/architecture/codegen_provider.cpp
     src/architecture/llvm_fixups.cpp
@@ -614,6 +615,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_x86_fixup_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_x86_fixup_tests)
     add_test(NAME x86_fixup COMMAND binobf_x86_fixup_tests)
+
+    add_executable(binobf_arm64_fixup_tests tests/unit/arm64_fixup_tests.cpp)
+    target_link_libraries(binobf_arm64_fixup_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_arm64_fixup_tests)
+    add_test(NAME arm64_fixup COMMAND binobf_arm64_fixup_tests)
 
     add_executable(binobf_x86_template_tests tests/unit/x86_template_tests.cpp)
     target_link_libraries(binobf_x86_template_tests PRIVATE binobf::core)

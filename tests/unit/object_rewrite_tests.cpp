@@ -18,6 +18,12 @@ auto backend() -> std::unique_ptr<binobf::ArchitectureBackend> {
     return std::move(result).value();
 }
 
+auto arm64_backend() -> std::unique_ptr<binobf::ArchitectureBackend> {
+    auto result = binobf::make_architecture_backend(binobf::Architecture::ARM64);
+    if (!result.has_value()) throw std::runtime_error(result.error().message);
+    return std::move(result).value();
+}
+
 auto section_symbol() -> binobf::Symbol {
     binobf::Symbol value{};
     value.id = binobf::EntityId{2};
@@ -275,6 +281,40 @@ TEST_CASE(object_rewrite_moves_relocation_sites_targets_and_implicit_addends) {
     REQUIRE_EQ(output.value().sections.front().contents[4], std::byte{0});
     REQUIRE_EQ(output.value().sections.front().contents[5], std::byte{0});
     REQUIRE_EQ(output.value().relocations.front().lineage.parents.size(), std::size_t{1});
+}
+
+TEST_CASE(object_rewrite_merges_arm64_instruction_fixups_without_changing_opcode_bits) {
+    auto source = image();
+    source.architecture = binobf::Architecture::ARM64;
+    source.sections.front().contents = {
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0x97},
+        std::byte{0x1f}, std::byte{0x20}, std::byte{0x03}, std::byte{0xd5}};
+    binobf::Relocation relocation{};
+    relocation.id = binobf::EntityId{7};
+    relocation.formatIndex = 0;
+    relocation.formatTableIndex = 1;
+    relocation.section = binobf::EntityId{1};
+    relocation.offset = 0;
+    relocation.kind = binobf::RelocationKind::PcRelative;
+    relocation.rawType = 0x0003;
+    relocation.targetSymbol = binobf::EntityId{4};
+    relocation.addend = 0;
+    source.relocations.push_back(relocation);
+
+    auto identity = reorder_request();
+    identity.ranges[0].newBegin = 0;
+    identity.ranges[1].newBegin = 4;
+    auto fixed = arm64_backend();
+    const auto plan = binobf::ObjectRewritePlan::create(source, *fixed, identity);
+    REQUIRE(plan.has_value());
+    const auto output = plan.value().commit(source);
+    REQUIRE(output.has_value());
+    REQUIRE_EQ(output.value().sections.front().contents[0], std::byte{0x00});
+    REQUIRE_EQ(output.value().sections.front().contents[1], std::byte{0x00});
+    REQUIRE_EQ(output.value().sections.front().contents[2], std::byte{0x00});
+    REQUIRE_EQ(output.value().sections.front().contents[3], std::byte{0x94});
+    REQUIRE_EQ(output.value().sections.front().contents[4], std::byte{0x1f});
+    REQUIRE_EQ(output.value().sections.front().contents[7], std::byte{0xd5});
 }
 
 TEST_CASE(object_rewrite_rejects_out_of_range_pc_relative_repairs) {

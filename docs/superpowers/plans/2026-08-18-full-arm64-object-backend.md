@@ -132,7 +132,7 @@ git commit -m "feat: define ARM64 object backend contracts"
 - Consumes: masked field contracts from Task 1 and normalized raw relocation types.
 - Produces: `arm64_fixup_semantics`, `encode_arm64_fixup`, `decode_arm64_fixup`, and masked instruction-field merging.
 
-- [ ] **Step 1: Add failing golden field tests**
+- [x] **Step 1: Add failing golden field tests**
 
 Cover every defined COFF type `0x0000` through `0x0011` and ELF `NONE`, `ABS64/32/16`,
 `PREL64/32/16`, move-wide groups, `LD_PREL_LO19`, `ADR_PREL_LO21`,
@@ -153,7 +153,7 @@ TEST_CASE(arm64_branch26_encoding_preserves_opcode_and_scales_displacement) {
 Add failures for misalignment, signed endpoints, ADR split fields, ADRP page scaling, load/store
 low12 scaling, move-wide shifts, `INT64_MIN`, invalid masks, and unsupported raw types.
 
-- [ ] **Step 2: Prove the fixup tests fail**
+- [x] **Step 2: Prove the fixup tests fail**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_fixup_tests
@@ -161,7 +161,7 @@ cmake --build build\m13-verify-debug --target binobf_arm64_fixup_tests
 
 Expected: target or header is missing.
 
-- [ ] **Step 3: Implement sorted format tables and checked encoders**
+- [x] **Step 3: Implement sorted format tables and checked encoders**
 
 Define strictly sorted format tables recording logical width, signedness, PC-relative status,
 implicit addend, field encoding, storage bytes, scaling, and group shift. Use unsigned intermediate
@@ -172,7 +172,7 @@ Instruction encodings return four bytes plus a four-byte write mask; scalar data
 full `0xff` masks. Decode reverses the field and scale exactly. Dispatch ARM64 backend fixup calls to
 these functions.
 
-- [ ] **Step 4: Merge masked fields transactionally**
+- [x] **Step 4: Merge masked fields transactionally**
 
 ```cpp
 output[index] = static_cast<std::byte>(
@@ -185,7 +185,7 @@ output[index] = static_cast<std::byte>(
 Require equal nonzero lengths, section bounds, and unchanged opcode bits. Keep x86 encodings on
 full-byte masks so their output is identical.
 
-- [ ] **Step 5: Run Debug and UBSan focused tests**
+- [x] **Step 5: Run Debug and UBSan focused tests**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_fixup_tests binobf_object_rewrite_tests
@@ -194,7 +194,7 @@ cmake --build build\m13-ubsan --target binobf_arm64_fixup_tests binobf_object_re
 ctest --test-dir build\m13-ubsan -C RelWithDebInfo -R "^(arm64_fixup|object_rewrite)$" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit ARM64 fixups**
+- [x] **Step 6: Commit ARM64 fixups**
 
 ```powershell
 git add CMakeLists.txt src/architecture/arm64_fixups.* src/architecture/capstone_backend.cpp src/transforms/object_rewrite.cpp tests/unit/arm64_fixup_tests.cpp tests/unit/object_rewrite_tests.cpp

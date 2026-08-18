@@ -372,6 +372,20 @@ auto signed_fits(std::int64_t value, std::uint8_t bits) -> bool {
     return value >= minimum && value <= maximum;
 }
 
+auto signed_fixup_fits(
+    std::int64_t value,
+    const ObjectFixupSemantics& semantics) -> bool {
+    const auto bias = static_cast<std::int64_t>(semantics.pcBias);
+    if ((bias > 0 && value > std::numeric_limits<std::int64_t>::max() - bias)
+        || (bias < 0 && value < std::numeric_limits<std::int64_t>::min() - bias)) {
+        return false;
+    }
+    value += bias;
+    if (semantics.rightShift >= 63U) return false;
+    const auto scale = INT64_C(1) << semantics.rightShift;
+    return value % scale == 0 && signed_fits(value / scale, semantics.bitWidth);
+}
+
 auto checked_add_i64(std::int64_t left, std::int64_t right) -> std::optional<std::int64_t> {
     if ((right > 0 && left > std::numeric_limits<std::int64_t>::max() - right)
         || (right < 0 && left < std::numeric_limits<std::int64_t>::min() - right)) {
@@ -542,7 +556,10 @@ auto ObjectRewritePlan::create(
             continue;
         }
         if (siteMapping != nullptr) {
-            const auto fieldSize = static_cast<std::uint64_t>(semantics.value().bitWidth / 8U);
+            const auto fieldSize = static_cast<std::uint64_t>(
+                semantics.value().storageBytes != 0U
+                    ? semantics.value().storageBytes
+                    : semantics.value().bitWidth / 8U);
             const auto mappedSite = map_span(*siteMapping, relocation.offset, fieldSize);
             if (!mappedSite.has_value()) {
                 return failure<ObjectRewritePlan>(
@@ -574,13 +591,23 @@ auto ObjectRewritePlan::create(
         const auto* updatedTarget = find_symbol(output, *relocation.targetSymbol);
         if (semantics.value().pcRelative && updatedTarget != nullptr
             && updatedTarget->defined && updatedTarget->section == relocation.section) {
-            const auto targetValue = checked_add_i64(
-                static_cast<std::int64_t>(updatedTarget->address.value), relocation.addend);
-            if (!targetValue.has_value()
-                || relocation.offset > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
-                || !signed_fits(
-                    *targetValue - static_cast<std::int64_t>(relocation.offset),
-                    semantics.value().bitWidth)) {
+            const auto targetAddress = updatedTarget->address.value
+                    <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+                ? std::optional<std::int64_t>{
+                    static_cast<std::int64_t>(updatedTarget->address.value)}
+                : std::nullopt;
+            const auto targetValue = targetAddress.has_value()
+                ? checked_add_i64(*targetAddress, relocation.addend)
+                : std::nullopt;
+            const auto siteValue = relocation.offset
+                    <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
+                ? std::optional<std::int64_t>{static_cast<std::int64_t>(relocation.offset)}
+                : std::nullopt;
+            const auto displacement = targetValue.has_value() && siteValue.has_value()
+                ? checked_add_i64(*targetValue, -*siteValue)
+                : std::nullopt;
+            if (!displacement.has_value()
+                || !signed_fixup_fits(*displacement, semantics.value())) {
                 return failure<ObjectRewritePlan>(
                     "rewrite.branch_range", "rewritten PC-relative relocation is out of range");
             }
@@ -593,14 +620,29 @@ auto ObjectRewritePlan::create(
                 return failure<ObjectRewritePlan>(code, encoded.error().message);
             }
             auto* section = find_section(output, relocation.section);
+            if (encoded.value().fieldBytes.empty()
+                || encoded.value().fieldBytes.size() != encoded.value().writeMask.size()) {
+                return failure<ObjectRewritePlan>(
+                    "architecture.invalid_fixup",
+                    "encoded relocation field and write mask have invalid lengths");
+            }
             if (section == nullptr || relocation.offset > section->contents.size()
                 || encoded.value().fieldBytes.size() > section->contents.size() - relocation.offset) {
                 return failure<ObjectRewritePlan>(
                     "rewrite.unmapped_relocation", "encoded relocation field lies outside its section");
             }
-            std::copy(
-                encoded.value().fieldBytes.begin(), encoded.value().fieldBytes.end(),
-                section->contents.begin() + static_cast<std::ptrdiff_t>(relocation.offset));
+            for (std::size_t index = 0; index < encoded.value().fieldBytes.size(); ++index) {
+                const auto outputIndex = static_cast<std::size_t>(relocation.offset) + index;
+                const auto original = std::to_integer<std::uint8_t>(
+                    section->contents[outputIndex]);
+                const auto replacement = std::to_integer<std::uint8_t>(
+                    encoded.value().fieldBytes[index]);
+                const auto mask = std::to_integer<std::uint8_t>(
+                    encoded.value().writeMask[index]);
+                section->contents[outputIndex] = static_cast<std::byte>(
+                    (original & static_cast<std::uint8_t>(~mask))
+                    | (replacement & mask));
+            }
         }
         append_lineage(relocation, request.transform, request.passName);
         ++validationCount;

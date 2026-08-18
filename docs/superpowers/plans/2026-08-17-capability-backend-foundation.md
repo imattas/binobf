@@ -34,7 +34,7 @@
 - Consumes: `BinaryFormat`, `BinaryType`, `Architecture`, `Result<T, Diagnostic>`.
 - Produces: `Capability`, `SupportLevel`, `CapabilityKey`, `CapabilityRecord`, `CapabilityRegistry`, `builtin_capability_registry()`, and stable `to_string` functions.
 
-- [ ] **Step 1: Write the failing registry shape and lookup tests**
+- [x] **Step 1: Write the failing registry shape and lookup tests**
 
 Create `tests/unit/capability_registry_tests.cpp` with these first cases:
 
@@ -92,7 +92,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 2: Register the test and verify it fails at compile time**
+- [x] **Step 2: Register the test and verify it fails at compile time**
 
 Add `src/capabilities/registry.cpp` to `BINOBF_CORE_SOURCES`, then add:
 
@@ -114,7 +114,7 @@ cmake --build build\m12-verify-debug --target binobf_capability_registry_tests
 
 Expected: compilation fails because `binobf/capabilities/registry.hpp` does not exist.
 
-- [ ] **Step 3: Implement the public types and duplicate-safe registry constructor**
+- [x] **Step 3: Implement the public types and duplicate-safe registry constructor**
 
 Create `include/binobf/capabilities/registry.hpp` with this contract:
 
@@ -199,9 +199,9 @@ Implement `CapabilityRegistry::create` by sorting a copied vector on the four ke
 adjacent duplicate keys with `capability.duplicate_key`, and returning immutable spans/pointers.
 Implement all enum string conversions with exhaustive switches.
 
-- [ ] **Step 4: Populate the exact current built-in matrix**
+- [x] **Step 4: Populate the exact current built-in matrix**
 
-In `src/capabilities/registry.cpp`, create the 34 records represented by the two README tables:
+In `src/capabilities/registry.cpp`, create the 48 records represented by the two README tables:
 
 - 9 format capabilities x 4 formats = 36 logical cells, excluding the standalone-VM presentation
   row because it is not a format capability;
@@ -215,7 +215,7 @@ protection are `Restricted`; archive VM paths are `Unsupported`; x86 and ARM64 a
 `Restricted`. Attach at least one existing evidence ID to every `Supported` record and leave
 non-supported records evidence-free in this task.
 
-- [ ] **Step 5: Run the focused test to green**
+- [x] **Step 5: Run the focused test to green**
 
 Run:
 

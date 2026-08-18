@@ -58,7 +58,7 @@ ctest --test-dir build/release --output-on-failure
 cmake --install build/release --prefix build/install
 ```
 
-Every push to `main` and pull request is built and tested on Windows and Linux x86-64 by GitHub Actions. Version tags (`vMAJOR.MINOR.PATCH`) produce public release archives for both platforms, SHA-256 files, release manifests, and GitHub build-provenance attestations; the latest packages are listed on the [Releases page](https://github.com/imattas/binobf/releases).
+Every push to `main` and pull request is built and tested on Windows and Linux x86-64 by GitHub Actions. Version tags (`vMAJOR.MINOR.PATCH`) produce public release archives for both platforms, SHA-256 files, release manifests, CycloneDX SBOMs, and GitHub build-provenance attestations; the latest packages are listed on the [Releases page](https://github.com/imattas/binobf/releases).
 
 Dedicated UBSan, libFuzzer, and benchmark commands are documented in [Hardening](docs/hardening.md). The current Windows LLVM/MSVC standard library cannot link AddressSanitizer because its required STL integration library is absent; CMake rejects that unsupported combination explicitly.
 

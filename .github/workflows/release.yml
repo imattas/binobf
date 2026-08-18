@@ -87,6 +87,14 @@ jobs:
           printf '%s  %s\n' "$hash" "$archive" > "$archive.sha256"
           printf '{"schema_version":1,"tag":"%s","commit":"%s","platform":"%s","archive":"%s","sha256":"%s"}\n' "${{ github.ref_name }}" "${{ github.sha }}" "${{ matrix.platform }}" "$archive" "$hash" > "binobf-${{ matrix.platform }}.manifest.json"
 
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: staging/binobf
+          format: cyclonedx-json
+          output-file: binobf-${{ matrix.platform }}.sbom.cdx.json
+          upload-artifact: false
+
       - name: Attest archive
         uses: actions/attest-build-provenance@v2
         with:

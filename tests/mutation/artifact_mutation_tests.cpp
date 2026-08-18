@@ -238,7 +238,7 @@ TEST_CASE(required_artifact_and_model_mutations_are_all_killed) {
     const auto parsedObject = binobf::parse_object(read_file(coffFixture), "fixture.obj");
     REQUIRE(parsedObject.has_value());
     auto wrongArchitecture = parsedObject.value();
-    wrongArchitecture.architecture = binobf::Architecture::ARM64;
+    wrongArchitecture.architecture = binobf::Architecture::Unknown;
     binobf::PassManager manager;
     REQUIRE(manager.add(binobf::make_instruction_substitution_pass()).has_value());
     binobf::TransformContext context{77, false};

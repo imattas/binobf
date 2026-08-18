@@ -346,8 +346,8 @@ auto emit_arm64_transform(const MachineTransformRequest& request, const CodegenP
             return failure<MachineTransformEmission>(
                 "architecture.invalid_template", "ARM64 copy registers are invalid or mismatched");
         }
-        const auto base = destination->is64Bit ? UINT32_C(0x91000000) : UINT32_C(0x11000000);
-        const std::array words{base | (static_cast<std::uint32_t>(source->index) << 5U) |
+        const auto base = destination->is64Bit ? UINT32_C(0xaa0003e0) : UINT32_C(0x2a0003e0);
+        const std::array words{base | (static_cast<std::uint32_t>(source->index) << 16U) |
                                destination->index};
         return emit_words(
             request, codegen, words, MachineControlFlow::Fallthrough, false, {destination->text});

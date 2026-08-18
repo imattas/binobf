@@ -372,8 +372,43 @@ class InstructionSubstitutionPass final : public TransformPass {
                     request.source = *instruction;
                     request.exactSize = instruction->encoding.size();
                     const auto emitted = backend->emit_transform(request);
-                    if (!emitted.has_value() ||
-                        emitted.value().emission.bytes == instruction->encoding) {
+                    if (!emitted.has_value()) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    auto replacement = emitted.value().emission.bytes;
+                    if (image.architecture == Architecture::ARM64 &&
+                        replacement == instruction->encoding && instruction->registersRead.size() == 1U &&
+                        instruction->registersWritten.size() == 1U) {
+                        const auto register_index = [](std::string_view name) -> std::optional<std::uint32_t> {
+                            if (name.size() < 2U || (name.front() != 'x' && name.front() != 'w'))
+                                return std::nullopt;
+                            std::uint32_t value = 0;
+                            for (std::size_t i = 1; i < name.size(); ++i) {
+                                if (name[i] < '0' || name[i] > '9' || value > 31U)
+                                    return std::nullopt;
+                                value = value * 10U + static_cast<std::uint32_t>(name[i] - '0');
+                            }
+                            return value <= 31U ? std::optional{value} : std::nullopt;
+                        };
+                        const auto source = register_index(instruction->registersRead.front().name);
+                        const auto destination = register_index(instruction->registersWritten.front().name);
+                        if (source.has_value() && destination.has_value() &&
+                            instruction->registersRead.front().name.front() ==
+                                instruction->registersWritten.front().name.front()) {
+                            const auto base = instruction->registersWritten.front().name.front() == 'x'
+                                                  ? UINT32_C(0x91000000)
+                                                  : UINT32_C(0x11000000);
+                            const auto word = base | (*source << 5U) | *destination;
+                            replacement = {static_cast<std::byte>(word & 0xffU),
+                                           static_cast<std::byte>((word >> 8U) & 0xffU),
+                                           static_cast<std::byte>((word >> 16U) & 0xffU),
+                                           static_cast<std::byte>((word >> 24U) & 0xffU)};
+                        }
+                    }
+                    const auto decoded = decoded_replacement(*backend, *instruction, replacement);
+                    if (!decoded.has_value() || decoded->encoding.size() != replacement.size() ||
+                        replacement == instruction->encoding) {
                         ++statistics.skipped;
                         continue;
                     }
@@ -383,7 +418,7 @@ class InstructionSubstitutionPass final : public TransformPass {
                         instruction->sectionOffset,
                         instruction->sectionOffset + instruction->encoding.size(),
                         instruction->sectionOffset,
-                        emitted.value().emission.bytes,
+                        std::move(replacement),
                     });
                     changedSections.insert(instruction->section.value());
                     changedFunctions.insert(function.symbol->value());

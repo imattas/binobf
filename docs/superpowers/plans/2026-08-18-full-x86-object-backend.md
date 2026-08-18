@@ -316,11 +316,11 @@ git commit -m "feat: normalize object metadata ownership"
 - Consumes: normalized object ownership and raw COFF records.
 - Produces: classic/bigobj parse-write-parse, overflow relocation tables, COMDAT/SafeSEH ownership, and stable symbol identities.
 
-- [ ] **Step 1: Add exact boundary fixtures and failing goldens**
+- [x] **Step 1: Add exact boundary fixtures and failing goldens**
 
 Construct minimal byte fixtures for i386 classic COFF, bigobj with 32-bit section numbers, a 65,536-entry relocation-overflow table, each COMDAT selection, associative COMDAT, common symbol, `.sxdata` SafeSEH index, long names, and unknown auxiliary bytes. Exercise `ABSOLUTE`, `DIR16`, `REL16`, `DIR32`, `DIR32NB`, `SEG12`, `SECTION`, `SECREL`, `TOKEN`, `SECREL7`, and `REL32`. Add malformed count/index/association variants and require stable diagnostic codes.
 
-- [ ] **Step 2: Confirm current unsupported paths are RED**
+- [x] **Step 2: Confirm current unsupported paths are RED**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_coff_x86_extended_tests
@@ -329,14 +329,14 @@ ctest --test-dir build\m13-dev -R coff_x86_extended --output-on-failure
 
 Expected: bigobj is not detected and relocation overflow returns `coff.unsupported`.
 
-- [ ] **Step 3: Parse classic and bigobj through one bounded view**
+- [x] **Step 3: Parse classic and bigobj through one bounded view**
 
 Introduce a private `CoffObjectLayout` containing header size, section count, symbol offset/count,
 symbol entry size (18 or 20), and section-number width. Recognize the bigobj UUID and version,
 cap section/symbol/relocation counts before allocation, and normalize symbol IDs before resolving
 auxiliary references.
 
-- [ ] **Step 4: Normalize COMDAT, SafeSEH, common, and relocation overflow**
+- [x] **Step 4: Normalize COMDAT, SafeSEH, common, and relocation overflow**
 
 Decode section-definition auxiliary records into `SectionAssociation`; resolve associative section
 numbers after every section exists. Decode common symbols from external/undefined symbols with
@@ -344,21 +344,21 @@ nonzero value. Decode `.sxdata` entries as symbol-index ownership. For overflow 
 header count `0xffff`, overflow flag, and first relocation record containing the real count; expose
 only real relocations in `BinaryImage`.
 
-- [ ] **Step 5: Rebuild tables with repaired indices**
+- [x] **Step 5: Rebuild tables with repaired indices**
 
 Choose classic COFF unless the source is bigobj or section indices exceed 16-bit signed range.
 Recalculate section/symbol indices, auxiliary associations, SafeSEH entries, section-symbol
 checksums, long-name offsets, and overflow sentinel/count records. Preserve unknown auxiliary data
 byte-for-byte after updating only proven index/checksum fields.
 
-- [ ] **Step 6: Run COFF round-trip and writer regressions**
+- [x] **Step 6: Run COFF round-trip and writer regressions**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_coff_x86_extended_tests binobf_coff_object_parser_tests binobf_object_writer_tests
 ctest --test-dir build\m13-dev -R "coff_x86_extended|coff_object_parser|object_writer" --output-on-failure
 ```
 
-- [ ] **Step 7: Commit complete i386 COFF metadata**
+- [x] **Step 7: Commit complete i386 COFF metadata**
 
 ```powershell
 git add CMakeLists.txt src/formats/detector.cpp src/formats/coff tests/unit/coff_x86_extended_tests.cpp tests/unit/coff_object_parser_tests.cpp tests/unit/object_writer_tests.cpp

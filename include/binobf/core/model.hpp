@@ -25,6 +25,7 @@ struct ObjectMetadata {
     std::uint8_t abiVersion{0};
     std::uint64_t formatFlags{0};
     std::uint32_t characteristics{0};
+    bool coffBigObj{false};
 };
 
 enum class SectionKind : std::uint8_t {
@@ -204,6 +205,12 @@ struct RelocationTableEncoding {
     std::uint64_t declaredCount{0};
 };
 
+struct CoffSafeSehEntry {
+    EntityId section;
+    EntityId symbol;
+    std::uint32_t formatIndex{0};
+};
+
 enum class InstructionKind : std::uint8_t {
     Normal,
     DirectBranch,
@@ -372,6 +379,7 @@ struct BinaryImage {
     std::vector<Export> exports;
     std::vector<Relocation> relocations;
     std::vector<RelocationTableEncoding> relocationTableEncodings;
+    std::vector<CoffSafeSehEntry> coffSafeSehEntries;
     std::vector<Instruction> instructions;
     std::vector<BasicBlock> basicBlocks;
     std::vector<Function> functions;

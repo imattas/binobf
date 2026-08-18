@@ -17,10 +17,12 @@ namespace binobf::formats::detail {
 namespace {
 
 constexpr std::size_t coffHeaderSize = 20;
+constexpr std::size_t coffBigObjHeaderSize = 56;
 constexpr std::size_t sectionHeaderSize = 40;
-constexpr std::size_t symbolEntrySize = 18;
+constexpr std::size_t classicSymbolEntrySize = 18;
+constexpr std::size_t bigObjSymbolEntrySize = 20;
 constexpr std::size_t relocationEntrySize = 10;
-constexpr std::size_t maximumSectionCount = 16'384;
+constexpr std::size_t maximumSectionCount = 65'536;
 constexpr std::size_t maximumSymbolCount = 1'000'000;
 
 struct CoffSectionHeader {
@@ -29,8 +31,21 @@ struct CoffSectionHeader {
     std::uint32_t rawSize{0};
     std::uint32_t rawOffset{0};
     std::uint32_t relocationOffset{0};
-    std::uint16_t relocationCount{0};
+    std::uint16_t rawRelocationCount{0};
+    std::uint32_t relocationCount{0};
+    bool relocationOverflow{false};
     std::uint32_t characteristics{0};
+};
+
+struct CoffObjectLayout {
+    bool bigObj{false};
+    std::size_t headerSize{0};
+    std::size_t sectionCount{0};
+    std::size_t symbolOffset{0};
+    std::size_t symbolCount{0};
+    std::size_t symbolEntrySize{0};
+    bool wideSectionNumbers{false};
+    std::uint16_t characteristics{0};
 };
 
 auto read_inline_name(std::span<const std::byte> encoded) -> std::string {
@@ -106,7 +121,7 @@ auto symbol_kind(
     std::string_view name,
     std::uint16_t type,
     std::uint8_t storageClass,
-    std::int16_t sectionNumber) -> SymbolKind {
+    std::int32_t sectionNumber) -> SymbolKind {
     if (storageClass == 103) return SymbolKind::File;
     if ((type & 0x20U) != 0) return SymbolKind::Function;
     if (storageClass == 3 && sectionNumber > 0 && name.starts_with('.')) {
@@ -127,9 +142,11 @@ auto relocation_kind(Architecture architecture, std::uint16_t rawType) noexcept
     -> RelocationKind {
     switch (architecture) {
     case Architecture::X86:
-        if (rawType == 0x0006) return RelocationKind::Absolute;
+        if (rawType == 0x0001 || rawType == 0x0006 || rawType == 0x0009) {
+            return RelocationKind::Absolute;
+        }
+        if (rawType == 0x0002 || rawType == 0x0014) return RelocationKind::PcRelative;
         if (rawType == 0x0007) return RelocationKind::ImageRelative;
-        if (rawType == 0x0014) return RelocationKind::PcRelative;
         break;
     case Architecture::X86_64:
         if (rawType == 0x0001 || rawType == 0x0002) return RelocationKind::Absolute;
@@ -144,6 +161,29 @@ auto relocation_kind(Architecture architecture, std::uint16_t rawType) noexcept
     case Architecture::Unknown: break;
     }
     return RelocationKind::ArchitectureSpecific;
+}
+
+auto comdat_selection(std::uint8_t raw) -> std::optional<CoffComdatSelection> {
+    switch (raw) {
+    case 0: return CoffComdatSelection::None;
+    case 1: return CoffComdatSelection::NoDuplicates;
+    case 2: return CoffComdatSelection::Any;
+    case 3: return CoffComdatSelection::SameSize;
+    case 4: return CoffComdatSelection::ExactMatch;
+    case 5: return CoffComdatSelection::Associative;
+    case 6: return CoffComdatSelection::Largest;
+    case 7: return CoffComdatSelection::Newest;
+    default: return std::nullopt;
+    }
+}
+
+auto auxiliary_u16(std::span<const std::byte> bytes, std::size_t offset)
+    -> std::optional<std::uint16_t> {
+    if (offset > bytes.size() || 2U > bytes.size() - offset) return std::nullopt;
+    return static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[offset]))
+        | static_cast<std::uint16_t>(
+            static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(bytes[offset + 1U]))
+            << 8U);
 }
 
 auto read_section_header(const ByteReader& reader, std::size_t offset)
@@ -165,6 +205,7 @@ auto read_section_header(const ByteReader& reader, std::size_t offset)
     header.rawSize = *rawSize;
     header.rawOffset = *rawOffset;
     header.relocationOffset = *relocationOffset;
+    header.rawRelocationCount = *relocationCount;
     header.relocationCount = *relocationCount;
     header.characteristics = *characteristics;
     return header;
@@ -175,40 +216,67 @@ auto read_section_header(const ByteReader& reader, std::size_t offset)
 auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& detection)
     -> Result<BinaryImage, Diagnostic> {
     const ByteReader reader{bytes};
-    const auto sectionCountValue = reader.u16(2);
-    const auto symbolOffsetValue = reader.u32(8);
-    const auto symbolCountValue = reader.u32(12);
-    const auto optionalHeaderSize = reader.u16(16);
-    const auto characteristics = reader.u16(18);
-    if (!sectionCountValue || !symbolOffsetValue || !symbolCountValue || !optionalHeaderSize
-        || !characteristics) {
-        return failure("coff.truncated", "COFF header is truncated");
+    const bool bigObj = reader.u16(0) == 0U && reader.u16(2) == 0xffffU;
+    std::optional<std::uint32_t> sectionCountValue;
+    std::optional<std::uint32_t> symbolOffsetValue;
+    std::optional<std::uint32_t> symbolCountValue;
+    std::uint16_t characteristics = 0;
+    if (bigObj) {
+        if (reader.u16(4) != 2U || !contains_range(0, coffBigObjHeaderSize, reader.size())) {
+            return failure("coff.invalid", "COFF bigobj header is invalid");
+        }
+        sectionCountValue = reader.u32(44);
+        symbolOffsetValue = reader.u32(48);
+        symbolCountValue = reader.u32(52);
+    } else {
+        const auto classicSectionCount = reader.u16(2);
+        const auto optionalHeaderSize = reader.u16(16);
+        const auto classicCharacteristics = reader.u16(18);
+        if (!classicSectionCount || !optionalHeaderSize || !classicCharacteristics) {
+            return failure("coff.truncated", "COFF header is truncated");
+        }
+        if (*optionalHeaderSize != 0) {
+            return failure("coff.invalid", "COFF object has an unexpected optional header");
+        }
+        sectionCountValue = *classicSectionCount;
+        symbolOffsetValue = reader.u32(8);
+        symbolCountValue = reader.u32(12);
+        characteristics = *classicCharacteristics;
     }
-    if (*optionalHeaderSize != 0) {
-        return failure("coff.invalid", "COFF object has an unexpected optional header");
+    if (!sectionCountValue || !symbolOffsetValue || !symbolCountValue) {
+        return failure("coff.truncated", "COFF object layout is truncated");
     }
-    const auto sectionCount = static_cast<std::size_t>(*sectionCountValue);
-    if (sectionCount == 0 || sectionCount > maximumSectionCount) {
+    CoffObjectLayout layout{
+        .bigObj = bigObj,
+        .headerSize = bigObj ? coffBigObjHeaderSize : coffHeaderSize,
+        .sectionCount = static_cast<std::size_t>(*sectionCountValue),
+        .symbolOffset = static_cast<std::size_t>(*symbolOffsetValue),
+        .symbolCount = static_cast<std::size_t>(*symbolCountValue),
+        .symbolEntrySize = bigObj ? bigObjSymbolEntrySize : classicSymbolEntrySize,
+        .wideSectionNumbers = bigObj,
+        .characteristics = characteristics,
+    };
+    if (layout.sectionCount == 0 || layout.sectionCount > maximumSectionCount) {
         return failure("coff.invalid", "COFF section count is invalid");
     }
-    const auto sectionTableSize = checked_multiply(sectionCount, sectionHeaderSize);
-    if (!sectionTableSize || !contains_range(coffHeaderSize, *sectionTableSize, reader.size())) {
+    const auto sectionTableSize = checked_multiply(layout.sectionCount, sectionHeaderSize);
+    if (!sectionTableSize
+        || !contains_range(layout.headerSize, *sectionTableSize, reader.size())) {
         return failure("coff.truncated", "COFF section table is truncated");
     }
 
-    const auto symbolCount = static_cast<std::size_t>(*symbolCountValue);
-    if (symbolCount > maximumSymbolCount) {
+    if (layout.symbolCount > maximumSymbolCount) {
         return failure("coff.invalid", "COFF symbol count exceeds the entry limit");
     }
     std::optional<std::span<const std::byte>> stringTable;
-    std::size_t symbolOffset = 0;
-    if (symbolCount != 0 || *symbolOffsetValue != 0) {
-        symbolOffset = static_cast<std::size_t>(*symbolOffsetValue);
-        const auto symbolTableSize = checked_multiply(symbolCount, symbolEntrySize);
-        if (!symbolTableSize || !contains_range(symbolOffset, *symbolTableSize, reader.size())) {
+    if (layout.symbolCount != 0 || layout.symbolOffset != 0) {
+        const auto symbolTableSize = checked_multiply(
+            layout.symbolCount, layout.symbolEntrySize);
+        if (!symbolTableSize
+            || !contains_range(layout.symbolOffset, *symbolTableSize, reader.size())) {
             return failure("coff.truncated", "COFF symbol table is truncated");
         }
-        const auto stringOffset = checked_add(symbolOffset, *symbolTableSize);
+        const auto stringOffset = checked_add(layout.symbolOffset, *symbolTableSize);
         if (!stringOffset || !contains_range(*stringOffset, 4, reader.size())) {
             return failure("coff.truncated", "COFF string-table length is truncated");
         }
@@ -223,9 +291,9 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
     }
 
     std::vector<CoffSectionHeader> headers;
-    headers.reserve(sectionCount);
-    for (std::size_t index = 0; index < sectionCount; ++index) {
-        const auto headerOffset = coffHeaderSize + index * sectionHeaderSize;
+    headers.reserve(layout.sectionCount);
+    for (std::size_t index = 0; index < layout.sectionCount; ++index) {
+        const auto headerOffset = layout.headerSize + index * sectionHeaderSize;
         const auto header = read_section_header(reader, headerOffset);
         if (!header) {
             return failure("coff.truncated", "COFF section header is truncated");
@@ -234,27 +302,46 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             && !contains_range(header->rawOffset, header->rawSize, reader.size())) {
             return failure("coff.truncated", "COFF section contents are truncated");
         }
-        const auto relocationSize = checked_multiply(header->relocationCount, relocationEntrySize);
+        const bool overflowFlag = (header->characteristics & 0x01000000U) != 0U;
+        if (overflowFlag && header->rawRelocationCount != 0xffffU) {
+            return failure(
+                "coff.invalid",
+                "COFF relocation-overflow section does not use the 0xffff header count");
+        }
+        auto tableEntryCount = static_cast<std::uint64_t>(header->rawRelocationCount);
+        auto normalizedHeader = *header;
+        if (overflowFlag) {
+            const auto sentinelCount = reader.u32(header->relocationOffset);
+            const auto sentinelSymbol = reader.u32(header->relocationOffset + 4U);
+            const auto sentinelType = reader.u16(header->relocationOffset + 8U);
+            if (!sentinelCount || !sentinelSymbol || !sentinelType
+                || *sentinelCount == 0U || *sentinelSymbol != 0U || *sentinelType != 0U) {
+                return failure("coff.invalid", "COFF relocation-overflow sentinel is invalid");
+            }
+            tableEntryCount = *sentinelCount;
+            normalizedHeader.relocationCount = *sentinelCount - 1U;
+            normalizedHeader.relocationOverflow = true;
+        }
+        const auto relocationSize = checked_multiply(
+            static_cast<std::size_t>(tableEntryCount), relocationEntrySize);
         if (!relocationSize
             || (header->relocationCount != 0
                 && !contains_range(header->relocationOffset, *relocationSize, reader.size()))) {
             return failure("coff.truncated", "COFF relocation table is truncated");
         }
-        if ((header->characteristics & 0x01000000U) != 0) {
-            return failure("coff.unsupported", "COFF relocation-overflow encoding is unsupported");
-        }
-        headers.push_back(*header);
+        headers.push_back(normalizedHeader);
     }
 
     BinaryImage image;
     image.format = BinaryFormat::COFF;
     image.type = BinaryType::RelocatableObject;
     image.architecture = detection.architecture;
-    image.objectMetadata.characteristics = *characteristics;
+    image.objectMetadata.characteristics = layout.characteristics;
+    image.objectMetadata.coffBigObj = layout.bigObj;
     EntityIdAllocator ids;
     std::vector<EntityId> sectionIds;
-    sectionIds.reserve(sectionCount);
-    for (std::size_t index = 0; index < sectionCount; ++index) {
+    sectionIds.reserve(layout.sectionCount);
+    for (std::size_t index = 0; index < layout.sectionCount; ++index) {
         const auto& header = headers[index];
         const auto name = resolve_section_name(header, stringTable);
         if (!name) {
@@ -292,26 +379,34 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
         });
     }
 
-    std::vector<std::optional<EntityId>> symbolIds(symbolCount);
-    for (std::size_t index = 0; index < symbolCount;) {
-        const auto entryOffset = symbolOffset + index * symbolEntrySize;
+    std::vector<std::optional<EntityId>> symbolIds(layout.symbolCount);
+    for (std::size_t index = 0; index < layout.symbolCount;) {
+        const auto entryOffset = layout.symbolOffset + index * layout.symbolEntrySize;
         const auto name = resolve_symbol_name(reader, entryOffset, stringTable);
         const auto value = reader.u32(entryOffset + 8);
-        const auto sectionNumber = reader.i16(entryOffset + 12);
-        const auto type = reader.u16(entryOffset + 14);
-        const auto storageClass = reader.u8(entryOffset + 16);
-        const auto auxiliaryCount = reader.u8(entryOffset + 17);
+        const auto sectionNumber = layout.wideSectionNumbers
+            ? reader.i32(entryOffset + 12)
+            : std::optional<std::int32_t>{reader.i16(entryOffset + 12)};
+        const auto typeOffset = layout.wideSectionNumbers ? std::size_t{16} : std::size_t{14};
+        const auto storageOffset = layout.wideSectionNumbers ? std::size_t{18} : std::size_t{16};
+        const auto auxiliaryOffsetInSymbol = layout.wideSectionNumbers
+            ? std::size_t{19}
+            : std::size_t{17};
+        const auto type = reader.u16(entryOffset + typeOffset);
+        const auto storageClass = reader.u8(entryOffset + storageOffset);
+        const auto auxiliaryCount = reader.u8(entryOffset + auxiliaryOffsetInSymbol);
         if (!name || !value || !sectionNumber || !type || !storageClass || !auxiliaryCount) {
             return failure("coff.invalid", "COFF symbol entry is invalid");
         }
         const auto recordCount = std::size_t{1} + *auxiliaryCount;
-        if (recordCount > symbolCount - index) {
+        if (recordCount > layout.symbolCount - index) {
             return failure("coff.invalid", "COFF auxiliary symbol count exceeds the table");
         }
         std::vector<std::byte> auxiliaryData;
         if (*auxiliaryCount != 0) {
-            const auto auxiliarySize = checked_multiply(*auxiliaryCount, symbolEntrySize);
-            const auto auxiliaryOffset = checked_add(entryOffset, symbolEntrySize);
+            const auto auxiliarySize = checked_multiply(
+                *auxiliaryCount, layout.symbolEntrySize);
+            const auto auxiliaryOffset = checked_add(entryOffset, layout.symbolEntrySize);
             if (!auxiliarySize || !auxiliaryOffset) {
                 return failure("coff.invalid", "COFF auxiliary symbol range overflows");
             }
@@ -382,12 +477,104 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
         index += recordCount;
     }
 
+    std::vector<bool> associatedSections(layout.sectionCount, false);
+    for (const auto& symbol : image.symbols) {
+        if (symbol.kind != SymbolKind::Section || !symbol.section.has_value()
+            || symbol.formatStorage != 3U || symbol.auxiliaryData.size() < 18U) {
+            continue;
+        }
+        const auto rawSelection = std::to_integer<std::uint8_t>(symbol.auxiliaryData[14]);
+        const auto selection = comdat_selection(rawSelection);
+        if (!selection.has_value()) {
+            return failure("coff.invalid", "COFF COMDAT selection value is invalid");
+        }
+        if (*selection == CoffComdatSelection::None) continue;
+        const auto owned = std::find(sectionIds.begin(), sectionIds.end(), *symbol.section);
+        if (owned == sectionIds.end()) {
+            return failure("coff.invalid", "COFF COMDAT section owner is missing");
+        }
+        const auto ownedIndex = static_cast<std::size_t>(
+            std::distance(sectionIds.begin(), owned));
+        if (associatedSections[ownedIndex]
+            || (headers[ownedIndex].characteristics & 0x00001000U) == 0U) {
+            return failure("coff.invalid", "COFF COMDAT ownership is duplicated or unmarked");
+        }
+        associatedSections[ownedIndex] = true;
+        std::optional<EntityId> parent;
+        auto kind = SectionAssociationKind::CoffComdat;
+        if (*selection == CoffComdatSelection::Associative) {
+            const auto low = auxiliary_u16(symbol.auxiliaryData, 12);
+            const auto high = auxiliary_u16(symbol.auxiliaryData, 16);
+            if (!low || !high) {
+                return failure("coff.invalid", "COFF associative COMDAT auxiliary data is truncated");
+            }
+            const auto parentIndex = static_cast<std::uint32_t>(*low)
+                | (static_cast<std::uint32_t>(*high) << 16U);
+            if (parentIndex == 0U || parentIndex > sectionIds.size()) {
+                return failure("coff.invalid", "COFF associative COMDAT parent is invalid");
+            }
+            parent = sectionIds[parentIndex - 1U];
+            kind = SectionAssociationKind::CoffAssociativeComdat;
+        }
+        image.sectionAssociations.push_back(SectionAssociation{
+            .section = *symbol.section,
+            .kind = kind,
+            .coffSelection = *selection,
+            .signatureSymbol = symbol.id,
+            .parentSection = parent,
+            .members = {},
+        });
+    }
+    for (std::size_t index = 0; index < layout.sectionCount; ++index) {
+        if ((headers[index].characteristics & 0x00001000U) != 0U
+            && !associatedSections[index]) {
+            return failure("coff.invalid", "COFF COMDAT section has no section-definition owner");
+        }
+    }
+
+    for (std::size_t sectionIndex = 0; sectionIndex < image.sections.size(); ++sectionIndex) {
+        const auto& section = image.sections[sectionIndex];
+        if (section.name != ".sxdata") continue;
+        if (section.contents.size() % 4U != 0U) {
+            return failure("coff.invalid", "COFF .sxdata size is not a symbol-index array");
+        }
+        for (std::size_t index = 0; index < section.contents.size() / 4U; ++index) {
+            const auto entryOffset = index * 4U;
+            const auto rawIndex = static_cast<std::uint32_t>(
+                std::to_integer<std::uint8_t>(section.contents[entryOffset]))
+                | (static_cast<std::uint32_t>(
+                       std::to_integer<std::uint8_t>(section.contents[entryOffset + 1U]))
+                   << 8U)
+                | (static_cast<std::uint32_t>(
+                       std::to_integer<std::uint8_t>(section.contents[entryOffset + 2U]))
+                   << 16U)
+                | (static_cast<std::uint32_t>(
+                       std::to_integer<std::uint8_t>(section.contents[entryOffset + 3U]))
+                   << 24U);
+            if (rawIndex >= symbolIds.size() || !symbolIds[rawIndex].has_value()) {
+                return failure("coff.invalid", "COFF .sxdata handler symbol index is invalid");
+            }
+            image.coffSafeSehEntries.push_back(CoffSafeSehEntry{
+                .section = section.id,
+                .symbol = *symbolIds[rawIndex],
+                .formatIndex = static_cast<std::uint32_t>(index),
+            });
+        }
+    }
+
     std::uint32_t relocationIndex = 0;
-    for (std::size_t sectionIndex = 0; sectionIndex < sectionCount; ++sectionIndex) {
+    for (std::size_t sectionIndex = 0; sectionIndex < layout.sectionCount; ++sectionIndex) {
         const auto& header = headers[sectionIndex];
+        if (header.relocationOverflow) {
+            image.relocationTableEncodings.push_back(RelocationTableEncoding{
+                .section = sectionIds[sectionIndex],
+                .coffOverflow = true,
+                .declaredCount = header.relocationCount,
+            });
+        }
         for (std::size_t index = 0; index < header.relocationCount; ++index) {
             const auto entryOffset = static_cast<std::size_t>(header.relocationOffset)
-                + index * relocationEntrySize;
+                + (index + (header.relocationOverflow ? 1U : 0U)) * relocationEntrySize;
             const auto offset = reader.u32(entryOffset);
             const auto symbolIndexValue = reader.u32(entryOffset + 4);
             const auto rawType = reader.u16(entryOffset + 8);

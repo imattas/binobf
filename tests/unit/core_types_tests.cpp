@@ -94,6 +94,7 @@ TEST_CASE(object_metadata_survives_value_copies) {
         .abiVersion = 1,
         .formatFlags = 0x1234,
         .characteristics = 0x200,
+        .coffBigObj = false,
     };
     image.sections.push_back(binobf::Section{
         .id = binobf::EntityId{11},

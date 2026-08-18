@@ -8,8 +8,9 @@ namespace binobf {
 namespace {
 
 constexpr std::size_t coffHeaderSize = 20;
+constexpr std::size_t coffBigObjHeaderSize = 56;
 constexpr std::size_t coffSectionSize = 40;
-constexpr std::uint16_t maxSectionCount = 16'384;
+constexpr std::size_t maxBigObjSectionCount = 65'536;
 
 auto error(std::string code, std::string message) -> Result<DetectionResult, Diagnostic> {
     return Result<DetectionResult, Diagnostic>::failure(
@@ -136,9 +137,9 @@ auto has_case_insensitive_suffix(std::string_view input, std::string_view suffix
 
 auto validate_section_table(
     std::size_t tableOffset,
-    std::uint16_t sectionCount,
+    std::size_t sectionCount,
     std::size_t inputSize) -> bool {
-    if (sectionCount == 0 || sectionCount > maxSectionCount) {
+    if (sectionCount == 0 || sectionCount > maxBigObjSectionCount) {
         return false;
     }
     const auto tableSize = checked_multiply(sectionCount, coffSectionSize);
@@ -236,7 +237,7 @@ auto detect_pe(
     if (!sectionOffset.has_value()) {
         return error("format.invalid", "PE section-table offset overflows");
     }
-    if (sectionCount == 0 || sectionCount > maxSectionCount) {
+    if (sectionCount == 0) {
         return error("format.invalid", "PE section count is invalid");
     }
     if (!validate_section_table(*sectionOffset, sectionCount, bytes.size())) {
@@ -261,6 +262,33 @@ auto detect_pe(
 }
 
 auto detect_coff(std::span<const std::byte> bytes) -> Result<DetectionResult, Diagnostic> {
+    const bool bigObjSignature = bytes.size() >= 4
+        && read_u16(bytes, 0) == 0U && read_u16(bytes, 2) == 0xffffU;
+    if (bigObjSignature) {
+        if (bytes.size() < coffBigObjHeaderSize) {
+            return error("format.truncated", "COFF bigobj header is truncated");
+        }
+        constexpr std::array bigObjClassId{
+            std::byte{0xd1}, std::byte{0xba}, std::byte{0xa1}, std::byte{0xc7},
+            std::byte{0xba}, std::byte{0xee}, std::byte{0x4b}, std::byte{0xa9},
+            std::byte{0xaf}, std::byte{0x20}, std::byte{0xfa}, std::byte{0xf6},
+            std::byte{0x6a}, std::byte{0xa4}, std::byte{0xdc}, std::byte{0xb8},
+        };
+        if (read_u16(bytes, 4) != 2U
+            || !starts_with(bytes.subspan(12), bigObjClassId)) {
+            return error("format.invalid", "COFF bigobj signature or version is invalid");
+        }
+        const auto sectionCount = static_cast<std::size_t>(read_u32(bytes, 44).value());
+        if (!validate_section_table(coffBigObjHeaderSize, sectionCount, bytes.size())) {
+            return error("format.truncated", "COFF bigobj section table is truncated");
+        }
+        return Result<DetectionResult, Diagnostic>::success(DetectionResult{
+            .format = BinaryFormat::COFF,
+            .type = BinaryType::RelocatableObject,
+            .architecture = coff_architecture(read_u16(bytes, 6).value()),
+            .entryPoint = 0,
+        });
+    }
     if (bytes.size() < coffHeaderSize) {
         return error("format.truncated", "COFF header is truncated");
     }
@@ -270,7 +298,7 @@ auto detect_coff(std::span<const std::byte> bytes) -> Result<DetectionResult, Di
     if (optionalSize != 0) {
         return error("format.invalid", "COFF object unexpectedly has an optional header");
     }
-    if (sectionCount == 0 || sectionCount > maxSectionCount) {
+    if (sectionCount == 0) {
         return error("format.invalid", "COFF section count is invalid");
     }
     if (!validate_section_table(coffHeaderSize, sectionCount, bytes.size())) {
@@ -313,6 +341,10 @@ auto detect_binary(std::span<const std::byte> bytes, std::string_view sourceName
     }
 
     if (bytes.size() >= 2) {
+        if (bytes.size() >= 4 && read_u16(bytes, 0) == 0U
+            && read_u16(bytes, 2) == 0xffffU) {
+            return detect_coff(bytes);
+        }
         const auto machine = read_u16(bytes, 0).value();
         if (coff_architecture(machine) != Architecture::Unknown) {
             return detect_coff(bytes);

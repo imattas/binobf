@@ -291,6 +291,8 @@ auto validate_object_ownership(const BinaryImage& image)
     }
 
     std::unordered_set<std::uint64_t> relocationTableSections;
+    std::unordered_map<std::uint64_t, const RelocationTableEncoding*>
+        relocationTablesBySection;
     for (const auto& encoding : image.relocationTableEncodings) {
         ++validated;
         if (sections.find(encoding.section.value()) == sections.end()
@@ -311,6 +313,42 @@ auto validate_object_ownership(const BinaryImage& image)
                 "object.ownership_relocation_table",
                 "relocation-table declared count disagrees with owned relocations",
                 encoding.section);
+        }
+        relocationTablesBySection.emplace(encoding.section.value(), &encoding);
+    }
+    if (image.format == BinaryFormat::COFF) {
+        for (const auto& section : image.sections) {
+            const bool rawOverflow = (section.formatFlags & 0x01000000U) != 0U;
+            const auto normalized = relocationTablesBySection.find(section.id.value());
+            if (rawOverflow != (normalized != relocationTablesBySection.end()
+                                && normalized->second->coffOverflow)) {
+                return ownership_failure(
+                    "object.ownership_relocation_table",
+                    "COFF relocation-overflow flag disagrees with normalized ownership",
+                    section.id);
+            }
+        }
+    }
+
+    std::unordered_map<std::uint64_t, std::unordered_set<std::uint32_t>> safeSehIndices;
+    std::unordered_set<std::uint64_t> safeSehSymbols;
+    for (const auto& entry : image.coffSafeSehEntries) {
+        ++validated;
+        const auto owner = sections.find(entry.section.value());
+        const auto handler = symbols.find(entry.symbol.value());
+        const auto byteOffset = static_cast<std::uint64_t>(entry.formatIndex) * 4U;
+        if (image.format != BinaryFormat::COFF || owner == sections.end()
+            || handler == symbols.end() || owner->second->name != ".sxdata"
+            || byteOffset > owner->second->contents.size()
+            || 4U > owner->second->contents.size() - byteOffset
+            || !safeSehIndices[entry.section.value()].insert(entry.formatIndex).second
+            || !safeSehSymbols.insert(entry.symbol.value()).second
+            || handler->second->kind != SymbolKind::Function
+            || !handler->second->defined) {
+            return ownership_failure(
+                "object.ownership_safeseh",
+                "SafeSEH entry has no exact section or handler-symbol owner",
+                entry.symbol);
         }
     }
 
@@ -423,7 +461,7 @@ auto validate_object_ownership(const BinaryImage& image)
 namespace binobf::formats::detail {
 namespace {
 
-constexpr std::size_t maximumSectionCount = 16'384;
+constexpr std::size_t maximumSectionCount = 65'536;
 constexpr std::size_t maximumSymbolCount = 1'000'000;
 constexpr std::size_t maximumRelocationCount = 4'000'000;
 constexpr std::uint64_t maximumCoffValue = std::numeric_limits<std::uint32_t>::max();
@@ -472,6 +510,13 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
         || image.relocations.size() > maximumRelocationCount) {
         return size_limit("object entity count exceeds the supported limit");
     }
+    const bool coffUsesBigObj = image.format == BinaryFormat::COFF
+        && (image.objectMetadata.coffBigObj
+            || std::ranges::any_of(image.sections, [](const auto& section) {
+                return section.formatIndex
+                    > static_cast<std::uint32_t>(
+                        std::numeric_limits<std::int16_t>::max());
+            }));
 
     std::unordered_set<std::uint64_t> entityIds;
     std::unordered_set<std::uint32_t> sectionIndices;
@@ -556,7 +601,8 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
             > std::numeric_limits<std::uint16_t>::max()) {
             return size_limit("COFF characteristics exceed 16-bit encoding");
         }
-        if (image.sections.size() > std::numeric_limits<std::uint16_t>::max()) {
+        if (!coffUsesBigObj
+            && image.sections.size() > std::numeric_limits<std::uint16_t>::max()) {
             return size_limit("COFF section count exceeds the standard header limit");
         }
         if (sectionNameTableCount != 0) {
@@ -612,12 +658,18 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
                 return size_limit("ELF32 symbol field exceeds 32-bit encoding");
             }
         } else {
+            const auto symbolEntrySize = coffUsesBigObj
+                ? std::size_t{20}
+                : std::size_t{18};
             if (symbol.formatTableIndex != 0 || symbol.formatType > 0xffffU
                 || symbol.formatOther != 0
-                || symbol.auxiliaryData.size() % 18 != 0
-                || symbol.auxiliaryData.size() / 18 > 0xffU
-                || symbol.formatSectionIndex < std::numeric_limits<std::int16_t>::min()
-                || symbol.formatSectionIndex > std::numeric_limits<std::int16_t>::max()) {
+                || symbol.auxiliaryData.size() % symbolEntrySize != 0
+                || symbol.auxiliaryData.size() / symbolEntrySize > 0xffU
+                || (!coffUsesBigObj
+                    && (symbol.formatSectionIndex
+                            < std::numeric_limits<std::int16_t>::min()
+                        || symbol.formatSectionIndex
+                            > std::numeric_limits<std::int16_t>::max()))) {
                 return invalid("COFF symbol has invalid raw metadata");
             }
             if (referencedSection != nullptr
@@ -683,9 +735,25 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
             }
             auto& count = coffRelocationsPerSection[relocation.formatTableIndex];
             ++count;
-            if (count > std::numeric_limits<std::uint16_t>::max()) {
-                return size_limit("COFF relocation count requires unsupported overflow encoding");
-            }
+        }
+    }
+    for (const auto& [formatSectionIndex, count] : coffRelocationsPerSection) {
+        if (count <= std::numeric_limits<std::uint16_t>::max()) {
+            continue;
+        }
+        const auto targetSection = std::find_if(
+            image.sections.begin(), image.sections.end(), [&](const auto& section) {
+                return section.formatIndex == formatSectionIndex;
+            });
+        const auto overflow = std::find_if(
+            image.relocationTableEncodings.begin(),
+            image.relocationTableEncodings.end(), [&](const auto& encoding) {
+                return targetSection != image.sections.end()
+                    && encoding.section == targetSection->id && encoding.coffOverflow
+                    && encoding.declaredCount == count;
+            });
+        if (overflow == image.relocationTableEncodings.end()) {
+            return invalid("COFF relocation count has no overflow-table ownership");
         }
     }
     const auto ownership = validate_object_ownership(image);

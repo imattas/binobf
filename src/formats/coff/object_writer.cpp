@@ -1,6 +1,7 @@
 #include "../object_writer_internal.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -16,8 +17,10 @@ namespace binobf::formats::detail {
 namespace {
 
 constexpr std::size_t coffHeaderSize = 20;
+constexpr std::size_t coffBigObjHeaderSize = 56;
 constexpr std::size_t sectionHeaderSize = 40;
-constexpr std::size_t symbolEntrySize = 18;
+constexpr std::size_t classicSymbolEntrySize = 18;
+constexpr std::size_t bigObjSymbolEntrySize = 20;
 constexpr std::size_t relocationEntrySize = 10;
 
 struct EncodedSection {
@@ -25,6 +28,7 @@ struct EncodedSection {
     std::vector<const Relocation*> relocations;
     std::uint32_t rawOffset{0};
     std::uint32_t relocationOffset{0};
+    bool relocationOverflow{false};
 };
 
 auto failure(std::string code, std::string message)
@@ -81,12 +85,30 @@ void put_u32(std::span<std::byte> output, std::size_t offset, std::uint32_t valu
     }
 }
 
+void put_i32(std::span<std::byte> output, std::size_t offset, std::int32_t value) {
+    put_u32(output, offset, std::bit_cast<std::uint32_t>(value));
+}
+
 auto machine_for(Architecture architecture) noexcept -> std::uint16_t {
     switch (architecture) {
     case Architecture::X86: return 0x014c;
     case Architecture::X86_64: return 0x8664;
     case Architecture::ARM64: return 0xaa64;
     case Architecture::Unknown: return 0;
+    }
+    return 0;
+}
+
+auto raw_comdat_selection(CoffComdatSelection selection) noexcept -> std::uint8_t {
+    switch (selection) {
+    case CoffComdatSelection::None: return 0;
+    case CoffComdatSelection::NoDuplicates: return 1;
+    case CoffComdatSelection::Any: return 2;
+    case CoffComdatSelection::SameSize: return 3;
+    case CoffComdatSelection::ExactMatch: return 4;
+    case CoffComdatSelection::Associative: return 5;
+    case CoffComdatSelection::Largest: return 6;
+    case CoffComdatSelection::Newest: return 7;
     }
     return 0;
 }
@@ -136,6 +158,24 @@ auto write_coff_object(const BinaryImage& image)
     for (std::size_t index = 0; index < orderedSections.size(); ++index) {
         if (orderedSections[index]->formatIndex != index + 1) {
             return failure("object.model_invalid", "COFF section indices must be contiguous");
+        }
+    }
+    const bool bigObj = image.objectMetadata.coffBigObj
+        || std::ranges::any_of(orderedSections, [](const auto* section) {
+            return section->formatIndex
+                > static_cast<std::uint32_t>(std::numeric_limits<std::int16_t>::max());
+        });
+    const auto headerSize = bigObj ? coffBigObjHeaderSize : coffHeaderSize;
+    const auto symbolEntrySize = bigObj ? bigObjSymbolEntrySize : classicSymbolEntrySize;
+    std::unordered_map<std::uint64_t, const Section*> sectionsById;
+    for (const auto* section : orderedSections) {
+        sectionsById.emplace(section->id.value(), section);
+    }
+    std::unordered_map<std::uint64_t, const SectionAssociation*> associationsBySignature;
+    for (const auto& association : image.sectionAssociations) {
+        if (association.signatureSymbol.has_value()) {
+            associationsBySignature.emplace(
+                association.signatureSymbol->value(), &association);
         }
     }
 
@@ -201,7 +241,7 @@ auto write_coff_object(const BinaryImage& image)
     }
 
     const auto sectionTableSize = checked_multiply(orderedSections.size(), sectionHeaderSize);
-    auto cursor = sectionTableSize ? checked_add(coffHeaderSize, *sectionTableSize) : std::nullopt;
+    auto cursor = sectionTableSize ? checked_add(headerSize, *sectionTableSize) : std::nullopt;
     if (!cursor) {
         return failure("object.size_limit", "COFF section-header layout overflows");
     }
@@ -214,6 +254,14 @@ auto write_coff_object(const BinaryImage& image)
         if (relocations != relocationsBySection.end()) {
             encoded.relocations = relocations->second;
         }
+        const auto normalizedEncoding = std::find_if(
+            image.relocationTableEncodings.begin(),
+            image.relocationTableEncodings.end(),
+            [&](const auto& encoding) { return encoding.section == section->id; });
+        encoded.relocationOverflow = encoded.relocations.size()
+                > std::numeric_limits<std::uint16_t>::max()
+            || (normalizedEncoding != image.relocationTableEncodings.end()
+                && normalizedEncoding->coffOverflow);
         if (!section->contents.empty()) {
             const auto alignment = static_cast<std::size_t>(section->alignment);
             cursor = checked_align(*cursor, alignment);
@@ -237,8 +285,11 @@ auto write_coff_object(const BinaryImage& image)
             return failure("object.size_limit", "COFF relocation offset exceeds 32 bits");
         }
         encoded.relocationOffset = *to_u32(*cursor);
-        const auto relocationSize = checked_multiply(
-            encoded.relocations.size(), relocationEntrySize);
+        const auto encodedRelocationCount = checked_add(
+            encoded.relocations.size(), encoded.relocationOverflow ? 1U : 0U);
+        const auto relocationSize = encodedRelocationCount
+            ? checked_multiply(*encodedRelocationCount, relocationEntrySize)
+            : std::nullopt;
         cursor = relocationSize ? checked_add(*cursor, *relocationSize) : std::nullopt;
         if (!cursor) {
             return failure("object.size_limit", "COFF relocation layout overflows");
@@ -258,20 +309,38 @@ auto write_coff_object(const BinaryImage& image)
 
     std::vector<std::byte> output(*cursor, std::byte{0});
     auto outputSpan = std::span<std::byte>{output};
-    put_u16(outputSpan, 0, machine_for(image.architecture));
-    put_u16(outputSpan, 2, static_cast<std::uint16_t>(orderedSections.size()));
-    put_u32(outputSpan, 4, 0);
-    put_u32(outputSpan, 8,
-            rawSymbolCount == 0 && stringTable.size() == 4 ? 0 : symbolTableOffset);
-    put_u32(outputSpan, 12, static_cast<std::uint32_t>(rawSymbolCount));
-    put_u16(outputSpan, 16, 0);
-    put_u16(outputSpan, 18,
-            static_cast<std::uint16_t>(image.objectMetadata.characteristics));
+    if (bigObj) {
+        constexpr std::array bigObjClassId{
+            std::byte{0xd1}, std::byte{0xba}, std::byte{0xa1}, std::byte{0xc7},
+            std::byte{0xba}, std::byte{0xee}, std::byte{0x4b}, std::byte{0xa9},
+            std::byte{0xaf}, std::byte{0x20}, std::byte{0xfa}, std::byte{0xf6},
+            std::byte{0x6a}, std::byte{0xa4}, std::byte{0xdc}, std::byte{0xb8},
+        };
+        put_u16(outputSpan, 0, 0);
+        put_u16(outputSpan, 2, 0xffffU);
+        put_u16(outputSpan, 4, 2);
+        put_u16(outputSpan, 6, machine_for(image.architecture));
+        std::copy(bigObjClassId.begin(), bigObjClassId.end(), output.begin() + 12);
+        put_u32(outputSpan, 44, static_cast<std::uint32_t>(orderedSections.size()));
+        put_u32(outputSpan, 48,
+                rawSymbolCount == 0 && stringTable.size() == 4 ? 0 : symbolTableOffset);
+        put_u32(outputSpan, 52, static_cast<std::uint32_t>(rawSymbolCount));
+    } else {
+        put_u16(outputSpan, 0, machine_for(image.architecture));
+        put_u16(outputSpan, 2, static_cast<std::uint16_t>(orderedSections.size()));
+        put_u32(outputSpan, 4, 0);
+        put_u32(outputSpan, 8,
+                rawSymbolCount == 0 && stringTable.size() == 4 ? 0 : symbolTableOffset);
+        put_u32(outputSpan, 12, static_cast<std::uint32_t>(rawSymbolCount));
+        put_u16(outputSpan, 16, 0);
+        put_u16(outputSpan, 18,
+                static_cast<std::uint16_t>(image.objectMetadata.characteristics));
+    }
 
     for (std::size_t position = 0; position < encodedSections.size(); ++position) {
         const auto& encoded = encodedSections[position];
         const auto& section = *encoded.source;
-        const auto headerOffset = coffHeaderSize + position * sectionHeaderSize;
+        const auto headerOffset = headerSize + position * sectionHeaderSize;
         if (section.name.size() <= 8) {
             put_inline_name(outputSpan, headerOffset, section.name);
         } else {
@@ -289,8 +358,9 @@ auto write_coff_object(const BinaryImage& image)
         put_u32(outputSpan, headerOffset + 16, rawSize);
         put_u32(outputSpan, headerOffset + 20, encoded.rawOffset);
         put_u32(outputSpan, headerOffset + 24, encoded.relocationOffset);
-        put_u16(outputSpan, headerOffset + 32,
-                static_cast<std::uint16_t>(encoded.relocations.size()));
+        put_u16(outputSpan, headerOffset + 32, encoded.relocationOverflow
+                ? std::numeric_limits<std::uint16_t>::max()
+                : static_cast<std::uint16_t>(encoded.relocations.size()));
         put_u32(outputSpan, headerOffset + 36,
                 static_cast<std::uint32_t>(section.formatFlags));
         if (!section.contents.empty()) {
@@ -298,10 +368,29 @@ auto write_coff_object(const BinaryImage& image)
                 section.contents.begin(), section.contents.end(),
                 output.data() + encoded.rawOffset);
         }
+        for (const auto& safeSeh : image.coffSafeSehEntries) {
+            if (safeSeh.section != section.id) continue;
+            const auto handler = symbolsById.find(safeSeh.symbol.value());
+            if (handler == symbolsById.end()) {
+                return failure("object.model_invalid", "SafeSEH handler symbol is missing");
+            }
+            const auto entryOffset = static_cast<std::size_t>(encoded.rawOffset)
+                + static_cast<std::size_t>(safeSeh.formatIndex) * 4U;
+            put_u32(outputSpan, entryOffset, handler->second->formatIndex);
+        }
+        if (encoded.relocationOverflow) {
+            const auto encodedCount = checked_add(encoded.relocations.size(), 1U);
+            if (!encodedCount || !to_u32(*encodedCount)) {
+                return failure("object.size_limit", "COFF relocation-overflow count exceeds 32 bits");
+            }
+            put_u32(outputSpan, encoded.relocationOffset, *to_u32(*encodedCount));
+            put_u32(outputSpan, encoded.relocationOffset + 4U, 0);
+            put_u16(outputSpan, encoded.relocationOffset + 8U, 0);
+        }
         for (std::size_t index = 0; index < encoded.relocations.size(); ++index) {
             const auto* relocation = encoded.relocations[index];
             const auto entryOffset = static_cast<std::size_t>(encoded.relocationOffset)
-                + index * relocationEntrySize;
+                + (index + (encoded.relocationOverflow ? 1U : 0U)) * relocationEntrySize;
             put_u32(outputSpan, entryOffset, static_cast<std::uint32_t>(relocation->offset));
             put_u32(outputSpan, entryOffset + 4,
                     symbolsById.at(relocation->targetSymbol->value())->formatIndex);
@@ -320,16 +409,48 @@ auto write_coff_object(const BinaryImage& image)
             put_u32(outputSpan, entryOffset + 4, symbolNameOffsets.at(symbol->id.value()));
         }
         put_u32(outputSpan, entryOffset + 8, static_cast<std::uint32_t>(symbol->address.value));
-        put_i16(outputSpan, entryOffset + 12,
-                static_cast<std::int16_t>(symbol->formatSectionIndex));
-        put_u16(outputSpan, entryOffset + 14, static_cast<std::uint16_t>(symbol->formatType));
-        output[entryOffset + 16] = static_cast<std::byte>(symbol->formatStorage);
-        output[entryOffset + 17] = static_cast<std::byte>(
+        const auto typeOffset = bigObj ? std::size_t{16} : std::size_t{14};
+        const auto storageOffset = bigObj ? std::size_t{18} : std::size_t{16};
+        const auto auxiliaryCountOffset = bigObj ? std::size_t{19} : std::size_t{17};
+        if (bigObj) {
+            put_i32(outputSpan, entryOffset + 12, symbol->formatSectionIndex);
+        } else {
+            put_i16(outputSpan, entryOffset + 12,
+                    static_cast<std::int16_t>(symbol->formatSectionIndex));
+        }
+        put_u16(outputSpan, entryOffset + typeOffset,
+                static_cast<std::uint16_t>(symbol->formatType));
+        output[entryOffset + storageOffset] = static_cast<std::byte>(symbol->formatStorage);
+        output[entryOffset + auxiliaryCountOffset] = static_cast<std::byte>(
             symbol->auxiliaryData.size() / symbolEntrySize);
         if (!symbol->auxiliaryData.empty()) {
             std::copy(
                 symbol->auxiliaryData.begin(), symbol->auxiliaryData.end(),
                 output.data() + entryOffset + symbolEntrySize);
+        }
+        const auto association = associationsBySignature.find(symbol->id.value());
+        if (association != associationsBySignature.end()) {
+            if (symbol->auxiliaryData.size() < 18U) {
+                return failure(
+                    "object.model_invalid",
+                    "COFF COMDAT signature has no section-definition auxiliary record");
+            }
+            std::uint32_t parentIndex = 0;
+            if (association->second->parentSection.has_value()) {
+                const auto parent = sectionsById.find(
+                    association->second->parentSection->value());
+                if (parent == sectionsById.end()) {
+                    return failure("object.model_invalid", "COFF COMDAT parent section is missing");
+                }
+                parentIndex = parent->second->formatIndex;
+            }
+            const auto auxiliaryOffset = entryOffset + symbolEntrySize;
+            put_u16(outputSpan, auxiliaryOffset + 12U,
+                    static_cast<std::uint16_t>(parentIndex & 0xffffU));
+            output[auxiliaryOffset + 14U] = static_cast<std::byte>(
+                raw_comdat_selection(association->second->coffSelection));
+            put_u16(outputSpan, auxiliaryOffset + 16U,
+                    static_cast<std::uint16_t>((parentIndex >> 16U) & 0xffffU));
         }
     }
     const auto stringOffset = static_cast<std::size_t>(symbolTableOffset) + *symbolTableSize;

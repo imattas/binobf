@@ -16,6 +16,8 @@ struct PassRegistration {
 };
 
 [[nodiscard]] auto registered_passes() -> std::span<const PassRegistration>;
+// Register extensions during single-threaded application startup, before
+// retaining spans or beginning transformations.
 [[nodiscard]] auto register_pass(PassRegistration registration)
     -> Result<bool, Diagnostic>;
 [[nodiscard]] auto find_registered_pass(std::string_view name) noexcept

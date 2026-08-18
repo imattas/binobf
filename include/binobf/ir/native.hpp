@@ -213,6 +213,11 @@ enum class IrCallingConvention : std::uint8_t {
     MicrosoftX64,
     AArch64,
     Fast,
+    MicrosoftI386Cdecl,
+    MicrosoftI386Stdcall,
+    MicrosoftI386Fastcall,
+    MicrosoftI386Thiscall,
+    SystemVI386,
 };
 
 struct IrCallClobbers {

@@ -98,8 +98,8 @@ auto lower(
     const auto& function = find_function(image, name);
     binobf::ir::NativeFunctionSignature signature;
     signature.abi = abi;
-    signature.arguments.assign(argumentCount, binobf::ir::IrWidth::U32);
-    signature.returnWidth = binobf::ir::IrWidth::U32;
+    signature.arguments.assign(argumentCount, binobf::ir::IrType{binobf::ir::IrWidth::U32});
+    signature.returnType = binobf::ir::IrType{binobf::ir::IrWidth::U32};
     const auto lifted = binobf::ir::lift_function(image, function.id, signature);
     if (!lifted.has_value()) {
         throw std::runtime_error(lifted.error().code + ": " + lifted.error().message);
@@ -222,7 +222,7 @@ TEST_CASE(advanced_cfg_lowering_matches_native_execution_and_warns_in_the_cli) {
     const binobf::ir::NativeFunctionSignature signature{
         .abi = binobf::ir::NativeAbi::WindowsX64,
         .arguments = {binobf::ir::IrWidth::U32, binobf::ir::IrWidth::U32},
-        .returnWidth = binobf::ir::IrWidth::U32,
+        .returnType = binobf::ir::IrType{binobf::ir::IrWidth::U32},
     };
     const auto lifted = binobf::ir::lift_function(image, nativeFunction.id, signature);
     REQUIRE(lifted.has_value());

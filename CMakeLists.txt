@@ -562,6 +562,14 @@ if(BINOBF_BUILD_TESTS)
     add_test(NAME object_analyzer COMMAND binobf_object_analyzer_tests)
 
     add_executable(
+        binobf_x86_object_analyzer_tests
+        tests/unit/x86_object_analyzer_tests.cpp
+    )
+    target_link_libraries(binobf_x86_object_analyzer_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_x86_object_analyzer_tests)
+    add_test(NAME x86_object_analyzer COMMAND binobf_x86_object_analyzer_tests)
+
+    add_executable(
         binobf_instruction_transform_tests
         tests/unit/instruction_transform_tests.cpp
     )

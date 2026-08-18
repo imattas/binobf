@@ -172,11 +172,11 @@ git commit -m "feat: define callable object backend services"
 - Consumes: canonical Track 2 types/storage/calls/fallbacks and 32-bit Capstone decode results.
 - Produces: five i386 ABI enum values, validated 32-bit bindings, complete x86 analysis, and x86 native lift reports.
 
-- [ ] **Step 1: Add failing ABI and x86-lifter cases**
+- [x] **Step 1: Add failing ABI and x86-lifter cases**
 
 Cover each ABI with a signature containing register and stack arguments, a 64-bit return, and a variadic rejection for non-cdecl conventions. Add a real x86 function fixture containing prologue, stack argument load, arithmetic, conditional branch, external relocation-backed call, SSE2 scalar operation, epilogue, and return. Require pointer types to be 32-bit and require fallback effects for an unsupported instruction.
 
-- [ ] **Step 2: Prove current x64-only behavior is RED**
+- [x] **Step 2: Prove current x64-only behavior is RED**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_object_analyzer_tests binobf_native_lifter_tests
@@ -185,7 +185,7 @@ ctest --test-dir build\m13-dev -R "x86_object_analyzer|native_lifter" --output-o
 
 Expected: x86 lift fails with `ir.unsupported_architecture`, and i386 ABI enum cases do not compile.
 
-- [ ] **Step 3: Extend the ABI enums and validation**
+- [x] **Step 3: Extend the ABI enums and validation**
 
 Add:
 
@@ -199,22 +199,22 @@ enum class NativeAbi : std::uint8_t {
 
 Add matching `IrCallingConvention` values. Validate ECX/EDX fastcall, ECX thiscall, stack-only cdecl/stdcall/System V, caller-versus-callee cleanup, variadic-only cdecl/System V, EAX/EDX integer returns, x87/SSE scalar returns, hidden aggregate-return pointers, and 16-byte System V call-site alignment.
 
-- [ ] **Step 4: Parameterize the lifter by architecture and ABI**
+- [x] **Step 4: Parameterize the lifter by architecture and ABI**
 
 Open Capstone with `CS_MODE_32` for x86 and `CS_MODE_64` for x86-64. Build 32-bit register/pointer storage, decode EBP/ESP addressing, attach complete relocation references, and map ordinary MOV/LEA/PUSH/POP/arithmetic/compare/branch/call/return plus SSE2 scalar operations. Keep unsupported instructions as complete-effect `IrFallback` nodes and set `report.complete = false`.
 
-- [ ] **Step 5: Harden x86 function discovery and CFG recovery**
+- [x] **Step 5: Harden x86 function discovery and CFG recovery**
 
 Require function symbols to be bounded by their exact symbol/auxiliary size or the next owned symbol. Prevent inference across section-association boundaries. Resolve relocation-backed calls/branches, keep indirect edges unresolved without a proven target set, and compute deterministic live-in/live-out sets for 32-bit register names.
 
-- [ ] **Step 6: Run analyzer/lifter and x64 regression suites**
+- [x] **Step 6: Run analyzer/lifter and x64 regression suites**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_object_analyzer_tests binobf_object_analyzer_tests binobf_native_lifter_tests
 ctest --test-dir build\m13-dev -R "x86_object_analyzer|object_analyzer|native_lifter" --output-on-failure
 ```
 
-- [ ] **Step 7: Commit x86 analysis and lifting**
+- [x] **Step 7: Commit x86 analysis and lifting**
 
 ```powershell
 git add CMakeLists.txt include/binobf/ir src/analysis/object_analyzer.cpp src/ir tests/unit/x86_object_analyzer_tests.cpp tests/unit/native_lifter_tests.cpp

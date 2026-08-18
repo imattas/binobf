@@ -1524,8 +1524,8 @@ auto vm_lower(
     }
     ir::NativeFunctionSignature signature;
     signature.abi = options->abi;
-    signature.arguments.assign(options->argumentCount, ir::IrWidth::U32);
-    signature.returnWidth = ir::IrWidth::U32;
+    signature.arguments.assign(options->argumentCount, ir::IrType{ir::IrWidth::U32});
+    signature.returnType = ir::IrType{ir::IrWidth::U32};
     const auto lifted = ir::lift_function(
         analyzed.value().image, function->id, signature);
     if (!lifted.has_value()) {

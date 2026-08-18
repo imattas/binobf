@@ -1,4 +1,5 @@
 #include <binobf/analysis/object_analyzer.hpp>
+#include <binobf/c_api.h>
 #include <binobf/architecture/backend.hpp>
 #include <binobf/formats/object_parser.hpp>
 #include <binobf/formats/object_writer.hpp>
@@ -34,8 +35,9 @@ auto pass(std::size_t index) -> std::unique_ptr<binobf::TransformPass> {
 
 int main(int argc, char** argv) {
     if (argc != 3) return 2;
+    if (binobf_version() == nullptr || std::strlen(binobf_version()) == 0U) return 3;
     auto backend = binobf::make_architecture_backend(binobf::Architecture::ARM64);
-    if (!backend.has_value()) return 3;
+    if (!backend.has_value()) return 4;
     for (const auto service : {binobf::BackendService::AnalyzeObject,
                                binobf::BackendService::EmitCode,
                                binobf::BackendService::EncodeFixups,
@@ -43,26 +45,34 @@ int main(int argc, char** argv) {
                                binobf::BackendService::BuildUnwind}) {
         const auto* record = backend.value()->find_service(service);
         if (record == nullptr || record->support != binobf::SupportLevel::Supported
-            || record->evidence.empty()) return 4;
+            || record->evidence.empty()) return 5;
     }
     binobf::MachineTransformRequest request{};
     request.architecture = binobf::Architecture::ARM64;
     request.format = binobf::BinaryFormat::ELF;
     request.kind = binobf::MachineTransformKind::DeadCodeFill;
     request.exactSize = 4;
-    if (!backend.value()->emit_transform(request).has_value()) return 5;
+    if (!backend.value()->emit_transform(request).has_value()) return 6;
     for (int file = 1; file <= 2; ++file) {
-        const auto parsed = binobf::parse_object(read(argv[file]), "installed-arm64.o");
-        if (!parsed.has_value() || parsed.value().architecture != binobf::Architecture::ARM64) return 6;
-        if (!binobf::analyze_object(parsed.value()).has_value()) return 7;
+        const auto bytes = read(argv[file]);
+        binobf_detection detection{sizeof(binobf_detection), 0, 0, 0, 0};
+        char errorCode[64]{};
+        char errorMessage[256]{};
+        binobf_error error{
+            sizeof(binobf_error), errorCode, sizeof(errorCode), errorMessage, sizeof(errorMessage)};
+        if (binobf_detect(bytes.data(), bytes.size(), "installed-arm64.o", &detection, &error)
+            != BINOBF_STATUS_OK) return 7;
+        const auto parsed = binobf::parse_object(bytes, "installed-arm64.o");
+        if (!parsed.has_value() || parsed.value().architecture != binobf::Architecture::ARM64) return 8;
+        if (!binobf::analyze_object(parsed.value()).has_value()) return 9;
         for (std::size_t index = 0; index < 7; ++index) {
             binobf::PassManager manager;
-            if (!manager.add(pass(index)).has_value()) return 8;
+            if (!manager.add(pass(index)).has_value()) return 10;
             binobf::TransformContext context{UINT64_C(0x4a64), false};
             const auto outcome = manager.run(context, parsed.value());
-            if (!outcome.has_value() || outcome.value().reports.size() != 1) return 9;
+            if (!outcome.has_value() || outcome.value().reports.size() != 1) return 11;
             const auto written = binobf::write_object(outcome.value().image);
-            if (!written.has_value() || !binobf::parse_object(written.value(), "roundtrip.o").has_value()) return 10;
+            if (!written.has_value() || !binobf::parse_object(written.value(), "roundtrip.o").has_value()) return 12;
         }
     }
     return 0;

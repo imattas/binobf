@@ -541,6 +541,14 @@ if(BINOBF_BUILD_TESTS)
     add_test(NAME architecture_backend COMMAND binobf_architecture_backend_tests)
 
     add_executable(
+        binobf_object_backend_contract_tests
+        tests/unit/object_backend_contract_tests.cpp
+    )
+    target_link_libraries(binobf_object_backend_contract_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_object_backend_contract_tests)
+    add_test(NAME object_backend_contract COMMAND binobf_object_backend_contract_tests)
+
+    add_executable(
         binobf_codegen_provider_tests
         tests/unit/codegen_provider_tests.cpp
     )

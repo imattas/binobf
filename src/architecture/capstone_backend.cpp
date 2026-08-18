@@ -31,6 +31,12 @@ auto backend_failure(std::string code, std::string message)
         DiagnosticSeverity::Error, std::move(code), std::move(message)});
 }
 
+template <typename T>
+auto service_failure(std::string code, std::string message) -> Result<T, Diagnostic> {
+    return Result<T, Diagnostic>::failure(Diagnostic{
+        DiagnosticSeverity::Error, std::move(code), std::move(message)});
+}
+
 class Handle final {
 public:
     Handle() = default;
@@ -205,6 +211,110 @@ public:
 
     auto codegen() const noexcept -> const CodegenProvider* override {
         return codegen_.get();
+    }
+
+    auto emit_transform(const MachineTransformRequest& request) const
+        -> Result<MachineTransformEmission, Diagnostic> override {
+        if (request.architecture != architecture_) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.request_mismatch",
+                "transform request architecture does not match the fixed backend");
+        }
+        if (request.kind != MachineTransformKind::DeadCodeFill
+            || architecture_ != Architecture::X86) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.service_unsupported",
+                "the fixed backend does not implement the requested transform service");
+        }
+        if (request.format != BinaryFormat::COFF && request.format != BinaryFormat::ELF) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.unsupported_format",
+                "x86 transform emission requires COFF or ELF");
+        }
+        if (request.exactSize == 0
+            || request.exactSize > request.limits.maxInstructions
+            || request.exactSize > request.limits.maxEmittedBytes
+            || request.exactSize > request.limits.maxLines
+            || request.exactSize > request.limits.maxAssemblyBytes / 4U) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.resource_limit",
+                "x86 dead-code fill exceeds the request limits");
+        }
+
+        MachineAssemblyRequest assemblyRequest{};
+        assemblyRequest.architecture = architecture_;
+        assemblyRequest.format = request.format;
+        assemblyRequest.triple = request.format == BinaryFormat::COFF
+            ? "i686-pc-windows-msvc" : "i386-unknown-linux-gnu";
+        assemblyRequest.syntax = MachineSyntax::Intel;
+        assemblyRequest.limits = request.limits;
+        assemblyRequest.expectedInstructionCount = request.exactSize;
+        assemblyRequest.assembly.reserve(request.exactSize * 4U);
+        for (std::size_t index = 0; index < request.exactSize; ++index) {
+            assemblyRequest.assembly += "nop\n";
+        }
+        auto emitted = codegen_->emit(assemblyRequest);
+        if (!emitted.has_value()) {
+            return service_failure<MachineTransformEmission>(
+                emitted.error().code, emitted.error().message);
+        }
+        if (emitted.value().bytes.size() != request.exactSize) {
+            return service_failure<MachineTransformEmission>(
+                "architecture.exact_size_unavailable",
+                "x86 dead-code fill did not satisfy the exact-size request");
+        }
+        return Result<MachineTransformEmission, Diagnostic>::success(
+            MachineTransformEmission{
+                .emission = std::move(emitted).value(),
+                .instructionCount = request.exactSize,
+                .controlFlow = MachineControlFlow::Fallthrough,
+                .stackDelta = 0,
+                .readsFlags = false,
+                .writesFlags = false,
+            });
+    }
+
+    auto fixup_semantics(BinaryFormat, std::uint64_t) const
+        -> Result<ObjectFixupSemantics, Diagnostic> override {
+        return service_failure<ObjectFixupSemantics>(
+            "architecture.service_unsupported",
+            "the fixed backend does not implement object fixup semantics");
+    }
+
+    auto encode_fixup(const ObjectFixupSemantics& semantics, std::int64_t) const
+        -> Result<ObjectFixupEncoding, Diagnostic> override {
+        if (semantics.bitWidth == 0 || semantics.bitWidth > 64) {
+            return service_failure<ObjectFixupEncoding>(
+                "architecture.invalid_fixup",
+                "object fixup width must be between 1 and 64 bits");
+        }
+        return service_failure<ObjectFixupEncoding>(
+            "architecture.service_unsupported",
+            "the fixed backend does not implement object fixup encoding");
+    }
+
+    auto build_abi_adapter(const AbiAdapterRequest& request) const
+        -> Result<AbiAdapterPlan, Diagnostic> override {
+        if (request.architecture != architecture_) {
+            return service_failure<AbiAdapterPlan>(
+                "architecture.request_mismatch",
+                "ABI request architecture does not match the fixed backend");
+        }
+        return service_failure<AbiAdapterPlan>(
+            "architecture.service_unsupported",
+            "the fixed backend does not implement ABI adapter generation");
+    }
+
+    auto build_unwind(const UnwindRequest& request) const
+        -> Result<UnwindPlan, Diagnostic> override {
+        if (request.architecture != architecture_) {
+            return service_failure<UnwindPlan>(
+                "architecture.request_mismatch",
+                "unwind request architecture does not match the fixed backend");
+        }
+        return service_failure<UnwindPlan>(
+            "architecture.service_unsupported",
+            "the fixed backend does not implement unwind generation");
     }
 
     auto decode(const DecodeRequest& request) const

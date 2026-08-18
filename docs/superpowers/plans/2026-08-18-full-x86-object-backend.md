@@ -38,7 +38,7 @@
 - Consumes: `MachineEmission`, `MachineFixupKind`, `Instruction`, `IrFunctionSignature`, and existing backend service records.
 - Produces: `MachineTransformRequest`, `MachineTransformEmission`, `ObjectFixupSemantics`, `ObjectFixupEncoding`, `AbiAdapterRequest`, `AbiAdapterPlan`, `UnwindRequest`, `UnwindPlan`, and callable `ArchitectureBackend` methods.
 
-- [ ] **Step 1: Add a failing service-contract target**
+- [x] **Step 1: Add a failing service-contract target**
 
 Create tests that instantiate all three backends and require callable methods whose result architecture matches the fixed backend. The first test uses these exact public shapes:
 
@@ -57,7 +57,7 @@ REQUIRE_EQ(emitted.value().emission.bytes.size(), std::size_t{3});
 
 Also require architecture mismatch diagnostics for all four services, unique sorted service records, and non-empty evidence for a service advertised as `Supported`.
 
-- [ ] **Step 2: Register the target and prove the contract is RED**
+- [x] **Step 2: Register the target and prove the contract is RED**
 
 Run:
 
@@ -68,7 +68,7 @@ cmake --build build\m13-dev --target binobf_object_backend_contract_tests
 
 Expected: compile failure because `object_backend.hpp` and callable methods do not exist.
 
-- [ ] **Step 3: Add the provider-neutral public values**
+- [x] **Step 3: Add the provider-neutral public values**
 
 Define the stable enums and records in `object_backend.hpp`:
 
@@ -119,7 +119,7 @@ struct ObjectFixupEncoding {
 
 Define ABI/unwind records using `ir::NativeAbi`, `ir::IrFunctionSignature`, typed register/CFA actions, code range, symbol, clobbers, and resource bounds exactly as the design specifies.
 
-- [ ] **Step 4: Make every service callable and fail narrowly when unsupported**
+- [x] **Step 4: Make every service callable and fail narrowly when unsupported**
 
 Add virtual methods:
 
@@ -138,7 +138,7 @@ virtual auto build_unwind(const UnwindRequest&) const
 
 Use shared validators for architecture/format/size/resource fields. Temporary unsupported paths return stable `architecture.service_unsupported`; do not mark those records supported.
 
-- [ ] **Step 5: Run contract and backend regressions**
+- [x] **Step 5: Run contract and backend regressions**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_object_backend_contract_tests binobf_architecture_backend_tests
@@ -147,7 +147,7 @@ ctest --test-dir build\m13-dev -R "object_backend_contract|architecture_backend"
 
 Expected: both CTests pass and installed headers contain neither `llvm::` nor `cs_`.
 
-- [ ] **Step 6: Commit callable service contracts**
+- [x] **Step 6: Commit callable service contracts**
 
 ```powershell
 git add CMakeLists.txt include/binobf/architecture src/architecture/capstone_backend.cpp tests/unit/object_backend_contract_tests.cpp tests/unit/architecture_backend_tests.cpp

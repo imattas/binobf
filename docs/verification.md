@@ -4,6 +4,8 @@ Verification is a release gate, not an optional report.
 
 ## Current gates
 
+The release-gating capability contract includes `capability_registry`, `capability_evidence`, `capability_render`, `architecture_backend`, and `capability_consistency`. Together they validate the 48-cell registry, bind supported claims to live CTest names, lock generated CLI/README output, verify fixed-architecture backend identity and service levels, and reject cross-registry drift.
+
 The current suite runs warning-as-error Debug and Release builds plus CTest. Tests cover:
 
 - stable normalized enum and entity behavior;

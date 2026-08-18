@@ -22,6 +22,8 @@ For robustness work, use a dedicated UBSan build and the seed-backed libFuzzer s
 6. Build Debug and Release with warnings as errors.
 7. Update capability tables only after verification proves support.
 
+Adding or promoting a capability requires all of the following in the same change: a typed capability record, an acceptance-evidence catalog entry, a registered CTest with standard-tool and runtime evidence where applicable, presentation updated through the registry renderer, and a passing cross-registry consistency gate. Do not edit generated capability prose to promote support, and do not promote a cell from unit tests alone.
+
 Parsers must use checked offset/range arithmetic before every read. Header counts and sizes need explicit limits. Avoid exceptions across subsystem boundaries; return `Result` with contextual diagnostics. Do not retain owning raw pointers or use raw addresses as entity identity.
 
 Randomized transformations must accept an explicit seed and use `DeterministicRng`. Do not use global or platform randomness for output decisions.
@@ -29,6 +31,8 @@ Randomized transformations must accept an explicit seed and use `DeterministicRn
 Configuration and evidence parsers must reject unknown schema keys, impose input/nesting/count/string limits, and return stable diagnostics. Third-party TOML/JSON types remain private implementation details. Multi-artifact output must use `commit_artifacts`; never commit a binary before its requested manifest or lineage sidecar has staged successfully.
 
 Machine-code decoding uses the private Capstone adapter. Public headers expose only normalized binobf instruction, register, reference, function, block, and edge types. New decoder behavior needs architecture-specific golden bytes; new CFG behavior needs explicit incomplete-analysis cases. Never turn a decode failure or indirect target into a guessed instruction boundary.
+
+Architecture work is registered through `ArchitectureBackend`. A backend instance owns one fixed architecture, rejects mismatched requests, and publishes truthful service levels. New decode, analysis, code-generation, fixup, ABI, or unwind support must update both the backend service and matching capability evidence without exposing provider-library types.
 
 VM changes must preserve explicit width semantics and validate before allocation or execution. Every new opcode needs IR validation, assembler/decoder round-trip, malformed-record coverage, interpreter success/failure cases, and disassembly text. Internal calls must use fresh bounded frames and validated targets/arguments; native calls go only through `VmNativeCallBridge`; memory accesses go only through `VmMemory`. Do not add ambient host access to the interpreter.
 

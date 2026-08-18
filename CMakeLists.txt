@@ -1046,4 +1046,16 @@ if(BINOBF_BUILD_TESTS)
         COMMAND binobf_capability_evidence_tests
             "${CMAKE_CURRENT_BINARY_DIR}/CTestTestfile.cmake"
     )
+
+    add_executable(
+        binobf_capability_consistency_tests
+        tests/integration/capability_consistency_tests.cpp
+    )
+    target_link_libraries(binobf_capability_consistency_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_capability_consistency_tests)
+    add_test(
+        NAME capability_consistency
+        COMMAND binobf_capability_consistency_tests
+            "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+    )
 endif()

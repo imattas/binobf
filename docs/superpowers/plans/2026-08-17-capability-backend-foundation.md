@@ -762,7 +762,7 @@ ctest --test-dir build\m12-verify-debug `
 Expected: all tests pass; existing golden instruction objects and diagnostics are byte-for-byte
 unchanged except for the new mismatch diagnostic exercised only by the new API.
 
-- [ ] **Step 7: Commit architecture-owned decoding**
+- [x] **Step 7: Commit architecture-owned decoding**
 
 ```powershell
 git add CMakeLists.txt include/binobf/architecture/backend.hpp `
@@ -791,7 +791,7 @@ git commit -m "refactor: route decoding through architecture backends"
 - Consumes: built-in capability, evidence, pass, and backend registries.
 - Produces: one release-gating consistency test and installed public capability/backend headers.
 
-- [ ] **Step 1: Write the failing consistency test**
+- [x] **Step 1: Write the failing consistency test**
 
 Create `tests/integration/capability_consistency_tests.cpp` with these invariants:
 
@@ -825,7 +825,7 @@ for (const auto& registration : binobf::registered_passes()) {
 Also compare `render_feature_matrix_markdown()` to the README marker block and call
 `validate_capability_evidence()`.
 
-- [ ] **Step 2: Register the test and make the intended pass-metadata failures visible**
+- [x] **Step 2: Register the test and make the intended pass-metadata failures visible**
 
 Run:
 
@@ -838,7 +838,7 @@ Expected: the test initially exposes any baseline pass that omits a truthful arc
 format requirement. Update only that pass's `requirements()` record to match its existing tested
 behavior; do not broaden `supports()` or change a matrix status.
 
-- [ ] **Step 3: Document the contract and promotion rule**
+- [x] **Step 3: Document the contract and promotion rule**
 
 Update documentation with exact statements:
 
@@ -850,7 +850,7 @@ Update documentation with exact statements:
 - `docs/verification.md`: list `capability_registry`, `capability_evidence`,
   `capability_render`, `architecture_backend`, and `capability_consistency` as release gates.
 
-- [ ] **Step 4: Run standalone-header and install-consumer checks**
+- [x] **Step 4: Run standalone-header and install-consumer checks**
 
 Run the repository's standalone public-header loop against every header under `include/binobf`,
 including the five new headers. Then install the Debug or Release build to a new prefix under
@@ -867,7 +867,7 @@ including the five new headers. Then install the Debug or Release build to a new
 The consumer must create all three backends, validate built-in evidence, render both matrices, and
 exit zero.
 
-- [ ] **Step 5: Run the complete track gate**
+- [x] **Step 5: Run the complete track gate**
 
 Run:
 

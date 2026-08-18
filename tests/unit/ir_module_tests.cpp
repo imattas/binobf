@@ -7,6 +7,23 @@
 
 namespace {
 
+auto binary_signature() -> binobf::ir::IrFunctionSignature {
+    using namespace binobf::ir;
+    return IrFunctionSignature{
+        .callingConvention = IrCallingConvention::C,
+        .parameterTypes = {IrWidth::U32, IrWidth::U32},
+        .returnType = IrWidth::U32,
+        .parameterBindings = {
+            IrStorageLocation{IrStorageKind::Register, IrWidth::U32, "arg0", 0, 4U, 4U},
+            IrStorageLocation{IrStorageKind::Register, IrWidth::U32, "arg1", 0, 4U, 4U},
+        },
+        .returnBinding = IrStorageLocation{
+            IrStorageKind::Register, IrWidth::U32, "result", 0, 4U, 4U},
+        .clobbers = {},
+        .mayUnwind = false,
+    };
+}
+
 auto helper_function() -> binobf::ir::IrFunction {
     using namespace binobf::ir;
     return IrFunction{
@@ -19,6 +36,7 @@ auto helper_function() -> binobf::ir::IrFunction {
         .returnType = IrWidth::U32,
         .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
         .storageLocations = {},
+        .signature = binary_signature(),
         .entry = IrBlockId{0},
         .blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{20}, {
             IrMove{IrWidth::U32, IrVariable{2}, IrVariableOperand{IrVariable{0}},
@@ -27,6 +45,7 @@ auto helper_function() -> binobf::ir::IrFunction {
                               IrVariableOperand{IrVariable{1}}, binobf::EntityId{31}},
             IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{32}},
         }}},
+        .unwindRegions = {},
     };
 }
 
@@ -42,22 +61,86 @@ auto wrapper_function() -> binobf::ir::IrFunction {
         .returnType = IrWidth::U32,
         .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
         .storageLocations = {},
+        .signature = binary_signature(),
         .entry = IrBlockId{0},
         .blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{21}, {
             IrInternalCall{
                 binobf::EntityId{11}, IrWidth::U32, IrVariable{2},
                 {IrVariableOperand{IrVariable{0}}, IrVariableOperand{IrVariable{1}}},
-                binobf::EntityId{40}},
+                binobf::EntityId{40}, std::nullopt},
             IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{41}},
         }}},
+        .unwindRegions = {},
     };
 }
 
 auto valid_module() -> binobf::ir::IrModule {
     return binobf::ir::IrModule{
         .entryFunction = binobf::EntityId{10},
+        .declarations = {},
         .functions = {wrapper_function(), helper_function()},
     };
+}
+
+
+TEST_CASE(ir_module_validator_checks_external_declarations_signatures_and_abi_bindings) {
+    using namespace binobf::ir;
+    auto module = valid_module();
+    module.declarations.push_back(IrExternalDeclaration{"external_add", binary_signature()});
+    module.functions[0].blocks[0].instructions[0] = IrExternalCall{
+        "external_add", binary_signature(), IrVariable{2},
+        {IrVariableOperand{IrVariable{0}}, IrVariableOperand{IrVariable{1}}},
+        binobf::EntityId{40}, std::nullopt};
+    auto result = validate_module(module);
+    REQUIRE(result.has_value());
+
+    auto undeclared = module;
+    undeclared.declarations.clear();
+    result = validate_module(undeclared);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.external_declaration_missing");
+
+    auto mismatch = module;
+    mismatch.declarations[0].signature.returnType = IrWidth::U16;
+    mismatch.declarations[0].signature.returnBinding->type = IrWidth::U16;
+    mismatch.declarations[0].signature.returnBinding->size = 2U;
+    mismatch.declarations[0].signature.returnBinding->alignment = 2U;
+    result = validate_module(mismatch);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.external_call_signature_mismatch");
+
+    auto invalidAbi = module;
+    invalidAbi.declarations[0].signature.parameterBindings[0].kind = IrStorageKind::Local;
+    result = validate_module(invalidAbi);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_abi_binding");
+}
+
+TEST_CASE(ir_module_validator_rejects_illegal_tail_calls_and_declaration_limits) {
+    using namespace binobf::ir;
+    auto module = valid_module();
+    module.functions[0].blocks[0].instructions = {
+        IrTailCall{IrCallTarget{binobf::EntityId{11}}, binary_signature(),
+                   {IrVariableOperand{IrVariable{0}}, IrVariableOperand{IrVariable{1}}},
+                   binobf::EntityId{40}, std::nullopt},
+    };
+    auto result = validate_module(module);
+    REQUIRE(result.has_value());
+
+    auto incompatible = module;
+    std::get<IrTailCall>(
+        incompatible.functions[0].blocks[0].instructions[0]).signature.callingConvention =
+        IrCallingConvention::SystemV;
+    result = validate_module(incompatible);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.illegal_tail_call");
+
+    IrLimits limits{};
+    limits.maxExternalDeclarations = 0U;
+    module.declarations.push_back(IrExternalDeclaration{"external", binary_signature()});
+    result = validate_module(module, limits);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.external_declaration_limit");
 }
 
 } // namespace
@@ -104,6 +187,10 @@ TEST_CASE(ir_module_validator_rejects_call_signature_mismatches) {
     wrongCall.resultType = binobf::ir::IrWidth::U16;
     wrongWidth.functions[0].variableTypes[2] = binobf::ir::IrWidth::U16;
     wrongWidth.functions[0].returnType = binobf::ir::IrWidth::U16;
+    wrongWidth.functions[0].signature.returnType = binobf::ir::IrWidth::U16;
+    wrongWidth.functions[0].signature.returnBinding->type = binobf::ir::IrWidth::U16;
+    wrongWidth.functions[0].signature.returnBinding->size = 2U;
+    wrongWidth.functions[0].signature.returnBinding->alignment = 2U;
     auto& wrongReturn = std::get<binobf::ir::IrReturn>(
         wrongWidth.functions[0].blocks[0].instructions[1]);
     wrongReturn.type = binobf::ir::IrWidth::U16;

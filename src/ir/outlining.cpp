@@ -172,6 +172,7 @@ auto split_function(
     wrapper.name = function.name;
     wrapper.arguments = function.arguments;
     wrapper.returnType = function.returnType;
+    wrapper.signature = function.signature;
     std::size_t wrapperVariableCount = 0;
     for (const auto& argument : wrapper.arguments) {
         wrapperVariableCount = std::max(
@@ -206,6 +207,7 @@ auto split_function(
                 resultVariable,
                 std::move(callArguments),
                 function.sourceFunction,
+                std::nullopt,
             },
             IrReturn{function.returnType, resultVariable, function.sourceFunction},
         },
@@ -214,6 +216,7 @@ auto split_function(
     InternalizationReport report{
         .module = IrModule{
             .entryFunction = function.sourceFunction,
+            .declarations = {},
             .functions = {std::move(wrapper), std::move(helper)},
         },
         .helperFunction = helperId,
@@ -292,13 +295,25 @@ auto outline_block(
         .returnType = function.returnType,
         .variableTypes = std::move(helperTypes),
         .storageLocations = {},
+        .signature = IrFunctionSignature{
+            .callingConvention = function.signature.callingConvention,
+            .parameterTypes = {},
+            .returnType = function.returnType,
+            .variadic = false,
+            .parameterBindings = {},
+            .returnBinding = function.signature.returnBinding,
+            .clobbers = function.signature.clobbers,
+            .mayUnwind = function.signature.mayUnwind,
+        },
         .entry = selected->id,
         .blocks = {},
+        .unwindRegions = {},
     };
     std::uint16_t argumentIndex = 0;
     for (const auto variable : liveIns) {
         helper.arguments.push_back(IrArgumentBinding{
             argumentIndex++, remapping.at(variable), function.variableTypes[variable]});
+        helper.signature.parameterTypes.push_back(function.variableTypes[variable]);
     }
     IrBlock helperBlock{
         .id = selected->id,
@@ -327,6 +342,7 @@ auto outline_block(
             originalReturn.value,
             std::move(callArguments),
             originalReturn.sourceInstruction,
+            std::nullopt,
         },
         originalReturn,
     };
@@ -334,6 +350,7 @@ auto outline_block(
     InternalizationReport report{
         .module = IrModule{
             .entryFunction = function.sourceFunction,
+            .declarations = {},
             .functions = {std::move(main), std::move(helper)},
         },
         .helperFunction = helperId,

@@ -207,6 +207,39 @@ enum class IrCondition : std::uint8_t {
     Nonzero,
 };
 
+enum class IrCallingConvention : std::uint8_t {
+    C,
+    SystemV,
+    MicrosoftX64,
+    AArch64,
+    Fast,
+};
+
+struct IrCallClobbers {
+    std::vector<std::string> registers;
+    bool flags{false};
+    bool memory{false};
+    auto operator==(const IrCallClobbers&) const -> bool = default;
+};
+
+struct IrFunctionSignature {
+    IrCallingConvention callingConvention{IrCallingConvention::C};
+    std::vector<IrType> parameterTypes;
+    IrType returnType{IrTypeKind::Void, 0U};
+    bool variadic{false};
+    std::vector<IrStorageLocation> parameterBindings;
+    std::optional<IrStorageLocation> returnBinding;
+    IrCallClobbers clobbers;
+    bool mayUnwind{false};
+    auto operator==(const IrFunctionSignature&) const -> bool = default;
+};
+
+struct IrExternalDeclaration {
+    std::string symbol;
+    IrFunctionSignature signature;
+    auto operator==(const IrExternalDeclaration&) const -> bool = default;
+};
+
 struct IrMove {
     IrType type{IrWidth::U32};
     IrVariable destination;
@@ -262,6 +295,27 @@ struct IrConditionalJump {
     auto operator==(const IrConditionalJump&) const -> bool = default;
 };
 
+struct IrSwitchCase {
+    std::uint64_t value{0};
+    IrBlockId target;
+    auto operator==(const IrSwitchCase&) const -> bool = default;
+};
+
+struct IrSwitch {
+    IrVariable selector;
+    std::vector<IrSwitchCase> cases;
+    IrBlockId defaultTarget;
+    EntityId sourceInstruction;
+    auto operator==(const IrSwitch&) const -> bool = default;
+};
+
+struct IrIndirectJump {
+    IrVariable target;
+    std::vector<IrBlockId> targets;
+    EntityId sourceInstruction;
+    auto operator==(const IrIndirectJump&) const -> bool = default;
+};
+
 struct IrReturn {
     IrType type{IrWidth::U32};
     IrVariable value;
@@ -275,13 +329,49 @@ struct IrInternalCall {
     IrVariable destination;
     std::vector<IrOperand> arguments;
     EntityId sourceInstruction;
+    std::optional<std::uint32_t> unwindRegion;
     auto operator==(const IrInternalCall&) const -> bool = default;
+};
+
+struct IrExternalCall {
+    std::string symbol;
+    IrFunctionSignature signature;
+    std::optional<IrVariable> destination;
+    std::vector<IrOperand> arguments;
+    EntityId sourceInstruction;
+    std::optional<std::uint32_t> unwindRegion;
+    auto operator==(const IrExternalCall&) const -> bool = default;
+};
+
+using IrCallTarget = std::variant<EntityId, std::string>;
+
+struct IrTailCall {
+    IrCallTarget target;
+    IrFunctionSignature signature;
+    std::vector<IrOperand> arguments;
+    EntityId sourceInstruction;
+    std::optional<std::uint32_t> unwindRegion;
+    auto operator==(const IrTailCall&) const -> bool = default;
+};
+
+struct IrFallbackEffects {
+    std::vector<IrVariable> reads;
+    std::vector<IrVariable> writes;
+    std::vector<std::string> clobberedRegisters;
+    bool readsMemory{false};
+    bool writesMemory{false};
+    bool changesControlFlow{false};
+    bool mayUnwind{false};
+    bool complete{false};
+    auto operator==(const IrFallbackEffects&) const -> bool = default;
 };
 
 struct IrFallback {
     EntityId sourceInstruction;
     std::vector<std::byte> encoding;
     std::string reason;
+    IrFallbackEffects effects;
+    std::optional<std::uint32_t> unwindRegion;
     auto operator==(const IrFallback&) const -> bool = default;
 };
 
@@ -293,6 +383,7 @@ struct IrLoad {
     bool volatileAccess{false};
     IrAtomicOrdering atomicOrdering{IrAtomicOrdering::None};
     EntityId sourceInstruction;
+    std::optional<std::uint32_t> unwindRegion;
     auto operator==(const IrLoad&) const -> bool = default;
 };
 
@@ -304,6 +395,7 @@ struct IrStore {
     bool volatileAccess{false};
     IrAtomicOrdering atomicOrdering{IrAtomicOrdering::None};
     EntityId sourceInstruction;
+    std::optional<std::uint32_t> unwindRegion;
     auto operator==(const IrStore&) const -> bool = default;
 };
 
@@ -340,7 +432,11 @@ using IrInstruction = std::variant<
     IrTest,
     IrJump,
     IrConditionalJump,
+    IrSwitch,
+    IrIndirectJump,
     IrInternalCall,
+    IrExternalCall,
+    IrTailCall,
     IrLoad,
     IrStore,
     IrAddressOf,
@@ -363,6 +459,21 @@ struct IrBlock {
     auto operator==(const IrBlock&) const -> bool = default;
 };
 
+enum class IrUnwindRegionKind : std::uint8_t {
+    Cleanup,
+    Catch,
+};
+
+struct IrUnwindRegion {
+    std::uint32_t id{0};
+    IrUnwindRegionKind kind{IrUnwindRegionKind::Cleanup};
+    std::optional<std::uint32_t> parent;
+    IrBlockId landingBlock;
+    std::vector<IrBlockId> protectedBlocks;
+    std::vector<std::string> actions;
+    auto operator==(const IrUnwindRegion&) const -> bool = default;
+};
+
 struct IrFunction {
     EntityId sourceFunction;
     std::string name;
@@ -370,13 +481,16 @@ struct IrFunction {
     IrType returnType{IrWidth::U32};
     std::vector<IrType> variableTypes;
     std::vector<IrStorageLocation> storageLocations;
+    IrFunctionSignature signature;
     IrBlockId entry;
     std::vector<IrBlock> blocks;
+    std::vector<IrUnwindRegion> unwindRegions;
     auto operator==(const IrFunction&) const -> bool = default;
 };
 
 struct IrModule {
     EntityId entryFunction;
+    std::vector<IrExternalDeclaration> declarations;
     std::vector<IrFunction> functions;
     auto operator==(const IrModule&) const -> bool = default;
 };
@@ -393,9 +507,19 @@ struct IrLimits {
     std::size_t maxMemoryOperations{1U << 20U};
     std::uint64_t maxAggregateStorageBytes{1ULL << 32U};
     std::uint32_t maxAlignment{1U << 20U};
+    std::size_t maxCalls{1U << 20U};
+    std::size_t maxSwitchCases{65536};
+    std::size_t maxIndirectTargets{65536};
+    std::size_t maxExternalDeclarations{65536};
+    std::size_t maxUnwindRegions{65536};
+    std::size_t maxUnwindActions{1U << 20U};
 };
 
 [[nodiscard]] auto function_contains_fallback(const IrFunction& function) noexcept -> bool;
+
+[[nodiscard]] auto fallback_blocks_rewrite(
+    const IrFunction& function,
+    const std::vector<IrBlockId>& blocks) noexcept -> bool;
 
 [[nodiscard]] auto validate_function(
     const IrFunction& function,

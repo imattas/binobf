@@ -10,6 +10,24 @@
 
 namespace {
 
+auto u32_signature() -> binobf::ir::IrFunctionSignature {
+    using namespace binobf::ir;
+    return IrFunctionSignature{
+        .callingConvention = IrCallingConvention::C,
+        .parameterTypes = {IrWidth::U32, IrWidth::U32},
+        .returnType = IrWidth::U32,
+        .variadic = false,
+        .parameterBindings = {
+            IrStorageLocation{IrStorageKind::Register, IrWidth::U32, "arg0", 0, 4U, 4U},
+            IrStorageLocation{IrStorageKind::Register, IrWidth::U32, "arg1", 0, 4U, 4U},
+        },
+        .returnBinding = IrStorageLocation{
+            IrStorageKind::Register, IrWidth::U32, "result", 0, 4U, 4U},
+        .clobbers = IrCallClobbers{{"flags"}, true, false},
+        .mayUnwind = false,
+    };
+}
+
 auto arithmetic_function() -> binobf::ir::IrFunction {
     using namespace binobf::ir;
     return IrFunction{
@@ -22,6 +40,7 @@ auto arithmetic_function() -> binobf::ir::IrFunction {
         .returnType = IrWidth::U32,
         .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
         .storageLocations = {},
+        .signature = u32_signature(),
         .entry = IrBlockId{0},
         .blocks = {
             IrBlock{
@@ -37,6 +56,7 @@ auto arithmetic_function() -> binobf::ir::IrFunction {
                 },
             },
         },
+        .unwindRegions = {},
     };
 }
 
@@ -54,6 +74,16 @@ auto memory_function() -> binobf::ir::IrFunction {
             IrStorageLocation{
                 IrStorageKind::Local, integer, "value", 0, 8U, 8U, 0U, false},
         },
+        .signature = IrFunctionSignature{
+            .callingConvention = IrCallingConvention::C,
+            .parameterTypes = {},
+            .returnType = integer,
+            .variadic = false,
+            .parameterBindings = {},
+            .returnBinding = std::nullopt,
+            .clobbers = {},
+            .mayUnwind = false,
+        },
         .entry = IrBlockId{0},
         .blocks = {
             IrBlock{
@@ -69,6 +99,7 @@ auto memory_function() -> binobf::ir::IrFunction {
                         false,
                         IrAtomicOrdering::None,
                         binobf::EntityId{43},
+                        std::nullopt,
                     },
                     IrCast{
                         IrCastKind::Truncate,
@@ -86,11 +117,13 @@ auto memory_function() -> binobf::ir::IrFunction {
                         false,
                         IrAtomicOrdering::None,
                         binobf::EntityId{45},
+                        std::nullopt,
                     },
                     IrReturn{integer, IrVariable{1}, binobf::EntityId{46}},
                 },
             },
         },
+        .unwindRegions = {},
     };
 }
 
@@ -128,6 +161,8 @@ TEST_CASE(native_ir_validator_rejects_bad_variables_and_use_before_definition) {
 
     auto undefined = arithmetic_function();
     undefined.arguments.clear();
+    undefined.signature.parameterTypes.clear();
+    undefined.signature.parameterBindings.clear();
     result = validate_function(undefined);
     REQUIRE(!result.has_value());
     REQUIRE_EQ(result.error().code, "ir.use_before_definition");
@@ -153,7 +188,10 @@ TEST_CASE(native_ir_validator_accepts_preserved_fallback_but_marks_it_non_lowera
     auto function = arithmetic_function();
     function.blocks[0].instructions.insert(
         function.blocks[0].instructions.begin(),
-        IrFallback{binobf::EntityId{29}, {}, "unsupported native instruction"});
+        IrFallback{
+            binobf::EntityId{29}, {}, "unsupported native instruction",
+            IrFallbackEffects{{}, {}, {}, false, false, false, false, true},
+            std::nullopt});
     const auto result = validate_function(function);
     REQUIRE(result.has_value());
     REQUIRE(function_contains_fallback(function));
@@ -296,6 +334,116 @@ TEST_CASE(native_ir_validator_rejects_memory_type_cast_atomic_and_limit_errors) 
     result = validate_function(memory_function(), limits);
     REQUIRE(!result.has_value());
     REQUIRE_EQ(result.error().code, "ir.storage_limit");
+}
+
+TEST_CASE(native_ir_validator_checks_switch_indirect_fallback_and_unwind_semantics) {
+    using namespace binobf::ir;
+    auto function = arithmetic_function();
+    function.blocks[0].instructions.back() = IrSwitch{
+        IrVariable{2},
+        {IrSwitchCase{1U, IrBlockId{1}}, IrSwitchCase{2U, IrBlockId{1}}},
+        IrBlockId{1},
+        binobf::EntityId{32},
+    };
+    function.blocks.push_back(IrBlock{
+        IrBlockId{1}, binobf::EntityId{21},
+        {IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{33}}}});
+    auto result = validate_function(function);
+    REQUIRE(result.has_value());
+
+    auto duplicateSwitch = function;
+    auto& duplicateCases = std::get<IrSwitch>(
+        duplicateSwitch.blocks[0].instructions.back()).cases;
+    duplicateCases[1].value = duplicateCases[0].value;
+    result = validate_function(duplicateSwitch);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_switch");
+
+    auto emptyIndirect = arithmetic_function();
+    emptyIndirect.blocks[0].instructions.back() = IrIndirectJump{
+        IrVariable{2}, {}, binobf::EntityId{32}};
+    result = validate_function(emptyIndirect);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_indirect_jump");
+
+    auto incompleteFallback = arithmetic_function();
+    incompleteFallback.blocks[0].instructions.insert(
+        incompleteFallback.blocks[0].instructions.begin(),
+        IrFallback{
+            binobf::EntityId{29}, {}, "opaque", IrFallbackEffects{}, std::nullopt});
+    result = validate_function(incompleteFallback);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.incomplete_fallback_effects");
+
+    auto unwindCycle = arithmetic_function();
+    unwindCycle.unwindRegions = {
+        IrUnwindRegion{1U, IrUnwindRegionKind::Cleanup, 2U, IrBlockId{0}, {IrBlockId{0}}, {}},
+        IrUnwindRegion{2U, IrUnwindRegionKind::Cleanup, 1U, IrBlockId{0}, {}, {}},
+    };
+    result = validate_function(unwindCycle);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_unwind");
+}
+
+TEST_CASE(native_ir_validator_rejects_missing_targets_unwind_ownership_and_new_limits) {
+    using namespace binobf::ir;
+    auto missingSwitchTarget = arithmetic_function();
+    missingSwitchTarget.blocks[0].instructions.back() = IrSwitch{
+        IrVariable{2}, {IrSwitchCase{1U, IrBlockId{99}}}, IrBlockId{99},
+        binobf::EntityId{32}};
+    auto result = validate_function(missingSwitchTarget);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.branch_target_missing");
+
+    auto missingLanding = arithmetic_function();
+    missingLanding.unwindRegions = {
+        IrUnwindRegion{1U, IrUnwindRegionKind::Cleanup, std::nullopt,
+                       IrBlockId{99}, {IrBlockId{0}}, {}},
+    };
+    result = validate_function(missingLanding);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_unwind");
+
+    auto overlapping = arithmetic_function();
+    overlapping.unwindRegions = {
+        IrUnwindRegion{1U, IrUnwindRegionKind::Cleanup, std::nullopt,
+                       IrBlockId{0}, {IrBlockId{0}}, {}},
+        IrUnwindRegion{2U, IrUnwindRegionKind::Catch, std::nullopt,
+                       IrBlockId{0}, {IrBlockId{0}}, {}},
+    };
+    result = validate_function(overlapping);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.invalid_unwind");
+
+    IrLimits limits{};
+    limits.maxSwitchCases = 1U;
+    auto tooManyCases = arithmetic_function();
+    tooManyCases.blocks[0].instructions.back() = IrSwitch{
+        IrVariable{2},
+        {IrSwitchCase{1U, IrBlockId{1}}, IrSwitchCase{2U, IrBlockId{1}}},
+        IrBlockId{1}, binobf::EntityId{32}};
+    tooManyCases.blocks.push_back(IrBlock{
+        IrBlockId{1}, binobf::EntityId{21},
+        {IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{33}}}});
+    result = validate_function(tooManyCases, limits);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "ir.switch_case_limit");
+}
+
+TEST_CASE(native_ir_fallback_effects_define_transform_boundaries) {
+    using namespace binobf::ir;
+    auto function = arithmetic_function();
+    function.blocks[0].instructions.insert(
+        function.blocks[0].instructions.begin(),
+        IrFallback{
+            binobf::EntityId{29}, {}, "opaque",
+            IrFallbackEffects{{IrVariable{0}}, {IrVariable{2}}, {"flags"},
+                              true, true, false, false, true},
+            std::nullopt});
+    const auto result = validate_function(function);
+    REQUIRE(result.has_value());
+    REQUIRE(fallback_blocks_rewrite(function, {IrBlockId{0}}));
+    REQUIRE(!fallback_blocks_rewrite(function, {IrBlockId{99}}));
 }
 
 int main() {

@@ -153,6 +153,17 @@ struct LiftState {
             .sourceInstruction = source.id,
             .encoding = source.encoding,
             .reason = std::move(reason),
+            .effects = IrFallbackEffects{
+                .reads = {},
+                .writes = {},
+                .clobberedRegisters = {"flags"},
+                .readsMemory = true,
+                .writesMemory = true,
+                .changesControlFlow = true,
+                .mayUnwind = true,
+                .complete = true,
+            },
+            .unwindRegion = std::nullopt,
         });
     }
 };
@@ -457,6 +468,19 @@ auto lift_function(
         state.report.function.arguments.push_back(IrArgumentBinding{
             static_cast<std::uint16_t>(index), variable, signature.arguments[index]});
     }
+    std::vector<IrType> parameterTypes;
+    parameterTypes.reserve(signature.arguments.size());
+    for (const auto type : signature.arguments) parameterTypes.push_back(integer_type(type));
+    state.report.function.signature = IrFunctionSignature{
+        .callingConvention = IrCallingConvention::C,
+        .parameterTypes = std::move(parameterTypes),
+        .returnType = integer_type(signature.returnWidth),
+        .variadic = false,
+        .parameterBindings = {},
+        .returnBinding = std::nullopt,
+        .clobbers = {},
+        .mayUnwind = false,
+    };
 
     for (std::size_t index = 0; index < function.basicBlocks.size(); ++index) {
         const auto* source = find_block(image, function.basicBlocks[index]);

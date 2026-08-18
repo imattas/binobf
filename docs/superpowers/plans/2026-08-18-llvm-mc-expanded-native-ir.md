@@ -484,36 +484,36 @@ git commit -m "feat: expand native IR type and memory model"
 - Consumes: Task 5 canonical types and storage.
 - Produces: signatures/declarations, external/tail calls, switch/indirect flow, fallback effects, and unwind regions.
 
-- [ ] **Step 1: Add failing semantic validation tests**
+- [x] **Step 1: Add failing semantic validation tests**
 
 Cover duplicate/missing switch targets, empty indirect target sets, undeclared external symbols,
 signature mismatch, invalid ABI bindings, illegal tail calls, incomplete fallback effects, unwind
 cycles, missing landing blocks, overlapping protected ownership, and all new limits.
 
-- [ ] **Step 2: Add the public records**
+- [x] **Step 2: Add the public records**
 
 Define `IrCallingConvention`, `IrFunctionSignature`, `IrExternalDeclaration`, `IrCallClobbers`,
 `IrExternalCall`, `IrTailCall`, `IrSwitchCase`, `IrSwitch`, `IrIndirectJump`, `IrFallbackEffects`,
 `IrUnwindRegionKind`, and `IrUnwindRegion`. Store declarations on `IrModule`, signatures and unwind
 regions on `IrFunction`, and optional unwind-region IDs on effectful instructions.
 
-- [ ] **Step 3: Extend terminator and graph validation**
+- [x] **Step 3: Extend terminator and graph validation**
 
 Treat switch, indirect jump, and tail call as terminators; add all proven targets to predecessor
 dataflow. Require unique sorted switch values and indirect targets, signature equality for internal
 and tail calls, declared external calls, and acyclic unwind parents.
 
-- [ ] **Step 4: Make fallback boundaries explicit**
+- [x] **Step 4: Make fallback boundaries explicit**
 
 Require non-empty reason plus complete read/write/clobber/control-flow effect declarations.
 `function_contains_fallback` remains true; add `fallback_blocks_rewrite(function, block-set)` for
 later transforms.
 
-- [ ] **Step 5: Run function/module validation suites**
+- [x] **Step 5: Run function/module validation suites**
 
 Run `native_ir` and `ir_module` focused CTests.
 
-- [ ] **Step 6: Commit advanced semantic IR**
+- [x] **Step 6: Commit advanced semantic IR**
 
 ```powershell
 git add include/binobf/ir/native.hpp src/ir/native.cpp `

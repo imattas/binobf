@@ -14,3 +14,7 @@ print(tool.detect(open("input.o", "rb").read(), "input.o"))
 
 The numeric detection fields are the values documented by `c_api.h`; callers
 should handle unknown future enum values conservatively.
+
+The wrapper can also be installed locally with `python -m pip install .` from
+this directory. The native `binobf_c` shared library remains a separate
+installable dependency and can be selected with `BINOBF_C_LIBRARY`.

@@ -35,7 +35,7 @@
 - Consumes: `Architecture`, `BinaryFormat`, `BinaryAddress`, `Result<T, Diagnostic>`.
 - Produces: `MachineAssemblyRequest`, `MachineFixup`, `MachineEmission`, `CodegenProvider`, and `make_codegen_provider()`.
 
-- [ ] **Step 1: Write the missing-contract test**
+- [x] **Step 1: Write the missing-contract test**
 
 Create `tests/unit/codegen_provider_tests.cpp`:
 
@@ -71,7 +71,7 @@ TEST_CASE(codegen_request_defaults_are_bounded_and_provider_neutral) {
 int main() { return binobf::test::run_all(); }
 ```
 
-- [ ] **Step 2: Register the test and prove the header is absent**
+- [x] **Step 2: Register the test and prove the header is absent**
 
 Add the unit target using the existing warning/test pattern, then run:
 
@@ -81,7 +81,7 @@ cmake --build build\m12-verify-debug --target binobf_codegen_provider_tests
 
 Expected: compilation fails on missing `binobf/architecture/codegen.hpp`.
 
-- [ ] **Step 3: Add the complete public value contract**
+- [x] **Step 3: Add the complete public value contract**
 
 Define these public types without forward-declaring an LLVM type:
 
@@ -154,14 +154,14 @@ rejects `Unknown` with `codegen.unsupported_architecture`, reports version `LLVM
 `codegen.not_implemented` from `emit()`. Task 2 replaces only that emission body after the pinned
 private dependency exists.
 
-- [ ] **Step 4: Run the contract test to green**
+- [x] **Step 4: Run the contract test to green**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_codegen_provider_tests
 ctest --test-dir build\m12-verify-debug -R '^codegen_provider$' --output-on-failure
 ```
 
-- [ ] **Step 5: Commit the public contract**
+- [x] **Step 5: Commit the public contract**
 
 ```powershell
 git add CMakeLists.txt include/binobf/architecture/codegen.hpp `

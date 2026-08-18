@@ -108,6 +108,7 @@ endif()
 
 set(BINOBF_CORE_SOURCES
     src/architecture/capstone_backend.cpp
+    src/architecture/codegen_provider.cpp
     src/capabilities/evidence.cpp
     src/capabilities/render.cpp
     src/capabilities/registry.cpp
@@ -478,6 +479,14 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_architecture_backend_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_architecture_backend_tests)
     add_test(NAME architecture_backend COMMAND binobf_architecture_backend_tests)
+
+    add_executable(
+        binobf_codegen_provider_tests
+        tests/unit/codegen_provider_tests.cpp
+    )
+    target_link_libraries(binobf_codegen_provider_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_codegen_provider_tests)
+    add_test(NAME codegen_provider COMMAND binobf_codegen_provider_tests)
 
     add_executable(binobf_object_analyzer_tests tests/unit/object_analyzer_tests.cpp)
     target_link_libraries(binobf_object_analyzer_tests PRIVATE binobf::core)

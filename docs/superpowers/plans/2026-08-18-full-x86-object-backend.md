@@ -712,14 +712,14 @@ git commit -m "feat: run all object transforms on i386"
 - Consumes: Clang/LLD 22.1.8, both x86 triples, parsers/writers/analyzer/transforms.
 - Produces: `x86_object_backend` acceptance CTest covering six optimization levels and two formats.
 
-- [ ] **Step 1: Add self-contained compiler fixtures**
+- [x] **Step 1: Add self-contained compiler fixtures**
 
 Define exported functions for stack/register arguments, all Windows conventions under target
 guards, loops, switches, recursion, tail calls, globals, common storage, TLS, function pointers,
 integer/f32/f64/SSE2 vector operations, COMDAT/group templates, debug locations, and exception
 metadata. Use compiler builtins and local typedefs only; include no host headers.
 
-- [ ] **Step 2: Generate the full object matrix deterministically**
+- [x] **Step 2: Generate the full object matrix deterministically**
 
 For each `-O0 -O1 -O2 -O3 -Os -Oz`, compile C/C++/assembly with:
 
@@ -731,27 +731,27 @@ clang --target=i386-unknown-linux-gnu -m32 -msse2 -fPIC -ffunction-sections -fda
 Use build-local output directories and explicit source/output arguments. Record compiler version
 and command lines in a build-local manifest.
 
-- [ ] **Step 3: Parse, analyze, transform, write, and reparse each object**
+- [x] **Step 3: Parse, analyze, transform, write, and reparse each object**
 
 The integration executable loads every matrix member, requires x86 detection and complete ordinary
 functions, runs every pass separately with a fixed seed, requires at least one applied function per
 pass across the corpus, writes/reparses, and validates deterministic repeated bytes and lineage.
 
-- [ ] **Step 4: Gate LLVM inspection and linking**
+- [x] **Step 4: Gate LLVM inspection and linking**
 
 Run `llvm-readobj --file-headers --sections --symbols --relocations --unwind`, `llvm-objdump -dr`,
 and `llvm-nm` on originals and outputs. Link COFF objects relocatably with `lld-link /lib` plus a
 consumer link, and ELF objects with `ld.lld -m elf_i386 -r`. Any nonzero tool exit fails the CTest
 with captured command/output.
 
-- [ ] **Step 5: Run the acceptance CTest**
+- [x] **Step 5: Run the acceptance CTest**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_object_backend_integration_tests
 ctest --test-dir build\m13-dev -R x86_object_backend --output-on-failure
 ```
 
-- [ ] **Step 6: Commit compiler-corpus acceptance**
+- [x] **Step 6: Commit compiler-corpus acceptance**
 
 ```powershell
 git add CMakeLists.txt cmake/RunX86ObjectCorpus.cmake tests/fixtures/x86 tests/integration/x86_object_backend_integration_tests.cpp

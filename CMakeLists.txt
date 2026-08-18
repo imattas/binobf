@@ -811,9 +811,11 @@ if(BINOBF_BUILD_TESTS)
         )
 
         find_program(BINOBF_LLVM_READOBJ llvm-readobj REQUIRED)
+        find_program(BINOBF_LLVM_OBJDUMP llvm-objdump REQUIRED)
         find_program(BINOBF_LLVM_AR llvm-ar REQUIRED)
         find_program(BINOBF_LLVM_LIB llvm-lib REQUIRED)
         find_program(BINOBF_LLVM_NM llvm-nm REQUIRED)
+        find_program(BINOBF_LLD_LINK lld-link REQUIRED)
         find_program(BINOBF_LD_LLD ld.lld REQUIRED)
 
         set(BINOBF_LINKED_FIXTURE_DIR "${CMAKE_CURRENT_BINARY_DIR}/linked-fixtures")
@@ -1117,6 +1119,50 @@ if(BINOBF_BUILD_TESTS)
             COMMAND binobf_x86_transform_integration_tests
                 "${BINOBF_X86_TRANSFORM_PATTERN_COFF}"
                 "${BINOBF_X86_TRANSFORM_PATTERN_ELF}"
+        )
+
+        set(BINOBF_X86_OBJECT_CORPUS_DIR
+            "${CMAKE_CURRENT_BINARY_DIR}/x86-object-corpus")
+        set(BINOBF_X86_OBJECT_CORPUS_STAMP
+            "${BINOBF_X86_OBJECT_CORPUS_DIR}/complete.stamp")
+        add_custom_command(
+            OUTPUT "${BINOBF_X86_OBJECT_CORPUS_STAMP}"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DCLANG=${CMAKE_C_COMPILER}"
+                "-DCLANGXX=${CMAKE_CXX_COMPILER}"
+                "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86"
+                "-DOUTPUT_DIR=${BINOBF_X86_OBJECT_CORPUS_DIR}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunX86ObjectCorpus.cmake"
+            DEPENDS
+                cmake/RunX86ObjectCorpus.cmake
+                tests/fixtures/x86/corpus.c
+                tests/fixtures/x86/corpus.cpp
+                tests/fixtures/x86/corpus.S
+            VERBATIM
+        )
+        add_custom_target(
+            binobf_x86_object_corpus
+            DEPENDS "${BINOBF_X86_OBJECT_CORPUS_STAMP}"
+        )
+        add_executable(
+            binobf_x86_object_backend_integration_tests
+            tests/integration/x86_object_backend_integration_tests.cpp
+        )
+        target_link_libraries(
+            binobf_x86_object_backend_integration_tests PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_x86_object_backend_integration_tests)
+        add_dependencies(
+            binobf_x86_object_backend_integration_tests binobf_x86_object_corpus)
+        add_test(
+            NAME x86_object_backend
+            COMMAND binobf_x86_object_backend_integration_tests
+                "${BINOBF_X86_OBJECT_CORPUS_DIR}"
+                "${BINOBF_LLVM_READOBJ}"
+                "${BINOBF_LLVM_OBJDUMP}"
+                "${BINOBF_LLVM_NM}"
+                "${BINOBF_LLD_LINK}"
+                "${BINOBF_LD_LLD}"
+                "${CMAKE_CURRENT_BINARY_DIR}/x86-object-backend"
         )
 
         set_source_files_properties(

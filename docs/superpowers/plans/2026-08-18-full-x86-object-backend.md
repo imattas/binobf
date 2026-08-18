@@ -652,7 +652,7 @@ git commit -m "feat: add transactional object rewrite plans"
 - Consumes: backend templates and `ObjectRewritePlan`.
 - Produces: all seven machine transforms for x86 COFF/ELF while preserving x86-64 results.
 
-- [ ] **Step 1: Add x86 tests for every pass before changing support**
+- [x] **Step 1: Add x86 tests for every pass before changing support**
 
 For COFF and ELF require a real deterministic change from instruction substitution, constant
 rewriting, branch inversion, block splitting, dead-code insertion, block reordering, and function
@@ -660,7 +660,7 @@ reordering. Include relocations, section symbols, COMDAT/group membership, commo
 and unwind records. Add per-function skips for exact-size failure, opaque-crossing, unowned metadata,
 and out-of-range branches.
 
-- [ ] **Step 2: Prove current x86 support is RED**
+- [x] **Step 2: Prove current x86 support is RED**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_x86_transform_integration_tests
@@ -669,27 +669,27 @@ ctest --test-dir build\m13-dev -R x86_transform_integration --output-on-failure
 
 Expected: every pass reports unsupported because `supports_machine_pass` accepts x86-64 only.
 
-- [ ] **Step 3: Remove architecture byte logic from pass algorithms**
+- [x] **Step 3: Remove architecture byte logic from pass algorithms**
 
 Replace raw opcode construction/patching with `emit_transform()` requests. Replace local
 `FunctionChunk`/branch patching with `ObjectRewriteRequest`. Passes select proven semantic candidates,
 ask for exact-size backend output, assemble the complete plan, commit to a candidate, reanalyze, and
 only then replace the working image.
 
-- [ ] **Step 4: Enable x86 and keep narrow skip diagnostics**
+- [x] **Step 4: Enable x86 and keep narrow skip diagnostics**
 
 Accept x86/x86-64 relocatable COFF/ELF when the backend advertises all required services. A failed
 candidate increments `skipped` and records its contextual diagnostic; a plan invariant failure
 fails the pass transaction. Require `changed > 0` for an applied status.
 
-- [ ] **Step 5: Run unit/integration/differential regressions**
+- [x] **Step 5: Run unit/integration/differential regressions**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_instruction_transform_tests binobf_instruction_transform_integration_tests binobf_x86_transform_integration_tests binobf_differential_tests
 ctest --test-dir build\m13-dev -R "instruction_transform|x86_transform|differential" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit architecture-neutral transforms**
+- [x] **Step 6: Commit architecture-neutral transforms**
 
 ```powershell
 git add CMakeLists.txt src/transforms/instruction.cpp tests/unit/instruction_transform_tests.cpp tests/integration tests/differential/differential_tests.cpp

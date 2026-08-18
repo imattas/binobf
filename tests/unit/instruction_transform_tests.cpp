@@ -424,7 +424,12 @@ TEST_CASE(instruction_passes_decline_unsupported_architectures_and_report_medium
     image.architecture = binobf::Architecture::ARM64;
     add_function(image, 2, "unsupported", 0, 2);
     auto pass = binobf::make_instruction_substitution_pass();
-    REQUIRE_EQ(pass->requirements().risk, binobf::PassRisk::Medium);
+    const auto requirements = pass->requirements();
+    REQUIRE_EQ(requirements.risk, binobf::PassRisk::Medium);
+    REQUIRE(std::ranges::find(requirements.architectures, binobf::Architecture::X86)
+            != requirements.architectures.end());
+    REQUIRE(std::ranges::find(requirements.architectures, binobf::Architecture::X86_64)
+            != requirements.architectures.end());
 
     const auto outcome = run_pass(image, std::move(pass));
 

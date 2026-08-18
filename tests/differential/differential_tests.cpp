@@ -24,6 +24,7 @@ std::filesystem::path driverSource;
 std::filesystem::path supportObject;
 std::filesystem::path cCompiler;
 std::filesystem::path outputDirectory;
+std::filesystem::path x86ObjectFixture;
 
 auto read_file(const std::filesystem::path& path) -> std::vector<std::byte> {
     std::ifstream stream(path, std::ios::binary | std::ios::ate);
@@ -80,6 +81,35 @@ auto transform_fixture() -> std::vector<std::byte> {
     return written.value();
 }
 
+auto transform_x86_fixture() -> std::vector<std::byte> {
+    const auto original = binobf::parse_object(
+        read_file(x86ObjectFixture), x86ObjectFixture.filename().string());
+    if (!original.has_value()) throw std::runtime_error(original.error().message);
+    binobf::PassManager manager;
+    if (!manager.add(binobf::make_instruction_substitution_pass()).has_value()
+        || !manager.add(binobf::make_constant_rewriting_pass()).has_value()
+        || !manager.add(binobf::make_branch_inversion_pass()).has_value()
+        || !manager.add(binobf::make_dead_code_insertion_pass()).has_value()
+        || !manager.add(binobf::make_block_splitting_pass()).has_value()
+        || !manager.add(binobf::make_block_reordering_pass()).has_value()
+        || !manager.add(binobf::make_function_reordering_pass()).has_value()) {
+        throw std::runtime_error("could not assemble i386 differential pipeline");
+    }
+    binobf::TransformContext context{UINT64_C(0x386d1ff), false};
+    const auto transformed = manager.run(context, original.value());
+    if (!transformed.has_value()) throw std::runtime_error(transformed.error().message);
+    for (const auto& report : transformed.value().reports) {
+        if (report.status != binobf::PassStatus::Applied || report.statistics.changed == 0U) {
+            throw std::runtime_error(report.name + " did not apply to the i386 fixture");
+        }
+    }
+    const auto written = binobf::write_object(transformed.value().image);
+    if (!written.has_value()) throw std::runtime_error(written.error().message);
+    const auto verified = binobf::verify_object(written.value(), "i386-differential.obj");
+    if (!verified.has_value()) throw std::runtime_error(verified.error().message);
+    return written.value();
+}
+
 } // namespace
 
 TEST_CASE(differential_harness_compares_all_required_observables) {
@@ -108,12 +138,22 @@ TEST_CASE(differential_harness_compares_all_required_observables) {
     }
 }
 
+TEST_CASE(i386_machine_transform_pipeline_is_deterministic_and_structurally_equivalent) {
+    const auto first = transform_x86_fixture();
+    const auto repeated = transform_x86_fixture();
+    REQUIRE_EQ(first, repeated);
+    const auto parsed = binobf::parse_object(first, "i386-differential.obj");
+    REQUIRE(parsed.has_value());
+    REQUIRE_EQ(parsed.value().architecture, binobf::Architecture::X86);
+}
+
 int main(int argc, char** argv) {
-    if (argc != 6) return 2;
+    if (argc != 7) return 2;
     objectFixture = argv[1];
     supportObject = argv[2];
     driverSource = argv[3];
     cCompiler = argv[4];
     outputDirectory = argv[5];
+    x86ObjectFixture = argv[6];
     return binobf::test::run_all();
 }

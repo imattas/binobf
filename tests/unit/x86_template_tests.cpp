@@ -82,26 +82,29 @@ TEST_CASE(x86_instruction_equivalents_are_exact_and_fully_decodable) {
 
 TEST_CASE(x86_constant_templates_materialize_eax_and_ecx) {
     auto fixed = backend();
-    for (const auto& [name, opcode] : std::array{
-             std::pair<std::string_view, std::byte>{"eax", std::byte{0xb8}},
-             std::pair<std::string_view, std::byte>{"ecx", std::byte{0xb9}}}) {
-        binobf::MachineTransformRequest request{};
-        request.architecture = binobf::Architecture::X86;
-        request.format = binobf::BinaryFormat::ELF;
-        request.kind = binobf::MachineTransformKind::ConstantMaterialization;
-        request.constantBits = UINT64_C(0x78563412);
-        request.condition = name;
-        request.exactSize = 5;
-        const auto emitted = fixed->emit_transform(request);
-        REQUIRE(emitted.has_value());
-        REQUIRE_EQ(emitted.value().emission.bytes.front(), opcode);
-        REQUIRE_EQ(emitted.value().emission.bytes.size(), std::size_t{5});
-        const auto decoded = decode_all(*fixed, emitted.value().emission.bytes, 0x2000U);
-        REQUIRE_EQ(decoded.size(), std::size_t{1});
-        REQUIRE_EQ(decoded.front().mnemonic, "mov");
-        REQUIRE(std::ranges::find(decoded.front().registersWritten, name,
-                                  &binobf::RegisterAccess::name)
-                != decoded.front().registersWritten.end());
+    for (const auto name : {std::string_view{"eax"}, std::string_view{"ecx"}}) {
+        for (const auto size : {std::size_t{5}, std::size_t{6}}) {
+            binobf::MachineTransformRequest request{};
+            request.architecture = binobf::Architecture::X86;
+            request.format = binobf::BinaryFormat::ELF;
+            request.kind = binobf::MachineTransformKind::ConstantMaterialization;
+            request.constantBits = UINT64_C(0x78563412);
+            request.condition = name;
+            request.exactSize = size;
+            const auto emitted = fixed->emit_transform(request);
+            REQUIRE(emitted.has_value());
+            REQUIRE_EQ(emitted.value().emission.bytes.size(), size);
+            REQUIRE_EQ(emitted.value().emission.bytes.front(),
+                       size == 5U
+                           ? (name == "eax" ? std::byte{0xb8} : std::byte{0xb9})
+                           : std::byte{0xc7});
+            const auto decoded = decode_all(*fixed, emitted.value().emission.bytes, 0x2000U);
+            REQUIRE_EQ(decoded.size(), std::size_t{1});
+            REQUIRE_EQ(decoded.front().mnemonic, "mov");
+            REQUIRE(std::ranges::find(decoded.front().registersWritten, name,
+                                      &binobf::RegisterAccess::name)
+                    != decoded.front().registersWritten.end());
+        }
     }
 }
 

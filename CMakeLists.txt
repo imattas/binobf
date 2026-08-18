@@ -737,6 +737,32 @@ if(BINOBF_BUILD_TESTS)
             DEPENDS "${BINOBF_TRANSFORM_PATTERN_ELF_FIXTURE}"
         )
 
+        set(BINOBF_X86_TRANSFORM_PATTERN_COFF
+            "${CMAKE_CURRENT_BINARY_DIR}/fixtures/x86-transform-patterns.obj")
+        set(BINOBF_X86_TRANSFORM_PATTERN_ELF
+            "${CMAKE_CURRENT_BINARY_DIR}/fixtures/x86-transform-patterns.o")
+        add_custom_command(
+            OUTPUT "${BINOBF_X86_TRANSFORM_PATTERN_COFF}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/fixtures"
+            COMMAND "${CMAKE_C_COMPILER}" --target=i686-pc-windows-msvc
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86/transform_patterns.S"
+                -o "${BINOBF_X86_TRANSFORM_PATTERN_COFF}"
+            DEPENDS tests/fixtures/x86/transform_patterns.S
+            VERBATIM
+        )
+        add_custom_command(
+            OUTPUT "${BINOBF_X86_TRANSFORM_PATTERN_ELF}"
+            COMMAND "${CMAKE_C_COMPILER}" --target=i386-unknown-linux-gnu
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/x86/transform_patterns.S"
+                -o "${BINOBF_X86_TRANSFORM_PATTERN_ELF}"
+            DEPENDS tests/fixtures/x86/transform_patterns.S
+            VERBATIM
+        )
+        add_custom_target(
+            binobf_fixture_x86_transform_patterns
+            DEPENDS "${BINOBF_X86_TRANSFORM_PATTERN_COFF}" "${BINOBF_X86_TRANSFORM_PATTERN_ELF}"
+        )
+
         set(BINOBF_VM_LOWERING_FIXTURE
             "${CMAKE_CURRENT_BINARY_DIR}/fixtures/vm-lowering.obj")
         add_custom_command(
@@ -1039,6 +1065,7 @@ if(BINOBF_BUILD_TESTS)
             binobf_differential_tests
             binobf_fixture_host
             binobf_fixture_transform_patterns
+            binobf_fixture_x86_transform_patterns
         )
         add_test(
             NAME differential_object_semantics
@@ -1048,6 +1075,7 @@ if(BINOBF_BUILD_TESTS)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/differential_driver.c"
                 "${CMAKE_C_COMPILER}"
                 "${CMAKE_CURRENT_BINARY_DIR}/differential"
+                "${BINOBF_X86_TRANSFORM_PATTERN_COFF}"
         )
 
         add_executable(
@@ -1072,6 +1100,23 @@ if(BINOBF_BUILD_TESTS)
                 "${BINOBF_LLVM_READOBJ}"
                 "${BINOBF_LD_LLD}"
                 "${CMAKE_CURRENT_BINARY_DIR}/instruction-transform-integration"
+        )
+
+        add_executable(
+            binobf_x86_transform_integration_tests
+            tests/integration/x86_transform_integration_tests.cpp
+        )
+        target_link_libraries(binobf_x86_transform_integration_tests PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_x86_transform_integration_tests)
+        add_dependencies(
+            binobf_x86_transform_integration_tests
+            binobf_fixture_x86_transform_patterns
+        )
+        add_test(
+            NAME x86_transform_integration
+            COMMAND binobf_x86_transform_integration_tests
+                "${BINOBF_X86_TRANSFORM_PATTERN_COFF}"
+                "${BINOBF_X86_TRANSFORM_PATTERN_ELF}"
         )
 
         set_source_files_properties(

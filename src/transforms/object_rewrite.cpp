@@ -307,6 +307,36 @@ auto map_span(const SectionMapping& mapping, std::uint64_t begin, std::uint64_t 
         return MappedSpan{*mapped, 0U};
     }
     const auto end = begin + size;
+    std::vector<const MappingSegment*> wholeSegments;
+    std::uint64_t wholeCursor = begin;
+    bool wholeCoverage = true;
+    for (const auto& segment : mapping.sourceSegments) {
+        if (segment.oldEnd <= begin || segment.oldBegin >= end) continue;
+        if (segment.oldBegin != wholeCursor || segment.oldBegin < begin
+            || segment.oldEnd > end) {
+            wholeCoverage = false;
+            break;
+        }
+        wholeSegments.push_back(&segment);
+        wholeCursor = segment.oldEnd;
+    }
+    if (wholeCoverage && wholeCursor == end && !wholeSegments.empty()) {
+        std::ranges::sort(wholeSegments, [](const auto* left, const auto* right) {
+            return left->newBegin < right->newBegin;
+        });
+        auto destinationCursor = wholeSegments.front()->newBegin;
+        const auto destinationBegin = destinationCursor;
+        for (const auto* segment : wholeSegments) {
+            if (segment->newBegin != destinationCursor) {
+                wholeCoverage = false;
+                break;
+            }
+            destinationCursor += segment->newLength;
+        }
+        if (wholeCoverage) {
+            return MappedSpan{destinationBegin, destinationCursor - destinationBegin};
+        }
+    }
     std::uint64_t cursor = begin;
     std::optional<std::uint64_t> mappedBegin;
     std::uint64_t mappedCursor = 0;

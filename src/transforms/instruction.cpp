@@ -3,6 +3,7 @@
 #include <binobf/analysis/object_analyzer.hpp>
 #include <binobf/architecture/backend.hpp>
 #include <binobf/support/deterministic_rng.hpp>
+#include <binobf/transforms/object_rewrite.hpp>
 
 #include <algorithm>
 #include <array>
@@ -44,13 +45,14 @@ auto machine_requirements(bool requiresCfg, bool requiresFullRelocations)
         .supportedPostLink = false,
         .risk = PassRisk::Medium,
         .formats = {BinaryFormat::COFF, BinaryFormat::ELF},
-        .architectures = {Architecture::X86_64},
+        .architectures = {Architecture::X86, Architecture::X86_64},
     };
 }
 
 auto supports_machine_pass(const BinaryImage& image) -> bool {
     return image.type == BinaryType::RelocatableObject
-        && image.architecture == Architecture::X86_64
+        && (image.architecture == Architecture::X86
+            || image.architecture == Architecture::X86_64)
         && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF);
 }
 
@@ -219,6 +221,79 @@ auto decoded_replacement(
     return std::move(decoded).value();
 }
 
+auto commit_x86_rewrite(
+    BinaryImage& image,
+    const ArchitectureBackend& backend,
+    std::vector<ObjectRewriteRange> ranges,
+    TransformId transform,
+    std::string_view passName) -> Result<std::size_t, Diagnostic> {
+    ObjectRewriteRequest request{};
+    request.ranges = std::move(ranges);
+    request.passName = std::string{passName};
+    request.transform = transform;
+    const auto plan = ObjectRewritePlan::create(image, backend, request);
+    if (!plan.has_value()) {
+        return Result<std::size_t, Diagnostic>::failure(plan.error());
+    }
+    auto committed = plan.value().commit(image);
+    if (!committed.has_value()) {
+        return Result<std::size_t, Diagnostic>::failure(committed.error());
+    }
+    const auto validated = plan.value().validate(image);
+    if (!validated.has_value()) {
+        return Result<std::size_t, Diagnostic>::failure(validated.error());
+    }
+    image = std::move(committed).value();
+    return Result<std::size_t, Diagnostic>::success(validated.value());
+}
+
+auto normalized_condition(std::string_view mnemonic) -> std::optional<std::string> {
+    if (mnemonic == "je" || mnemonic == "jz") return "equal";
+    if (mnemonic == "jne" || mnemonic == "jnz") return "not-equal";
+    if (mnemonic == "jb" || mnemonic == "jc" || mnemonic == "jnae") {
+        return "unsigned-below";
+    }
+    if (mnemonic == "jae" || mnemonic == "jnb" || mnemonic == "jnc") {
+        return "unsigned-above-or-equal";
+    }
+    if (mnemonic == "jl" || mnemonic == "jnge") return "signed-less";
+    if (mnemonic == "jge" || mnemonic == "jnl") return "signed-greater-or-equal";
+    return std::nullopt;
+}
+
+auto inverse_condition(std::string_view condition) -> std::optional<std::string> {
+    if (condition == "equal") return "not-equal";
+    if (condition == "not-equal") return "equal";
+    if (condition == "unsigned-below") return "unsigned-above-or-equal";
+    if (condition == "unsigned-above-or-equal") return "unsigned-below";
+    if (condition == "signed-less") return "signed-greater-or-equal";
+    if (condition == "signed-greater-or-equal") return "signed-less";
+    return std::nullopt;
+}
+
+auto emit_x86_dead_fill(
+    const ArchitectureBackend& backend,
+    BinaryFormat format,
+    std::size_t size) -> Result<std::vector<std::byte>, Diagnostic> {
+    std::vector<std::byte> result;
+    result.reserve(size);
+    while (result.size() < size) {
+        MachineTransformRequest request{};
+        request.architecture = Architecture::X86;
+        request.format = format;
+        request.kind = MachineTransformKind::DeadCodeFill;
+        request.exactSize = std::min<std::size_t>(15U, size - result.size());
+        const auto emitted = backend.emit_transform(request);
+        if (!emitted.has_value()) {
+            return Result<std::vector<std::byte>, Diagnostic>::failure(emitted.error());
+        }
+        result.insert(
+            result.end(), emitted.value().emission.bytes.begin(),
+            emitted.value().emission.bytes.end());
+    }
+    return Result<std::vector<std::byte>, Diagnostic>::success(std::move(result));
+}
+
 class InstructionSubstitutionPass final : public TransformPass {
 public:
     auto name() const noexcept -> std::string_view override {
@@ -247,6 +322,7 @@ public:
         PassStatistics statistics;
         DeterministicRng rng{context.seed() ^ substitutionSalt};
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
         for (const auto& function : analyzed.value().image.functions) {
@@ -269,6 +345,32 @@ public:
                         image, instruction->section, instruction->sectionOffset,
                         instruction->encoding.size())) {
                     ++statistics.skipped;
+                    continue;
+                }
+                if (image.architecture == Architecture::X86) {
+                    MachineTransformRequest request{};
+                    request.architecture = Architecture::X86;
+                    request.format = image.format;
+                    request.kind = MachineTransformKind::InstructionEquivalent;
+                    request.source = *instruction;
+                    request.exactSize = instruction->encoding.size();
+                    const auto emitted = backend->emit_transform(request);
+                    if (!emitted.has_value()
+                        || emitted.value().emission.bytes == instruction->encoding) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    if (!transform.valid()) transform = context.allocate_transform_id();
+                    x86Ranges.push_back(ObjectRewriteRange{
+                        instruction->section,
+                        instruction->sectionOffset,
+                        instruction->sectionOffset + instruction->encoding.size(),
+                        instruction->sectionOffset,
+                        emitted.value().emission.bytes,
+                    });
+                    changedSections.insert(instruction->section.value());
+                    changedFunctions.insert(function.symbol->value());
+                    ++statistics.changed;
                     continue;
                 }
                 auto replacement = instruction->encoding;
@@ -314,6 +416,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);
@@ -374,6 +483,7 @@ public:
         PassStatistics statistics;
         DeterministicRng rng{context.seed() ^ constantSalt};
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
         for (const auto& function : analyzed.value().image.functions) {
@@ -444,6 +554,39 @@ public:
                     ++statistics.skipped;
                     continue;
                 }
+                if (image.architecture == Architecture::X86) {
+                    if (wide || (registerIndex != 0U && registerIndex != 1U)) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    MachineTransformRequest request{};
+                    request.architecture = Architecture::X86;
+                    request.format = image.format;
+                    request.kind = MachineTransformKind::ConstantMaterialization;
+                    request.source = *instruction;
+                    request.constantBits = immediate;
+                    request.condition = registerIndex == 0U ? "eax" : "ecx";
+                    request.exactSize = windowSize;
+                    const auto emitted = backend->emit_transform(request);
+                    if (!emitted.has_value()
+                        || emitted.value().emission.bytes.size() != windowSize) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    if (!transform.valid()) transform = context.allocate_transform_id();
+                    x86Ranges.push_back(ObjectRewriteRange{
+                        instruction->section,
+                        instruction->sectionOffset,
+                        instruction->sectionOffset + windowSize,
+                        instruction->sectionOffset,
+                        emitted.value().emission.bytes,
+                    });
+                    changedSections.insert(instruction->section.value());
+                    changedFunctions.insert(function.symbol->value());
+                    ++statistics.changed;
+                    ++position;
+                    continue;
+                }
                 std::vector<std::byte> replacement;
                 replacement.reserve(windowSize);
                 std::uint8_t replacementRex = 0;
@@ -494,6 +637,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);
@@ -571,8 +721,14 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(backendResult.error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
         for (const auto& function : analyzed.value().image.functions) {
@@ -614,6 +770,51 @@ public:
                     ++statistics.skipped;
                     continue;
                 }
+                if (image.architecture == Architecture::X86) {
+                    const auto conditionName = normalized_condition(condition->mnemonic);
+                    if (!conditionName.has_value()) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    MachineTransformRequest conditionRequest{};
+                    conditionRequest.architecture = Architecture::X86;
+                    conditionRequest.format = image.format;
+                    conditionRequest.kind = MachineTransformKind::ConditionalInversion;
+                    conditionRequest.source = *condition;
+                    conditionRequest.targetAddress = jump->directTarget->value;
+                    conditionRequest.condition = *conditionName;
+                    conditionRequest.exactSize = condition->encoding.size();
+                    MachineTransformRequest jumpRequest{};
+                    jumpRequest.architecture = Architecture::X86;
+                    jumpRequest.format = image.format;
+                    jumpRequest.kind = MachineTransformKind::DirectJump;
+                    jumpRequest.source = *jump;
+                    jumpRequest.targetAddress = condition->directTarget->value;
+                    jumpRequest.exactSize = jump->encoding.size();
+                    const auto emittedCondition = backend->emit_transform(conditionRequest);
+                    const auto emittedJump = backend->emit_transform(jumpRequest);
+                    if (!emittedCondition.has_value() || !emittedJump.has_value()) {
+                        ++statistics.skipped;
+                        continue;
+                    }
+                    auto replacement = emittedCondition.value().emission.bytes;
+                    replacement.insert(
+                        replacement.end(), emittedJump.value().emission.bytes.begin(),
+                        emittedJump.value().emission.bytes.end());
+                    if (!transform.valid()) transform = context.allocate_transform_id();
+                    x86Ranges.push_back(ObjectRewriteRange{
+                        condition->section,
+                        condition->sectionOffset,
+                        condition->sectionOffset + combinedSize,
+                        condition->sectionOffset,
+                        std::move(replacement),
+                    });
+                    changedSections.insert(condition->section.value());
+                    changedFunctions.insert(function.symbol->value());
+                    ++statistics.changed;
+                    ++position;
+                    continue;
+                }
                 auto replacementCondition = condition->encoding;
                 auto replacementJump = jump->encoding;
                 const auto conditionOpcode = conditionEncoding->displacementOffset - 1;
@@ -650,6 +851,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);
@@ -675,8 +883,14 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(backendResult.error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
         for (const auto& function : analyzed.value().image.functions) {
@@ -710,6 +924,38 @@ public:
                         ++statistics.skipped;
                         continue;
                     }
+                    if (image.architecture == Architecture::X86) {
+                        MachineTransformRequest jumpRequest{};
+                        jumpRequest.architecture = Architecture::X86;
+                        jumpRequest.format = image.format;
+                        jumpRequest.kind = MachineTransformKind::DirectJump;
+                        jumpRequest.source = *instruction;
+                        jumpRequest.targetAddress = instruction->address.value + 2U;
+                        jumpRequest.exactSize = 2U;
+                        const auto jump = backend->emit_transform(jumpRequest);
+                        const auto fill = emit_x86_dead_fill(
+                            *backend, image.format, instruction->encoding.size() - 2U);
+                        if (!jump.has_value() || !fill.has_value()) {
+                            ++statistics.skipped;
+                            continue;
+                        }
+                        auto replacement = jump.value().emission.bytes;
+                        replacement.insert(
+                            replacement.end(), fill.value().begin(), fill.value().end());
+                        if (!transform.valid()) transform = context.allocate_transform_id();
+                        x86Ranges.push_back(ObjectRewriteRange{
+                            instruction->section,
+                            instruction->sectionOffset,
+                            instruction->sectionOffset + instruction->encoding.size(),
+                            instruction->sectionOffset,
+                            std::move(replacement),
+                        });
+                        changedSections.insert(instruction->section.value());
+                        changedFunctions.insert(function.symbol->value());
+                        ++statistics.changed;
+                        changedFunction = true;
+                        break;
+                    }
                     auto* section = find_section(image, instruction->section);
                     if (section == nullptr) {
                         return Result<TransformResult, Diagnostic>::failure(diagnostic(
@@ -739,6 +985,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);
@@ -775,8 +1028,14 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(backendResult.error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         DeterministicRng rng{context.seed() ^ deadCodeSalt};
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
@@ -820,6 +1079,38 @@ public:
             if (candidates.empty()) continue;
             rng.shuffle(candidates);
             const auto* instruction = candidates.front();
+            if (image.architecture == Architecture::X86) {
+                MachineTransformRequest jumpRequest{};
+                jumpRequest.architecture = Architecture::X86;
+                jumpRequest.format = image.format;
+                jumpRequest.kind = MachineTransformKind::DirectJump;
+                jumpRequest.source = *instruction;
+                jumpRequest.targetAddress = instruction->address.value
+                    + instruction->encoding.size();
+                jumpRequest.exactSize = 2U;
+                const auto jump = backend->emit_transform(jumpRequest);
+                const auto fill = emit_x86_dead_fill(
+                    *backend, image.format, instruction->encoding.size() - 2U);
+                if (!jump.has_value() || !fill.has_value()) {
+                    ++statistics.skipped;
+                    continue;
+                }
+                auto replacement = jump.value().emission.bytes;
+                replacement.insert(
+                    replacement.end(), fill.value().begin(), fill.value().end());
+                if (!transform.valid()) transform = context.allocate_transform_id();
+                x86Ranges.push_back(ObjectRewriteRange{
+                    instruction->section,
+                    instruction->sectionOffset,
+                    instruction->sectionOffset + instruction->encoding.size(),
+                    instruction->sectionOffset,
+                    std::move(replacement),
+                });
+                changedSections.insert(instruction->section.value());
+                changedFunctions.insert(function.symbol->value());
+                ++statistics.changed;
+                continue;
+            }
             auto* section = find_section(image, instruction->section);
             if (section == nullptr) {
                 return Result<TransformResult, Diagnostic>::failure(diagnostic(
@@ -845,6 +1136,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);
@@ -943,7 +1241,8 @@ public:
         return machine_requirements(true, true);
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
-        return supports_machine_pass(image) && image.unwindInfo.empty();
+        return supports_machine_pass(image)
+            && (image.architecture == Architecture::X86 || image.unwindInfo.empty());
     }
 
     auto run(TransformContext& context, BinaryImage& image) const
@@ -952,8 +1251,14 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(backendResult.error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         DeterministicRng rng{context.seed() ^ layoutSalt ^ UINT64_C(0x626c6f636b)};
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
@@ -962,6 +1267,16 @@ public:
                 || !function.entryBlock.has_value() || function.basicBlocks.size() < 3
                 || function.size > std::numeric_limits<std::uint64_t>::max()
                     - function.address.value) {
+                continue;
+            }
+            const bool hasOpaqueUnwind = std::ranges::any_of(
+                image.unwindInfo, [&](const auto& unwind) {
+                    return unwind.function == function.id
+                        && unwind.rewriteState == UnwindRewriteState::Opaque;
+                });
+            if (hasOpaqueUnwind) {
+                statistics.examined += function.basicBlocks.size();
+                statistics.skipped += function.basicBlocks.size();
                 continue;
             }
             if (!context.is_function_selected(analyzed.value().image, function)) {
@@ -1058,7 +1373,8 @@ public:
                 if (!instruction->directTarget.has_value()) continue;
                 const auto target = instruction->directTarget->value;
                 if (target < begin || target >= end
-                    || !relative_field(*instruction).has_value()) {
+                    || !relative_field(*instruction).has_value()
+                    || instruction->kind == InstructionKind::DirectCall) {
                     valid = false;
                     break;
                 }
@@ -1093,6 +1409,90 @@ public:
                     DiagnosticSeverity::Error,
                     "pass.invalid_instruction_range",
                     "block-reordering function range is outside its section"));
+            }
+            if (image.architecture == Architecture::X86) {
+                std::vector<std::vector<std::byte>> replacements;
+                replacements.reserve(chunks.size());
+                for (const auto& chunk : chunks) {
+                    replacements.emplace_back(
+                        section->contents.begin() + static_cast<std::ptrdiff_t>(chunk.oldBegin),
+                        section->contents.begin() + static_cast<std::ptrdiff_t>(chunk.oldEnd));
+                }
+                bool encodable = true;
+                for (const auto instructionId : function.instructions) {
+                    const auto* instruction = find_instruction(
+                        analyzed.value().image, instructionId);
+                    if (instruction == nullptr || !instruction->directTarget.has_value()) continue;
+                    const auto chunk = std::find_if(
+                        chunks.begin(), chunks.end(), [&](const auto& candidate) {
+                            return instruction->sectionOffset >= candidate.oldBegin
+                                && instruction->sectionOffset < candidate.oldEnd;
+                        });
+                    const auto newInstruction = map_block_offset(chunks, instruction->sectionOffset);
+                    const auto newTarget = map_block_offset(chunks, instruction->directTarget->value);
+                    if (chunk == chunks.end() || !newInstruction.has_value()
+                        || !newTarget.has_value()) {
+                        encodable = false;
+                        break;
+                    }
+                    auto source = *instruction;
+                    source.address.value = *newInstruction;
+                    source.sectionOffset = *newInstruction;
+                    MachineTransformRequest request{};
+                    request.architecture = Architecture::X86;
+                    request.format = image.format;
+                    request.source = source;
+                    request.targetAddress = *newTarget;
+                    request.exactSize = instruction->encoding.size();
+                    if (instruction->kind == InstructionKind::DirectBranch) {
+                        request.kind = MachineTransformKind::DirectJump;
+                    } else if (instruction->kind == InstructionKind::ConditionalBranch) {
+                        const auto normalized = normalized_condition(instruction->mnemonic);
+                        const auto preserved = normalized.has_value()
+                            ? inverse_condition(*normalized) : std::nullopt;
+                        if (!preserved.has_value()) {
+                            encodable = false;
+                            break;
+                        }
+                        request.kind = MachineTransformKind::ConditionalInversion;
+                        request.condition = *preserved;
+                    } else {
+                        encodable = false;
+                        break;
+                    }
+                    const auto emitted = backend->emit_transform(request);
+                    if (!emitted.has_value()
+                        || emitted.value().emission.bytes.size() != instruction->encoding.size()) {
+                        encodable = false;
+                        break;
+                    }
+                    const auto chunkIndex = static_cast<std::size_t>(chunk - chunks.begin());
+                    const auto localOffset = static_cast<std::size_t>(
+                        instruction->sectionOffset - chunk->oldBegin);
+                    std::copy(
+                        emitted.value().emission.bytes.begin(),
+                        emitted.value().emission.bytes.end(),
+                        replacements[chunkIndex].begin()
+                            + static_cast<std::ptrdiff_t>(localOffset));
+                }
+                if (!encodable) {
+                    statistics.skipped += function.basicBlocks.size();
+                    continue;
+                }
+                if (!transform.valid()) transform = context.allocate_transform_id();
+                for (std::size_t index = 0; index < chunks.size(); ++index) {
+                    x86Ranges.push_back(ObjectRewriteRange{
+                        function.section,
+                        chunks[index].oldBegin,
+                        chunks[index].oldEnd,
+                        chunks[index].newBegin,
+                        std::move(replacements[index]),
+                    });
+                }
+                changedSections.insert(function.section.value());
+                changedFunctions.insert(function.symbol->value());
+                statistics.changed += function.basicBlocks.size();
+                continue;
             }
             const auto original = section->contents;
             for (const auto index : order) {
@@ -1149,6 +1549,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);
@@ -1184,7 +1591,7 @@ public:
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
         return supports_machine_pass(image)
-            && image.unwindInfo.empty()
+            && (image.architecture == Architecture::X86 || image.unwindInfo.empty())
             && std::none_of(image.sections.begin(), image.sections.end(), [](const auto& section) {
                 return section.kind == SectionKind::Debug;
             });
@@ -1196,8 +1603,14 @@ public:
         if (!analyzed.has_value()) {
             return Result<TransformResult, Diagnostic>::failure(analyzed.error());
         }
+        auto backendResult = make_architecture_backend(image.architecture);
+        if (!backendResult.has_value()) {
+            return Result<TransformResult, Diagnostic>::failure(backendResult.error());
+        }
+        auto backend = std::move(backendResult).value();
         PassStatistics statistics;
         TransformId transform;
+        std::vector<ObjectRewriteRange> x86Ranges;
         DeterministicRng rng{context.seed() ^ layoutSalt};
         std::unordered_set<std::uint64_t> changedFunctions;
         std::unordered_set<std::uint64_t> changedSections;
@@ -1209,6 +1622,17 @@ public:
             }
             if (functions.size() < 2) continue;
             statistics.examined += functions.size();
+            const bool hasOpaqueUnwind = std::ranges::any_of(
+                image.unwindInfo, [&](const auto& unwind) {
+                    return unwind.rewriteState == UnwindRewriteState::Opaque
+                        && std::ranges::any_of(functions, [&](const auto* function) {
+                            return unwind.function == function->id;
+                        });
+                });
+            if (hasOpaqueUnwind) {
+                statistics.skipped += functions.size();
+                continue;
+            }
             if (std::any_of(functions.begin(), functions.end(), [](const auto* function) {
                     return !function->complete || !function->symbol.has_value();
                 })) {
@@ -1317,6 +1741,7 @@ public:
 
             bool referencesSupported = true;
             for (const auto& relocation : image.relocations) {
+                if (image.architecture == Architecture::X86) break;
                 if (!relocation.targetSymbol.has_value()) continue;
                 const auto* target = find_symbol(image, *relocation.targetSymbol);
                 if (target == nullptr || target->kind != SymbolKind::Section
@@ -1347,6 +1772,27 @@ public:
             }
             if (!referencesSupported) {
                 statistics.skipped += functions.size();
+                continue;
+            }
+
+            if (image.architecture == Architecture::X86) {
+                if (!transform.valid()) transform = context.allocate_transform_id();
+                for (const auto& chunk : chunks) {
+                    x86Ranges.push_back(ObjectRewriteRange{
+                        section.id,
+                        chunk.oldBegin,
+                        chunk.oldEnd,
+                        chunk.newBegin,
+                        {},
+                    });
+                }
+                changedSections.insert(section.id.value());
+                for (std::size_t index = 0; index < functions.size(); ++index) {
+                    if (reordered[index]) {
+                        changedFunctions.insert(functions[index]->symbol->value());
+                    }
+                }
+                statistics.changed += reorderedCount;
                 continue;
             }
 
@@ -1414,6 +1860,13 @@ public:
         }
         statistics.skipped += statistics.examined - statistics.changed - statistics.skipped;
         if (statistics.changed == 0) return unchanged_result(statistics, name());
+        if (image.architecture == Architecture::X86) {
+            const auto rewritten = commit_x86_rewrite(
+                image, *backend, std::move(x86Ranges), transform, name());
+            if (!rewritten.has_value()) {
+                return Result<TransformResult, Diagnostic>::failure(rewritten.error());
+            }
+        }
         clear_changed_coff_section_checksums(image, changedSections, transform, name());
         if (const auto error = verify_functions(image, changedFunctions, name())) {
             return Result<TransformResult, Diagnostic>::failure(*error);

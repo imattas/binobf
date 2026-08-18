@@ -170,9 +170,9 @@ auto emit_x86_transform(
             MachineControlFlow::Fallthrough, false);
     }
     if (request.kind == MachineTransformKind::ConstantMaterialization) {
-        if (request.exactSize != 5U) {
+        if (request.exactSize != 5U && request.exactSize != 6U) {
             return failure<MachineTransformEmission>(
-                "architecture.exact_size_unavailable", "i386 immediate materialization is exactly 5 bytes");
+                "architecture.exact_size_unavailable", "i386 immediate materialization is exactly 5 or 6 bytes");
         }
         if (!request.constantBits.has_value()
             || *request.constantBits > std::numeric_limits<std::uint32_t>::max()
@@ -180,8 +180,13 @@ auto emit_x86_transform(
             return failure<MachineTransformEmission>(
                 "architecture.invalid_template", "i386 constant template requires eax or ecx and a 32-bit value");
         }
-        std::vector<std::byte> bytes{
-            request.condition == "eax" ? std::byte{0xb8} : std::byte{0xb9}};
+        std::vector<std::byte> bytes;
+        if (request.exactSize == 5U) {
+            bytes.push_back(request.condition == "eax" ? std::byte{0xb8} : std::byte{0xb9});
+        } else {
+            bytes = {std::byte{0xc7},
+                     request.condition == "eax" ? std::byte{0xc0} : std::byte{0xc1}};
+        }
         append_u32(bytes, static_cast<std::uint32_t>(*request.constantBits));
         return emit_bytes(
             request, codegen, std::move(bytes), 1U,

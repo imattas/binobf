@@ -5,6 +5,7 @@
 #include <binobf/formats/archive.hpp>
 #include <binobf/formats/object_parser.hpp>
 #include <binobf/formats/object_writer.hpp>
+#include <binobf/evidence/manifest.hpp>
 #include <binobf/support/sha256.hpp>
 #include <binobf/vm/bytecode.hpp>
 
@@ -350,6 +351,15 @@ TEST_CASE(usage_errors_and_io_errors_have_distinct_exit_codes) {
     const std::array nonexistent{"inspect"sv, "Z:/binobf/does-not-exist.o"sv};
     REQUIRE_EQ(binobf::cli::run_cli(nonexistent, output, errors), 3);
     REQUIRE_CONTAINS(errors.str(), "io.open_failed");
+}
+
+TEST_CASE(version_command_reports_build_version) {
+    std::ostringstream output;
+    std::ostringstream errors;
+    const std::array arguments{"--version"sv};
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE_EQ(output.str(), "binobf " + std::string{binobf::evidence::tool_version()} + "\n");
+    REQUIRE(errors.str().empty());
 }
 
 TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {

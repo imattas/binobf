@@ -74,6 +74,7 @@ void print_usage(std::ostream& stream) {
         << "  binobf vm disassemble <program.bvm>\n"
         << "  binobf formats\n"
         << "  binobf architectures\n"
+        << "  binobf version\n"
         << "  binobf help\n";
 }
 
@@ -1903,6 +1904,14 @@ auto run_cli(
     const auto command = arguments.front();
     if (command == "help" || command == "--help" || command == "-h") {
         print_usage(output);
+        return 0;
+    }
+    if (command == "version" || command == "--version") {
+        if (arguments.size() != 1) {
+            print_usage(errors);
+            return 2;
+        }
+        output << "binobf " << evidence::tool_version() << '\n';
         return 0;
     }
     if (command == "formats") {

@@ -1,4 +1,5 @@
 #include "llvm_mc_assembler.hpp"
+#include "llvm_fixups.hpp"
 
 #include <binobf/architecture/backend.hpp>
 
@@ -435,6 +436,12 @@ void capture_diagnostic(const llvm::SMDiagnostic& diagnostic, void* context) {
                 std::span<const char>{contents.data(), contents.size()});
             emission.bytes.assign(bytes.begin(), bytes.end());
             emission.alignment = section.getAlignment().value();
+            auto fixups = normalize_llvm_fixups(section, emission.bytes, request);
+            if (!fixups.has_value()) {
+                return Result<MachineEmission, Diagnostic>::failure(
+                    std::move(fixups).error());
+            }
+            emission.fixups = std::move(fixups).value();
         } else if (section.isText() && !section.isVirtual()) {
             auto contentsOrError = section.getContents();
             if (!contentsOrError) {

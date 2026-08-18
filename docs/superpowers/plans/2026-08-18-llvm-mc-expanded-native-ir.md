@@ -369,33 +369,33 @@ git commit -m "feat: emit machine code through LLVM MC"
 - Consumes: LLVM Object relocations in the in-memory object.
 - Produces: sorted architecture-neutral `MachineFixup` records.
 
-- [ ] **Step 1: Add exact external-symbol fixup tests**
+- [x] **Step 1: Add exact external-symbol fixup tests**
 
 Test x86/x86-64 COFF `call external_symbol`, x86/x86-64 ELF `call external_symbol`, ARM64 COFF
 `bl external_symbol`, and ARM64 ELF `bl external_symbol`. Require symbol, section offset, addend,
 bit width, PC-relative state, and normalized kind (`PcRelative32` or `AArch64Call26`). Add x86-64
 absolute `.quad external_symbol`, GOT/PLT, and ARM64 page/page-offset pairs.
 
-- [ ] **Step 2: Observe missing-fixup RED**
+- [x] **Step 2: Observe missing-fixup RED**
 
 Run the focused test; emission succeeds but `fixups` is empty.
 
-- [ ] **Step 3: Map supported relocation families**
+- [x] **Step 3: Map supported relocation families**
 
 Implement exhaustive switches for the COFF and ELF relocation numbers used by i386, AMD64, and
 AArch64. Reject any unrecognized relocation with `codegen.unsupported_fixup`, including the numeric
 type and architecture. Obtain symbol names and explicit/implicit addends without truncation.
 
-- [ ] **Step 4: Validate and sort fixups**
+- [x] **Step 4: Validate and sort fixups**
 
 Reject offsets outside the emitted section, duplicate incompatible fixups, empty external symbols,
 and counts above `maxFixups`. Sort by offset, kind, then symbol.
 
-- [ ] **Step 5: Run fixup and determinism tests**
+- [x] **Step 5: Run fixup and determinism tests**
 
 Run `codegen_provider` and repeat every request twice.
 
-- [ ] **Step 6: Commit fixup normalization**
+- [x] **Step 6: Commit fixup normalization**
 
 ```powershell
 git add src/architecture/llvm_fixups.* src/architecture/llvm_mc_assembler.cpp `

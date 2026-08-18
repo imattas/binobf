@@ -198,6 +198,189 @@ TEST_CASE(codegen_provider_emits_deterministic_verified_machine_code) {
     }
 }
 
+TEST_CASE(codegen_provider_normalizes_external_call_fixups) {
+    struct CallCase {
+        binobf::Architecture architecture;
+        binobf::BinaryFormat format;
+        std::string triple;
+        binobf::MachineSyntax syntax;
+        std::string assembly;
+        std::uint64_t offset;
+        std::uint8_t bitWidth;
+        std::int64_t addend;
+        binobf::MachineFixupKind kind;
+    };
+    const std::array<CallCase, 6> cases{
+        CallCase{binobf::Architecture::X86, binobf::BinaryFormat::COFF,
+                 "i686-pc-windows-msvc", binobf::MachineSyntax::Intel,
+                 "call external_symbol\n", 1U, 32U, -4,
+                 binobf::MachineFixupKind::PcRelative32},
+        CallCase{binobf::Architecture::X86_64, binobf::BinaryFormat::COFF,
+                 "x86_64-pc-windows-msvc", binobf::MachineSyntax::Intel,
+                 "call external_symbol\n", 1U, 32U, -4,
+                 binobf::MachineFixupKind::PcRelative32},
+        CallCase{binobf::Architecture::X86, binobf::BinaryFormat::ELF,
+                 "i686-unknown-linux-gnu", binobf::MachineSyntax::Intel,
+                 "call external_symbol\n", 1U, 32U, -4,
+                 binobf::MachineFixupKind::PcRelative32},
+        CallCase{binobf::Architecture::X86_64, binobf::BinaryFormat::ELF,
+                 "x86_64-unknown-linux-gnu", binobf::MachineSyntax::Intel,
+                 "call external_symbol\n", 1U, 32U, -4,
+                 binobf::MachineFixupKind::PltRelative32},
+        CallCase{binobf::Architecture::ARM64, binobf::BinaryFormat::COFF,
+                 "aarch64-pc-windows-msvc", binobf::MachineSyntax::GNU,
+                 "bl external_symbol\n", 0U, 26U, 0,
+                 binobf::MachineFixupKind::AArch64Call26},
+        CallCase{binobf::Architecture::ARM64, binobf::BinaryFormat::ELF,
+                 "aarch64-unknown-linux-gnu", binobf::MachineSyntax::GNU,
+                 "bl external_symbol\n", 0U, 26U, 0,
+                 binobf::MachineFixupKind::AArch64Call26},
+    };
+
+    for (const auto& item : cases) {
+        auto provider = binobf::make_codegen_provider(item.architecture);
+        REQUIRE(provider.has_value());
+        binobf::MachineAssemblyRequest request{};
+        request.architecture = item.architecture;
+        request.format = item.format;
+        request.triple = item.triple;
+        request.syntax = item.syntax;
+        request.assembly = item.assembly;
+        request.expectedInstructionCount = 1U;
+        const auto emission = provider.value()->emit(request);
+        REQUIRE(emission.has_value());
+        REQUIRE_EQ(emission.value().fixups.size(), 1U);
+        const auto& fixup = emission.value().fixups.front();
+        REQUIRE_EQ(fixup.offset, item.offset);
+        REQUIRE_EQ(fixup.bitWidth, item.bitWidth);
+        REQUIRE(fixup.isSigned);
+        REQUIRE(fixup.pcRelative);
+        REQUIRE_EQ(fixup.addend, item.addend);
+        REQUIRE_EQ(fixup.symbol, "external_symbol");
+        if (fixup.kind != item.kind) {
+            binobf::test::fail(
+                "fixup.kind == item.kind",
+                __FILE__,
+                __LINE__,
+                std::string{binobf::to_string(item.architecture)} + "/" +
+                    std::string{binobf::to_string(item.format)} +
+                    " actual=" +
+                    std::to_string(static_cast<unsigned int>(fixup.kind)) +
+                    " expected=" +
+                    std::to_string(static_cast<unsigned int>(item.kind)));
+        }
+        const auto repeated = provider.value()->emit(request);
+        REQUIRE(repeated.has_value());
+        REQUIRE_EQ(repeated.value().fixups, emission.value().fixups);
+    }
+}
+
+TEST_CASE(codegen_provider_normalizes_absolute_got_plt_and_page_fixups) {
+    auto x64 = binobf::make_codegen_provider(binobf::Architecture::X86_64);
+    REQUIRE(x64.has_value());
+    binobf::MachineAssemblyRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.triple = "x86_64-unknown-linux-gnu";
+    request.syntax = binobf::MachineSyntax::Intel;
+
+    request.assembly = ".quad external_symbol\n";
+    const auto absolute = x64.value()->emit(request);
+    REQUIRE(absolute.has_value());
+    REQUIRE_EQ(absolute.value().fixups.size(), 1U);
+    REQUIRE_EQ(absolute.value().fixups.front().offset, 0U);
+    REQUIRE_EQ(absolute.value().fixups.front().bitWidth, 64U);
+    REQUIRE(!absolute.value().fixups.front().isSigned);
+    REQUIRE(!absolute.value().fixups.front().pcRelative);
+    REQUIRE_EQ(absolute.value().fixups.front().addend, 0);
+    REQUIRE_EQ(absolute.value().fixups.front().symbol, "external_symbol");
+    REQUIRE_EQ(absolute.value().fixups.front().kind,
+               binobf::MachineFixupKind::Absolute64);
+    const auto absoluteRepeated = x64.value()->emit(request);
+    REQUIRE(absoluteRepeated.has_value());
+    REQUIRE_EQ(absoluteRepeated.value().fixups, absolute.value().fixups);
+
+    request.assembly = "mov rax, qword ptr [rip + external_symbol@GOTPCREL]\n";
+    request.expectedInstructionCount = 1U;
+    const auto got = x64.value()->emit(request);
+    REQUIRE(got.has_value());
+    REQUIRE_EQ(got.value().fixups.size(), 1U);
+    REQUIRE_EQ(got.value().fixups.front().offset, 3U);
+    REQUIRE_EQ(got.value().fixups.front().bitWidth, 32U);
+    REQUIRE(got.value().fixups.front().isSigned);
+    REQUIRE(got.value().fixups.front().pcRelative);
+    REQUIRE_EQ(got.value().fixups.front().addend, -4);
+    REQUIRE_EQ(got.value().fixups.front().kind,
+               binobf::MachineFixupKind::GotRelative32);
+    const auto gotRepeated = x64.value()->emit(request);
+    REQUIRE(gotRepeated.has_value());
+    REQUIRE_EQ(gotRepeated.value().fixups, got.value().fixups);
+
+    request.assembly = "call external_symbol@PLT\n";
+    const auto plt = x64.value()->emit(request);
+    REQUIRE(plt.has_value());
+    REQUIRE_EQ(plt.value().fixups.size(), 1U);
+    REQUIRE_EQ(plt.value().fixups.front().offset, 1U);
+    REQUIRE_EQ(plt.value().fixups.front().addend, -4);
+    REQUIRE_EQ(plt.value().fixups.front().kind,
+               binobf::MachineFixupKind::PltRelative32);
+    const auto pltRepeated = x64.value()->emit(request);
+    REQUIRE(pltRepeated.has_value());
+    REQUIRE_EQ(pltRepeated.value().fixups, plt.value().fixups);
+
+    auto arm64 = binobf::make_codegen_provider(binobf::Architecture::ARM64);
+    REQUIRE(arm64.has_value());
+    request = {};
+    request.architecture = binobf::Architecture::ARM64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.triple = "aarch64-unknown-linux-gnu";
+    request.syntax = binobf::MachineSyntax::GNU;
+    request.assembly =
+        "adrp x0, external_symbol\n"
+        "add x0, x0, :lo12:external_symbol\n";
+    request.expectedInstructionCount = 2U;
+    const auto page = arm64.value()->emit(request);
+    REQUIRE(page.has_value());
+    REQUIRE_EQ(page.value().fixups.size(), 2U);
+    REQUIRE_EQ(page.value().fixups[0].offset, 0U);
+    REQUIRE_EQ(page.value().fixups[0].bitWidth, 21U);
+    REQUIRE(page.value().fixups[0].isSigned);
+    REQUIRE(page.value().fixups[0].pcRelative);
+    REQUIRE_EQ(page.value().fixups[0].kind,
+               binobf::MachineFixupKind::AArch64Page21);
+    REQUIRE_EQ(page.value().fixups[1].offset, 4U);
+    REQUIRE_EQ(page.value().fixups[1].bitWidth, 12U);
+    REQUIRE(!page.value().fixups[1].isSigned);
+    REQUIRE(!page.value().fixups[1].pcRelative);
+    REQUIRE_EQ(page.value().fixups[1].kind,
+               binobf::MachineFixupKind::AArch64PageOffset12);
+    REQUIRE_EQ(page.value().fixups[0].symbol, "external_symbol");
+    REQUIRE_EQ(page.value().fixups[1].symbol, "external_symbol");
+    const auto pageRepeated = arm64.value()->emit(request);
+    REQUIRE(pageRepeated.has_value());
+    REQUIRE_EQ(pageRepeated.value().fixups, page.value().fixups);
+}
+
+TEST_CASE(codegen_provider_rejects_unsupported_and_excessive_fixups) {
+    auto provider = binobf::make_codegen_provider(binobf::Architecture::X86_64);
+    REQUIRE(provider.has_value());
+    binobf::MachineAssemblyRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.triple = "x86_64-unknown-linux-gnu";
+    request.syntax = binobf::MachineSyntax::Intel;
+    request.assembly = ".long external_symbol@SIZE\n";
+    const auto unsupported = provider.value()->emit(request);
+    REQUIRE(!unsupported.has_value());
+    REQUIRE_EQ(unsupported.error().code, "codegen.unsupported_fixup");
+
+    request.assembly = ".quad first_symbol\n.quad second_symbol\n";
+    request.limits.maxFixups = 1U;
+    const auto excessive = provider.value()->emit(request);
+    REQUIRE(!excessive.has_value());
+    REQUIRE_EQ(excessive.error().code, "codegen.resource_limit");
+}
+
 int main() {
     return binobf::test::run_all();
 }

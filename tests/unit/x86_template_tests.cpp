@@ -102,6 +102,21 @@ TEST_CASE(x86_64_supports_relocation_free_nop_equivalents) {
     REQUIRE(!emitted.value().writesFlags);
 }
 
+TEST_CASE(x86_64_supports_zero_extending_constant_materialization) {
+    auto fixed = backend_x64();
+    binobf::MachineTransformRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::COFF;
+    request.kind = binobf::MachineTransformKind::ConstantMaterialization;
+    request.condition = "eax";
+    request.constantBits = UINT64_C(0x12345678);
+    request.exactSize = 5;
+    const auto emitted = fixed->emit_transform(request);
+    REQUIRE(emitted.has_value());
+    REQUIRE_EQ(emitted.value().emission.bytes.size(), std::size_t{5});
+    REQUIRE_EQ(emitted.value().emission.clobberedRegisters.front(), "eax");
+}
+
 TEST_CASE(x86_constant_templates_materialize_eax_and_ecx) {
     auto fixed = backend();
     for (const auto name : {std::string_view{"eax"}, std::string_view{"ecx"}}) {

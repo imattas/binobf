@@ -175,13 +175,13 @@ auto emit_x86_transform(
     if (request.kind == MachineTransformKind::ConstantMaterialization) {
         if (request.exactSize != 5U && request.exactSize != 6U) {
             return failure<MachineTransformEmission>(
-                "architecture.exact_size_unavailable", "i386 immediate materialization is exactly 5 or 6 bytes");
+                "architecture.exact_size_unavailable", "x86 immediate materialization is exactly 5 or 6 bytes");
         }
         if (!request.constantBits.has_value()
             || *request.constantBits > std::numeric_limits<std::uint32_t>::max()
             || (request.condition != "eax" && request.condition != "ecx")) {
             return failure<MachineTransformEmission>(
-                "architecture.invalid_template", "i386 constant template requires eax or ecx and a 32-bit value");
+                "architecture.invalid_template", "x86 constant template requires eax or ecx and a 32-bit value");
         }
         std::vector<std::byte> bytes;
         if (request.exactSize == 5U) {
@@ -198,13 +198,13 @@ auto emit_x86_transform(
     if (request.kind == MachineTransformKind::ConditionalInversion) {
         if (request.exactSize != 2U && request.exactSize != 6U) {
             return failure<MachineTransformEmission>(
-                "architecture.exact_size_unavailable", "i386 conditional branch is exactly 2 or 6 bytes");
+                "architecture.exact_size_unavailable", "x86 conditional branch is exactly 2 or 6 bytes");
         }
         const bool near = request.exactSize == 6U;
         const auto opcode = condition_opcode(request.condition, near);
         if (!opcode.has_value()) {
             return failure<MachineTransformEmission>(
-                "architecture.invalid_condition", "condition is not a normalized invertible i386 condition");
+                "architecture.invalid_condition", "condition is not a normalized invertible x86 condition");
         }
         const auto displacement = checked_displacement(
             request, request.exactSize,
@@ -234,7 +234,7 @@ auto emit_x86_transform(
         }
         if (size != 2U && size != 5U) {
             return failure<MachineTransformEmission>(
-                "architecture.exact_size_unavailable", "i386 direct jump is exactly 2 or 5 bytes");
+                "architecture.exact_size_unavailable", "x86 direct jump is exactly 2 or 5 bytes");
         }
         const auto displacement = checked_displacement(
             request, size,

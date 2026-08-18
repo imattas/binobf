@@ -287,7 +287,7 @@ git commit -m "build: add pinned minimal LLVM MC provider"
 - Consumes: LLVM MC/Object private APIs and the fixed architecture decoder.
 - Produces: deterministic section bytes and provider diagnostics for x86, x86-64, and ARM64.
 
-- [ ] **Step 1: Write golden no-fixup emission tests**
+- [x] **Step 1: Write golden no-fixup emission tests**
 
 Add exact cases:
 
@@ -309,11 +309,11 @@ const std::array goldens{
 Require exact bytes, no fixups, deterministic repeated results, provider `LLVM 22.1.8`, and
 successful decode of every emitted instruction.
 
-- [ ] **Step 2: Confirm `codegen.not_implemented` RED**
+- [x] **Step 2: Confirm `codegen.not_implemented` RED**
 
 Run the focused test and require failure on the first golden emission.
 
-- [ ] **Step 3: Implement bounded directive screening**
+- [x] **Step 3: Implement bounded directive screening**
 
 Tokenize lines before LLVM parsing. Allow labels, instructions, `.text`, `.intel_syntax`,
 `.att_syntax`, `.p2align`, `.balign`, `.byte`, `.short`, `.long`, `.quad`, and `.globl` only.
@@ -321,33 +321,33 @@ Reject every other leading-dot directive with `codegen.directive_rejected`; reje
 `.include`, `.incbin`, `.macro`, `.if`, `.section`, `.pushsection`, `.debug`, and `.file` by exact
 case-insensitive token. Enforce byte/line/symbol limits before allocation.
 
-- [ ] **Step 4: Assemble to an in-memory object**
+- [x] **Step 4: Assemble to an in-memory object**
 
 In `llvm_mc_assembler.cpp`, create `Triple`, lookup `Target`, construct `MCRegisterInfo`,
 `MCAsmInfo`, `MCSubtargetInfo`, `MCInstrInfo`, `MCContext`, `MCObjectFileInfo`, object streamer,
 `MCAsmParser`, and target parser. Write with `raw_svector_ostream` and return an owning byte vector.
 Capture `SourceMgr` diagnostics into `codegen.assembly_failed` with bounded line/column/message.
 
-- [ ] **Step 5: Extract the requested text section**
+- [x] **Step 5: Extract the requested text section**
 
 Use `object::ObjectFile::createObjectFile`, require exactly one matching section, enforce alignment
 and emitted-byte limits, copy contents, reject defined executable sections other than the requested
 section, and sort all results deterministically.
 
-- [ ] **Step 6: Re-decode emitted bytes**
+- [x] **Step 6: Re-decode emitted bytes**
 
 Walk the bytes with `make_architecture_backend(request.architecture)`, allocate stable temporary
 entity IDs, and require complete decoding until the section ends. Enforce
 `expectedInstructionCount`; return `codegen.verification_failed` for a mismatch.
 
-- [ ] **Step 7: Run provider goldens**
+- [x] **Step 7: Run provider goldens**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_codegen_provider_tests
 ctest --test-dir build\m12-verify-debug -R '^codegen_provider$' --output-on-failure
 ```
 
-- [ ] **Step 8: Commit deterministic in-process emission**
+- [x] **Step 8: Commit deterministic in-process emission**
 
 ```powershell
 git add src/architecture/codegen_provider.cpp src/architecture/llvm_mc_assembler.* `

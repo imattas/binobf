@@ -110,6 +110,7 @@ endif()
 set(BINOBF_CORE_SOURCES
     src/architecture/capstone_backend.cpp
     src/architecture/codegen_provider.cpp
+    src/architecture/llvm_mc_assembler.cpp
     src/capabilities/evidence.cpp
     src/capabilities/render.cpp
     src/capabilities/registry.cpp

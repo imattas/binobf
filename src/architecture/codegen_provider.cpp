@@ -1,5 +1,7 @@
 #include <binobf/architecture/codegen.hpp>
 
+#include "llvm_mc_assembler.hpp"
+
 #include <llvm/Support/TargetSelect.h>
 
 #include <algorithm>
@@ -141,9 +143,7 @@ public:
                 "codegen.resource_limit",
                 "the assembly input exceeds the configured line limit");
         }
-        return failure(
-            "codegen.not_implemented",
-            "machine-code emission is not available until the LLVM MC emitter is connected");
+        return detail::assemble_with_llvm_mc(request);
     }
 
 private:

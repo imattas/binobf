@@ -1,0 +1,59 @@
+name: Hardening
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-smoke:
+    name: libFuzzer smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes clang lld ninja-build
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/fuzz -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DBINOBF_BUILD_TESTS=OFF
+          -DBINOBF_BUILD_FUZZERS=ON
+          -DBINOBF_ENABLE_UNDEFINED_SANITIZER=ON
+          -DBINOBF_WARNINGS_AS_ERRORS=ON
+
+      - name: Run deterministic fuzz smoke
+        run: cmake --build build/fuzz --target fuzz-smoke --parallel 2
+
+  benchmark:
+    name: benchmark build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install --yes clang lld ninja-build
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build/benchmark -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          -DBINOBF_BUILD_TESTS=OFF
+          -DBINOBF_BUILD_BENCHMARKS=ON
+          -DBINOBF_WARNINGS_AS_ERRORS=ON
+
+      - name: Build benchmark executable
+        run: cmake --build build/benchmark --target binobf_benchmarks --parallel 2

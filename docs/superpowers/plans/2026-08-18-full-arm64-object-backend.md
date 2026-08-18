@@ -354,7 +354,7 @@ git commit -m "feat: normalize ARM64 object metadata"
 - Consumes: normalized ARM64 objects, Capstone detail, and four-byte boundaries.
 - Produces: complete functions, instructions, blocks, CFG edges, calls, register effects, and stable refusal reasons.
 
-- [ ] **Step 1: Add RED decoder and analyzer cases**
+- [x] **Step 1: Add RED decoder and analyzer cases**
 
 Require classification and targets for `b`, `bl`, every `b.cond`, `cbz/cbnz`, `tbz/tbnz`, `br`,
 `blr`, and `ret`; SP/FP/LR and NZCV effects; literal/PC-relative references; and incomplete results
@@ -372,12 +372,12 @@ TEST_CASE(arm64_analyzer_builds_fixed_width_cfg_and_calls) {
 }
 ```
 
-- [ ] **Step 2: Prove analyzer gaps on real Clang objects**
+- [x] **Step 2: Prove analyzer gaps on real Clang objects**
 
 Compile the C/C++ fixtures at `-O0` for both targets and run the new tests. Expected: failures for
 missing call/conditional classification, function-size recovery, or completeness.
 
-- [ ] **Step 3: Implement conservative A64 semantics**
+- [x] **Step 3: Implement conservative A64 semantics**
 
 Use Capstone groups/operands, not mnemonic substrings. Normalize `nzcv`, `sp`, `x29`, `x30`,
 integer/vector reads/writes, targets, fallthrough, calls, and returns. Reject targets outside owned
@@ -385,20 +385,20 @@ code or inside an instruction; never invent `br/blr` targets. Prefer exact funct
 then relocation/unwind evidence. Mapping symbols refine spans but never create functions. Preserve
 stable IDs across reanalysis.
 
-- [ ] **Step 4: Build the six-optimization corpus**
+- [x] **Step 4: Build the six-optimization corpus**
 
 `RunArm64CompilerCorpus.cmake` compiles both languages and formats with
 `-O0/-O1/-O2/-O3/-Os/-Oz`, function/data sections, debug, unwind, PIC where valid, and Armv8-A
 baseline flags. It writes a manifest consumed by integration tests.
 
-- [ ] **Step 5: Run analyzer and corpus gates**
+- [x] **Step 5: Run analyzer and corpus gates**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_object_analyzer_tests arm64_compiler_corpus
 ctest --test-dir build\m13-verify-debug -C Debug -R "^(arm64_object_analyzer|arm64_compiler_corpus)$" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit ARM64 analysis**
+- [x] **Step 6: Commit ARM64 analysis**
 
 ```powershell
 git add CMakeLists.txt cmake/RunArm64CompilerCorpus.cmake src/analysis/object_analyzer.cpp src/architecture/capstone_backend.cpp tests/unit/arm64_object_analyzer_tests.cpp tests/fixtures/arm64

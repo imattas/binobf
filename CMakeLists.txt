@@ -666,6 +666,42 @@ if(BINOBF_BUILD_TESTS)
     add_test(NAME x86_object_analyzer COMMAND binobf_x86_object_analyzer_tests)
 
     add_executable(
+        binobf_arm64_object_analyzer_tests
+        tests/unit/arm64_object_analyzer_tests.cpp
+    )
+    target_link_libraries(binobf_arm64_object_analyzer_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_arm64_object_analyzer_tests)
+    add_test(NAME arm64_object_analyzer COMMAND binobf_arm64_object_analyzer_tests)
+    set(BINOBF_ARM64_COMPILER_CORPUS_DIR
+        "${CMAKE_CURRENT_BINARY_DIR}/arm64-compiler-corpus")
+    set(BINOBF_ARM64_COMPILER_CORPUS_STAMP
+        "${BINOBF_ARM64_COMPILER_CORPUS_DIR}/complete.stamp")
+    add_custom_command(
+        OUTPUT "${BINOBF_ARM64_COMPILER_CORPUS_STAMP}"
+        COMMAND "${CMAKE_COMMAND}"
+            "-DCLANG=${CMAKE_C_COMPILER}"
+            "-DCLANGXX=${CMAKE_CXX_COMPILER}"
+            "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64"
+            "-DOUTPUT_DIR=${BINOBF_ARM64_COMPILER_CORPUS_DIR}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunArm64CompilerCorpus.cmake"
+        DEPENDS
+            cmake/RunArm64CompilerCorpus.cmake
+            tests/fixtures/arm64/corpus.c
+            tests/fixtures/arm64/corpus.cpp
+        VERBATIM
+    )
+    add_custom_target(
+        arm64_compiler_corpus
+        DEPENDS "${BINOBF_ARM64_COMPILER_CORPUS_STAMP}"
+    )
+    add_dependencies(binobf_arm64_object_analyzer_tests arm64_compiler_corpus)
+    add_test(
+        NAME arm64_compiler_corpus
+        COMMAND binobf_arm64_object_analyzer_tests
+            "${BINOBF_ARM64_COMPILER_CORPUS_DIR}"
+    )
+
+    add_executable(
         binobf_instruction_transform_tests
         tests/unit/instruction_transform_tests.cpp
     )

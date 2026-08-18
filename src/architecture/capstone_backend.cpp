@@ -150,12 +150,12 @@ auto is_unconditional_direct_branch(
     }
     if (instruction.detail == nullptr) return false;
     const auto condition = instruction.detail->arm64.cc;
-    return condition == ARM64_CC_INVALID || condition == ARM64_CC_AL
-        || condition == ARM64_CC_NV;
+    return condition == ARM64_CC_INVALID;
 }
 
 auto normalize_registers(
     csh handle,
+    Architecture architecture,
     const cs_regs registers,
     std::uint8_t count) -> std::vector<RegisterAccess> {
     std::vector<RegisterAccess> result;
@@ -163,16 +163,35 @@ auto normalize_registers(
     for (std::uint8_t index = 0; index < count; ++index) {
         const auto registerId = registers[index];
         const auto* registerName = cs_reg_name(handle, registerId);
-        result.push_back(RegisterAccess{
-            .id = registerId,
-            .name = registerName == nullptr ? std::string{} : std::string{registerName},
-        });
+        auto name = registerName == nullptr ? std::string{} : std::string{registerName};
+        if (architecture == Architecture::ARM64) {
+            if (registerId == ARM64_REG_FP) name = "x29";
+            if (registerId == ARM64_REG_LR) name = "x30";
+            if (registerId == ARM64_REG_SP) name = "sp";
+            if (registerId == ARM64_REG_NZCV) name = "nzcv";
+        }
+        result.push_back(RegisterAccess{.id = registerId, .name = std::move(name)});
     }
     std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
         return left.id < right.id;
     });
     result.erase(std::unique(result.begin(), result.end()), result.end());
     return result;
+}
+
+auto pc_relative_data_target(Architecture architecture, const cs_insn& instruction)
+    -> std::optional<std::uint64_t> {
+    if (architecture != Architecture::ARM64) return std::nullopt;
+    switch (instruction.id) {
+    case ARM64_INS_ADR:
+    case ARM64_INS_ADRP:
+    case ARM64_INS_LDR:
+    case ARM64_INS_LDRSW:
+    case ARM64_INS_PRFM:
+        return immediate_target(architecture, instruction);
+    default:
+        return std::nullopt;
+    }
 }
 
 auto analysis_support(Architecture architecture) -> SupportLevel {
@@ -502,9 +521,9 @@ public:
                 std::string{"could not derive register access: "} + cs_strerror(access));
         }
         auto normalizedRegistersRead = normalize_registers(
-            handle_.value(), registersRead, registersReadCount);
+            handle_.value(), architecture_, registersRead, registersReadCount);
         auto normalizedRegistersWritten = normalize_registers(
-            handle_.value(), registersWritten, registersWrittenCount);
+            handle_.value(), architecture_, registersWritten, registersWrittenCount);
         if (architecture_ == Architecture::ARM64 && decoded.detail != nullptr) {
             const auto condition = decoded.detail->arm64.cc;
             if (condition != ARM64_CC_INVALID && condition != ARM64_CC_AL
@@ -513,6 +532,9 @@ public:
             }
             if (decoded.detail->arm64.update_flags) {
                 normalizedRegistersWritten.push_back(RegisterAccess{ARM64_REG_NZCV, "nzcv"});
+            }
+            if (decoded.id == ARM64_INS_RET) {
+                normalizedRegistersRead.push_back(RegisterAccess{ARM64_REG_LR, "x30"});
             }
             const auto normalize = [](auto& registers) {
                 std::sort(registers.begin(), registers.end(), [](const auto& left, const auto& right) {
@@ -539,6 +561,14 @@ public:
                     ? InstructionReferenceKind::CallTarget
                     : InstructionReferenceKind::BranchTarget,
                 .address = directTarget,
+                .relocation = std::nullopt,
+                .symbol = std::nullopt,
+            });
+        }
+        if (const auto dataTarget = pc_relative_data_target(architecture_, decoded)) {
+            references.push_back(InstructionReference{
+                .kind = InstructionReferenceKind::Data,
+                .address = BinaryAddress{*dataTarget, request.address.kind},
                 .relocation = std::nullopt,
                 .symbol = std::nullopt,
             });

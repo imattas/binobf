@@ -21,9 +21,27 @@ namespace {
 struct Candidate {
     const Symbol* symbol{nullptr};
     const Section* section{nullptr};
+    std::optional<EntityId> preservedId;
+    std::string name;
+    BinaryAddress address;
+    std::uint64_t declaredSize{0};
+    FunctionDiscovery discovery{FunctionDiscovery::Symbol};
+    bool externallyVisible{false};
+    EntityId lineageSource;
     std::uint64_t offset{0};
     bool offsetValid{false};
 };
+
+using EntityLocation = std::pair<std::uint64_t, std::uint64_t>;
+
+auto is_aarch64_data_mapping_symbol(std::string_view name) noexcept -> bool {
+    return name == "$d" || name.starts_with("$d.");
+}
+
+auto is_aarch64_mapping_symbol(std::string_view name) noexcept -> bool {
+    return is_aarch64_data_mapping_symbol(name)
+        || name == "$x" || name.starts_with("$x.");
+}
 
 auto error(std::string code, std::string message) -> Diagnostic {
     return Diagnostic{DiagnosticSeverity::Error, std::move(code), std::move(message)};
@@ -65,6 +83,32 @@ auto next_entity_id(const BinaryImage& image) -> std::uint64_t {
 auto add_checked(std::uint64_t left, std::uint64_t right) -> std::optional<std::uint64_t> {
     if (right > std::numeric_limits<std::uint64_t>::max() - left) return std::nullopt;
     return left + right;
+}
+
+auto add_signed_checked(std::uint64_t value, std::int64_t addend)
+    -> std::optional<std::uint64_t> {
+    if (addend >= 0) return add_checked(value, static_cast<std::uint64_t>(addend));
+    const auto magnitude = static_cast<std::uint64_t>(-(addend + 1)) + 1U;
+    if (magnitude > value) return std::nullopt;
+    return value - magnitude;
+}
+
+auto is_arm64_call_relocation(const BinaryImage& image, const Relocation& relocation) -> bool {
+    if (image.architecture != Architecture::ARM64) return false;
+    if (image.format == BinaryFormat::ELF) return relocation.rawType == 0x11bU;
+    if (image.format != BinaryFormat::COFF || relocation.rawType != 0x0003U) return false;
+    const auto* section = find_section(image, relocation.section);
+    if (section == nullptr || relocation.offset > section->contents.size()
+        || 4U > section->contents.size() - static_cast<std::size_t>(relocation.offset)) {
+        return false;
+    }
+    std::uint32_t word = 0;
+    for (std::size_t index = 0; index < 4U; ++index) {
+        word |= static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(
+                    section->contents[static_cast<std::size_t>(relocation.offset) + index]))
+            << static_cast<unsigned int>(index * 8U);
+    }
+    return (word & 0xfc000000U) == 0x94000000U;
 }
 
 auto fallback_width(Architecture architecture, std::size_t available) -> std::size_t {
@@ -129,11 +173,16 @@ void attach_relocation_references(BinaryImage& image, const Function& function) 
             const bool isBranch = instruction->kind == InstructionKind::DirectBranch
                 || instruction->kind == InstructionKind::ConditionalBranch
                 || instruction->kind == InstructionKind::IndirectBranch;
+            const bool isData = std::ranges::any_of(
+                instruction->references, [](const auto& reference) {
+                    return reference.kind == InstructionReferenceKind::Data;
+                });
             const auto referenceKind = isCall
                 ? InstructionReferenceKind::CallTarget
                 : (isBranch ? InstructionReferenceKind::BranchTarget
-                            : InstructionReferenceKind::Relocation);
-            if (isCall || isBranch) {
+                            : (isData ? InstructionReferenceKind::Data
+                                      : InstructionReferenceKind::Relocation));
+            if (isCall || isBranch || isData) {
                 instruction->references.erase(
                     std::remove_if(
                         instruction->references.begin(), instruction->references.end(),
@@ -200,7 +249,8 @@ void add_unique_successor(BasicBlock& block, EntityId successor) {
 void recover_cfg(
     AnalysisReport& report,
     Function& function,
-    std::uint64_t& nextId) {
+    std::uint64_t& nextId,
+    const std::map<EntityLocation, EntityId>& preservedBlockIds) {
     if (function.instructions.empty()) return;
     std::vector<const Instruction*> instructions;
     instructions.reserve(function.instructions.size());
@@ -244,7 +294,10 @@ void recover_cfg(
         }
         if (blockInstructions.empty()) continue;
         const auto* first = find_instruction(report.image, blockInstructions.front());
-        const auto blockId = EntityId{nextId++};
+        const auto preservedBlock = preservedBlockIds.find(
+            EntityLocation{function.id.value(), begin});
+        const auto blockId = preservedBlock == preservedBlockIds.end()
+            ? EntityId{nextId++} : preservedBlock->second;
         report.image.basicBlocks.push_back(BasicBlock{
             .id = blockId,
             .function = function.id,
@@ -275,9 +328,23 @@ void recover_cfg(
         }
         return std::nullopt;
     };
-    auto target_is_inside = [&](BinaryAddress target) -> bool {
-        if (target.value < function.address.value) return false;
-        return target.value - function.address.value < function.size;
+    const auto* functionSection = find_section(report.image, function.section);
+    auto target_is_owned_code = [&](BinaryAddress target) -> bool {
+        if (functionSection == nullptr || target.kind != functionSection->address.kind
+            || target.value < functionSection->address.value) {
+            return false;
+        }
+        return target.value - functionSection->address.value
+            < functionSection->contents.size();
+    };
+    auto target_is_instruction_boundary = [&](BinaryAddress target) -> bool {
+        if (!target_is_owned_code(target)) return false;
+        if (report.image.architecture == Architecture::ARM64) {
+            return (target.value - functionSection->address.value) % 4U == 0U;
+        }
+        return std::ranges::any_of(report.image.instructions, [&](const auto& instruction) {
+            return instruction.section == function.section && instruction.address == target;
+        });
     };
 
     for (std::size_t index = blockBase; index < report.image.basicBlocks.size(); ++index) {
@@ -297,12 +364,22 @@ void recover_cfg(
         auto add_direct_target = [&](ControlFlowEdgeKind kind, bool successor) {
             if (!terminator->directTarget.has_value()) return;
             const auto target = target_block(*terminator->directTarget);
-            if (!target.has_value() && target_is_inside(*terminator->directTarget)) {
+            if (!target.has_value() && target_is_owned_code(*terminator->directTarget)
+                && !target_is_instruction_boundary(*terminator->directTarget)) {
                 function.complete = false;
                 report.diagnostics.push_back(warning(
                     "analysis.invalid_branch_target",
                     "function " + function.name
                         + " has a control-flow target that is not an instruction boundary"));
+            } else if (!target.has_value()
+                && !target_is_owned_code(*terminator->directTarget)
+                && (terminator->kind == InstructionKind::DirectBranch
+                    || terminator->kind == InstructionKind::ConditionalBranch)) {
+                function.complete = false;
+                report.diagnostics.push_back(warning(
+                    "analysis.branch_target_outside_code",
+                    "function " + function.name
+                        + " has a branch target outside its owned code section"));
             }
             add_edge(kind, target, terminator->directTarget, successor);
         };
@@ -450,17 +527,32 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
     }
     auto backend = std::move(backendResult).value();
     AnalysisReport report{.image = input, .diagnostics = {}};
+    auto nextId = next_entity_id(report.image);
+    if (nextId == std::numeric_limits<std::uint64_t>::max()) {
+        return Result<AnalysisReport, Diagnostic>::failure(error(
+            "analysis.id_exhausted", "no stable entity IDs remain for analysis"));
+    }
     std::unordered_map<std::uint64_t, EntityId> functionIdsBySymbol;
+    std::map<EntityLocation, EntityId> instructionIdsByLocation;
+    std::map<EntityLocation, EntityId> blockIdsByLocation;
     for (const auto& function : report.image.functions) {
         if (function.symbol.has_value()) {
             functionIdsBySymbol.emplace(function.symbol->value(), function.id);
         }
     }
-    report.image.instructions.clear();
-    report.image.basicBlocks.clear();
-    report.image.functions.clear();
+    for (const auto& instruction : report.image.instructions) {
+        instructionIdsByLocation.emplace(
+            EntityLocation{instruction.section.value(), instruction.sectionOffset},
+            instruction.id);
+    }
+    for (const auto& block : report.image.basicBlocks) {
+        blockIdsByLocation.emplace(
+            EntityLocation{block.function.value(), block.sectionOffset}, block.id);
+    }
 
     std::vector<Candidate> candidates;
+    std::set<EntityLocation> candidateLocations;
+    std::set<std::uint64_t> symbolCandidateIds;
     for (const auto& symbol : report.image.symbols) {
         if (!symbol.defined || symbol.kind != SymbolKind::Function
             || !symbol.section.has_value()) {
@@ -473,49 +565,154 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
         const bool baseValid = symbol.address.value >= section->address.value;
         const auto offset = baseValid
             ? symbol.address.value - section->address.value : UINT64_C(0);
+        const auto preserved = functionIdsBySymbol.find(symbol.id.value());
         candidates.push_back(Candidate{
             .symbol = &symbol,
             .section = section,
+            .preservedId = preserved == functionIdsBySymbol.end()
+                ? std::optional<EntityId>{} : std::optional{preserved->second},
+            .name = symbol.name,
+            .address = symbol.address,
+            .declaredSize = symbol.size,
+            .discovery = FunctionDiscovery::Symbol,
+            .externallyVisible = symbol.visibility == SymbolVisibility::External,
+            .lineageSource = symbol.id,
             .offset = offset,
-            .offsetValid = baseValid && offset < section->contents.size(),
+            .offsetValid = baseValid && offset < section->contents.size()
+                && (report.image.architecture != Architecture::ARM64
+                    || offset % 4U == 0U),
         });
+        candidateLocations.insert(EntityLocation{section->id.value(), offset});
+        symbolCandidateIds.insert(symbol.id.value());
     }
+    for (const auto& function : report.image.functions) {
+        if (function.symbol.has_value()
+            && symbolCandidateIds.contains(function.symbol->value())) {
+            continue;
+        }
+        const auto* section = find_section(report.image, function.section);
+        if (section == nullptr || section->kind != SectionKind::Code || !section->executable) {
+            continue;
+        }
+        const bool baseValid = function.address.value >= section->address.value;
+        const auto offset = baseValid
+            ? function.address.value - section->address.value : UINT64_C(0);
+        if (candidateLocations.contains(EntityLocation{section->id.value(), offset})) {
+            continue;
+        }
+        candidates.push_back(Candidate{
+            .symbol = nullptr,
+            .section = section,
+            .preservedId = function.id,
+            .name = function.name,
+            .address = function.address,
+            .declaredSize = function.size,
+            .discovery = function.discovery,
+            .externallyVisible = function.externallyVisible,
+            .lineageSource = function.lineage.parents.empty()
+                ? function.section : function.lineage.parents.front().source,
+            .offset = offset,
+            .offsetValid = baseValid && offset < section->contents.size()
+                && (report.image.architecture != Architecture::ARM64
+                    || offset % 4U == 0U),
+        });
+        candidateLocations.insert(EntityLocation{section->id.value(), offset});
+    }
+    for (const auto& relocation : report.image.relocations) {
+        if (!is_arm64_call_relocation(report.image, relocation)
+            || !relocation.targetSymbol.has_value()) {
+            continue;
+        }
+        const auto* symbol = find_symbol(report.image, *relocation.targetSymbol);
+        if (symbol == nullptr || !symbol->defined || !symbol->section.has_value()
+            || is_aarch64_mapping_symbol(symbol->name)) {
+            continue;
+        }
+        const auto* section = find_section(report.image, *symbol->section);
+        if (section == nullptr || section->kind != SectionKind::Code || !section->executable
+            || symbol->address.value < section->address.value) {
+            continue;
+        }
+        const auto baseOffset = symbol->address.value - section->address.value;
+        const auto resolvedOffset = add_signed_checked(baseOffset, relocation.addend);
+        const auto resolvedAddress = resolvedOffset.has_value()
+            ? add_checked(section->address.value, *resolvedOffset) : std::nullopt;
+        if (!resolvedOffset.has_value() || !resolvedAddress.has_value()
+            || candidateLocations.contains(EntityLocation{
+                section->id.value(), *resolvedOffset})) {
+            continue;
+        }
+        candidates.push_back(Candidate{
+            .symbol = symbol->kind == SymbolKind::Section ? nullptr : symbol,
+            .section = section,
+            .preservedId = {},
+            .name = symbol->kind == SymbolKind::Section || symbol->name.empty()
+                ? "relocation_" + std::to_string(relocation.id.value()) : symbol->name,
+            .address = BinaryAddress{*resolvedAddress, section->address.kind},
+            .declaredSize = 0,
+            .discovery = FunctionDiscovery::Relocation,
+            .externallyVisible = false,
+            .lineageSource = relocation.id,
+            .offset = *resolvedOffset,
+            .offsetValid = *resolvedOffset < section->contents.size()
+                && *resolvedOffset % 4U == 0U,
+        });
+        candidateLocations.insert(EntityLocation{section->id.value(), *resolvedOffset});
+    }
+    report.image.instructions.clear();
+    report.image.basicBlocks.clear();
+    report.image.functions.clear();
+
     std::sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
         if (left.section->formatIndex != right.section->formatIndex) {
             return left.section->formatIndex < right.section->formatIndex;
         }
         if (left.offset != right.offset) return left.offset < right.offset;
-        return left.symbol->id.value() < right.symbol->id.value();
+        return left.lineageSource.value() < right.lineageSource.value();
     });
-
-    auto nextId = next_entity_id(report.image);
-    if (nextId == std::numeric_limits<std::uint64_t>::max()) {
-        return Result<AnalysisReport, Diagnostic>::failure(error(
-            "analysis.id_exhausted", "no stable entity IDs remain for analysis"));
-    }
     for (std::size_t candidateIndex = 0; candidateIndex < candidates.size(); ++candidateIndex) {
         const auto& candidate = candidates[candidateIndex];
-        const auto preservedId = functionIdsBySymbol.find(candidate.symbol->id.value());
-        const auto functionId = preservedId == functionIdsBySymbol.end()
-            ? EntityId{nextId++} : preservedId->second;
+        const auto functionId = candidate.preservedId.has_value()
+            ? *candidate.preservedId : EntityId{nextId++};
         bool complete = candidate.offsetValid;
         std::uint64_t end = candidate.offset;
         if (!candidate.offsetValid) {
+            const bool arm64Unaligned = report.image.architecture == Architecture::ARM64
+                && candidate.offset < candidate.section->contents.size()
+                && candidate.offset % 4U != 0U;
             report.diagnostics.push_back(warning(
-                "analysis.function_out_of_range",
-                "function " + candidate.symbol->name + " starts outside its code section"));
+                arm64Unaligned ? "analysis.arm64_unaligned_function"
+                               : "analysis.function_out_of_range",
+                "function " + candidate.name + (arm64Unaligned
+                    ? " starts at a non-instruction-aligned offset"
+                    : " starts outside its code section")));
         } else {
-            const auto declaredEnd = candidate.symbol->size == 0
+            const auto declaredEnd = candidate.declaredSize == 0
                 ? std::optional<std::uint64_t>{}
-                : add_checked(candidate.offset, candidate.symbol->size);
+                : add_checked(candidate.offset, candidate.declaredSize);
             const bool hasNext = candidateIndex + 1 < candidates.size()
                 && candidates[candidateIndex + 1].section->id == candidate.section->id;
             const auto sectionEnd = static_cast<std::uint64_t>(
                 candidate.section->contents.size());
-            const auto nextOffset = hasNext
+            auto nextOffset = hasNext
                 ? std::min(candidates[candidateIndex + 1].offset, sectionEnd)
                 : sectionEnd;
-            if (candidate.symbol->size == 0) {
+            if (report.image.architecture == Architecture::ARM64
+                && candidate.declaredSize == 0) {
+                for (const auto& symbol : report.image.symbols) {
+                    if (!symbol.defined || symbol.section != candidate.section->id
+                        || !is_aarch64_data_mapping_symbol(symbol.name)
+                        || symbol.address.value < candidate.section->address.value) {
+                        continue;
+                    }
+                    const auto mappingOffset = symbol.address.value
+                        - candidate.section->address.value;
+                    if (mappingOffset > candidate.offset) {
+                        nextOffset = std::min(nextOffset, mappingOffset);
+                    }
+                }
+            }
+            if (candidate.declaredSize == 0) {
                 end = nextOffset;
             } else if (!declaredEnd.has_value()
                 || *declaredEnd > candidate.section->contents.size()) {
@@ -524,7 +721,7 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
                 complete = false;
                 report.diagnostics.push_back(warning(
                     "analysis.function_out_of_range",
-                    "function " + candidate.symbol->name + " extends outside its code section"));
+                    "function " + candidate.name + " extends outside its code section"));
             } else {
                 end = *declaredEnd;
                 if (hasNext && nextOffset < end) {
@@ -532,36 +729,47 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
                     complete = false;
                     report.diagnostics.push_back(warning(
                         "analysis.overlapping_functions",
-                        "function " + candidate.symbol->name
+                        "function " + candidate.name
                             + " overlaps the next symbol-proven function"));
                 }
+            }
+            if (report.image.architecture == Architecture::ARM64
+                && (end - candidate.offset) % 4U != 0U) {
+                end -= (end - candidate.offset) % 4U;
+                complete = false;
+                report.diagnostics.push_back(warning(
+                    "analysis.arm64_incomplete_word",
+                    "function " + candidate.name
+                        + " ends with an incomplete ARM64 instruction word"));
             }
             if (end <= candidate.offset) {
                 complete = false;
                 end = candidate.offset;
                 report.diagnostics.push_back(warning(
                     "analysis.empty_function_range",
-                    "function " + candidate.symbol->name + " has no decodable byte range"));
+                    "function " + candidate.name + " has no decodable byte range"));
             }
         }
 
         Function function{
             .id = functionId,
-            .name = candidate.symbol->name,
+            .name = candidate.name,
             .section = candidate.section->id,
-            .symbol = candidate.symbol->id,
-            .address = candidate.symbol->address,
+            .symbol = candidate.symbol == nullptr
+                ? std::optional<EntityId>{} : std::optional{candidate.symbol->id},
+            .address = candidate.address,
             .size = end >= candidate.offset ? end - candidate.offset : 0,
-            .discovery = FunctionDiscovery::Symbol,
+            .discovery = candidate.discovery,
             .instructions = {},
             .basicBlocks = {},
             .entryBlock = std::nullopt,
-            .externallyVisible = candidate.symbol->visibility == SymbolVisibility::External,
+            .externallyVisible = candidate.externallyVisible,
             .complete = complete,
             .lineage = TransformationLineage{{TransformationRecord{
                 .transform = TransformId{functionId.value()},
-                .source = candidate.symbol->id,
-                .passName = "symbol-function-discovery",
+                .source = candidate.lineageSource,
+                .passName = candidate.discovery == FunctionDiscovery::Symbol
+                    ? "symbol-function-discovery" : "evidence-function-discovery",
             }}},
         };
         std::uint64_t cursor = candidate.offset;
@@ -576,7 +784,10 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
                     "function " + function.name + " instruction address overflowed"));
                 break;
             }
-            const auto instructionId = EntityId{nextId++};
+            const auto preservedInstruction = instructionIdsByLocation.find(
+                EntityLocation{candidate.section->id.value(), cursor});
+            const auto instructionId = preservedInstruction == instructionIdsByLocation.end()
+                ? EntityId{nextId++} : preservedInstruction->second;
             DecodeRequest request{
                 .architecture = report.image.architecture,
                 .bytes = std::span<const std::byte>{candidate.section->contents}.subspan(
@@ -600,7 +811,9 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
             } else {
                 instruction = std::move(decoded).value();
             }
-            if (instruction.encoding.empty() || instruction.encoding.size() > remaining) {
+            if (instruction.encoding.empty() || instruction.encoding.size() > remaining
+                || (report.image.architecture == Architecture::ARM64
+                    && instruction.encoding.size() != 4U)) {
                 return Result<AnalysisReport, Diagnostic>::failure(error(
                     "analysis.decoder_contract_violation",
                     "instruction decoder returned an invalid encoding length"));
@@ -609,11 +822,11 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
             cursor += instruction.encoding.size();
             report.image.instructions.push_back(std::move(instruction));
         }
-        if (candidate.symbol->size == 0) {
+        if (candidate.declaredSize == 0) {
             trim_inferred_alignment_padding(report, function, candidate.offset);
         }
         attach_relocation_references(report.image, function);
-        recover_cfg(report, function, nextId);
+        recover_cfg(report, function, nextId, blockIdsByLocation);
         recover_liveness(report, function);
         report.image.functions.push_back(std::move(function));
     }

@@ -885,7 +885,7 @@ Then run whole-production static analysis, `git diff --check`, the source-corpus
 the installed consumer. Expected: every gate passes, capability text still reports the current
 truth, and no build artifact is tracked.
 
-- [ ] **Step 6: Commit documentation and release gates**
+- [x] **Step 6: Commit documentation and release gates**
 
 ```powershell
 git add CMakeLists.txt docs/architecture.md docs/developer-guide.md `
@@ -894,7 +894,7 @@ git add CMakeLists.txt docs/architecture.md docs/developer-guide.md `
 git commit -m "test: enforce capability and backend consistency"
 ```
 
-- [ ] **Step 7: Record track completion without claiming program completion**
+- [x] **Step 7: Record track completion without claiming program completion**
 
 Update this plan's checkboxes and the umbrella program checklist. Confirm `git status -sb` is clean.
 The next design track is LLVM MC plus expanded native IR from the approved program spec; do not

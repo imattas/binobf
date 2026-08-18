@@ -208,25 +208,25 @@ iterations, VM steps, archive members, and total output expansion.
 
 The work is implemented as separately designed and gated tracks in dependency order:
 
-1. **Capability contract and backend interfaces.** Typed registry, acceptance-test binding,
+1. [x] **Capability contract and backend interfaces.** Typed registry, acceptance-test binding,
    architecture provider contracts, and migration of existing x86-64 behavior without regressions.
-2. **LLVM MC provider and expanded native IR.** Private pinned dependency, types, validation,
+2. [ ] **LLVM MC provider and expanded native IR.** Private pinned dependency, types, validation,
    emission/fixup round trips, and independent re-decoding.
-3. **Full x86 object backend.** Analysis, code generation, ABI/unwind, all object transforms, COFF and
+3. [ ] **Full x86 object backend.** Analysis, code generation, ABI/unwind, all object transforms, COFF and
    ELF compiler corpora, native 32-bit execution, and matrix promotion.
-4. **Full ARM64 object backend.** Analysis, code generation, ABI/unwind, all object transforms,
+4. [ ] **Full ARM64 object backend.** Analysis, code generation, ABI/unwind, all object transforms,
    COFF and ELF compiler corpora, native or emulated execution, and matrix promotion.
-5. **Full VM semantics and multi-architecture embedding.** Broadened IR/bytecode/runtime, native-call
+5. [ ] **Full VM semantics and multi-architecture embedding.** Broadened IR/bytecode/runtime, native-call
    thunks, x86/x86-64/ARM64 adapters, compiler corpora, and differential execution.
-6. **Archive VM operations.** Member-qualified selection, lowering/protection, index rebuilding,
+6. [ ] **Archive VM operations.** Member-qualified selection, lowering/protection, index rebuilding,
    runtime linking, and `.a`/`.lib` promotion.
-7. **Linked-layout engine.** Address mapping, fixup ownership, inserted ranges, unwind/debug lineage,
+7. [ ] **Linked-layout engine.** Address mapping, fixup ownership, inserted ranges, unwind/debug lineage,
    and format-neutral plan validation.
-8. **PE transformations.** Full baseline and x86-64 code/CFG/layout transformations for `.exe`,
+8. [ ] **PE transformations.** Full baseline and x86-64 code/CFG/layout transformations for `.exe`,
    `.dll`, and opt-in `.sys`, with Windows loader and runtime evidence.
-9. **ELF linked transformations.** Full baseline and x86-64 code/CFG/layout transformations for
+9. [ ] **ELF linked transformations.** Full baseline and x86-64 code/CFG/layout transformations for
    executables, PIEs, and shared objects, with dynamic-loader and runtime evidence.
-10. **Matrix completion and release.** Cross-product corpus, fuzz/mutation/sanitizer/analyzer gates,
+10. [ ] **Matrix completion and release.** Cross-product corpus, fuzz/mutation/sanitizer/analyzer gates,
     installed consumers, package verification, capability-table promotion, and public release.
 
 Each track receives its own focused design and implementation plan. Completing an early track does

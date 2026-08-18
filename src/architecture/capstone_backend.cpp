@@ -1,5 +1,6 @@
 #include <binobf/architecture/backend.hpp>
 
+#include "arm64_abi.hpp"
 #include "arm64_fixups.hpp"
 #include "arm64_templates.hpp"
 #include "x86_fixups.hpp"
@@ -30,6 +31,7 @@ constexpr std::array<std::string_view, 1> kX86AnalysisEvidence{"x86_object_backe
 constexpr std::array<std::string_view, 1> kX86CodegenEvidence{"x86_codegen"};
 constexpr std::array<std::string_view, 1> kX86AbiEvidence{"x86_abi_adapter"};
 constexpr std::array<std::string_view, 1> kX86UnwindEvidence{"x86_unwind"};
+constexpr std::array<std::string_view, 1> kArm64AbiEvidence{"arm64_abi_unwind"};
 
 auto failure(std::string code, std::string message) -> Result<Instruction, Diagnostic> {
     return Result<Instruction, Diagnostic>::failure(Diagnostic{
@@ -236,18 +238,24 @@ public:
                       : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::BuildAbiAdapter,
-                  architecture == Architecture::X86
-                      ? SupportLevel::Supported : SupportLevel::Unsupported,
+                  architecture == Architecture::X86 ? SupportLevel::Supported
+                      : architecture == Architecture::ARM64 ? SupportLevel::Restricted
+                                                            : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86AbiEvidence}
-                      : std::span<const std::string_view>{}},
+                      : architecture == Architecture::ARM64
+                          ? std::span<const std::string_view>{kArm64AbiEvidence}
+                          : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::BuildUnwind,
-                  architecture == Architecture::X86
-                      ? SupportLevel::Supported : SupportLevel::Unsupported,
+                  architecture == Architecture::X86 ? SupportLevel::Supported
+                      : architecture == Architecture::ARM64 ? SupportLevel::Restricted
+                                                            : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86UnwindEvidence}
-                      : std::span<const std::string_view>{}},
+                      : architecture == Architecture::ARM64
+                          ? std::span<const std::string_view>{kArm64AbiEvidence}
+                          : std::span<const std::string_view>{}},
           } {}
 
     auto initialize() -> cs_err { return handle_.open(architecture_); }
@@ -433,12 +441,45 @@ public:
                 "architecture.request_mismatch",
                 "ABI request architecture does not match the fixed backend");
         }
-        if (architecture_ != Architecture::X86) {
+        if (architecture_ != Architecture::X86 && architecture_ != Architecture::ARM64) {
             return service_failure<AbiAdapterPlan>(
                 "architecture.service_unsupported",
                 "the fixed backend does not implement ABI adapter generation");
         }
-        return detail::build_x86_abi_adapter(request, *codegen_);
+        if (architecture_ == Architecture::X86) {
+            return detail::build_x86_abi_adapter(request, *codegen_);
+        }
+        auto plan = detail::build_arm64_abi_adapter(request, *codegen_);
+        if (!plan.has_value()) {
+            return service_failure<AbiAdapterPlan>(plan.error().code, plan.error().message);
+        }
+        std::size_t offset = 0;
+        std::size_t calls = 0;
+        std::size_t returns = 0;
+        while (offset < plan.value().emission.bytes.size()) {
+            const auto instruction = decode(DecodeRequest{
+                .architecture = Architecture::ARM64,
+                .bytes = std::span<const std::byte>{plan.value().emission.bytes}.subspan(offset),
+                .address = BinaryAddress{offset, AddressKind::Virtual},
+                .instructionId = EntityId{offset / 4U + 1U},
+                .sectionId = EntityId{1U},
+                .sectionOffset = offset,
+            });
+            if (!instruction.has_value() || instruction.value().encoding.size() != 4U) {
+                return service_failure<AbiAdapterPlan>(
+                    "architecture.invalid_emission",
+                    "ARM64 ABI adapter did not decode as aligned instructions");
+            }
+            calls += instruction.value().kind == InstructionKind::DirectCall ? 1U : 0U;
+            returns += instruction.value().kind == InstructionKind::Return ? 1U : 0U;
+            offset += 4U;
+        }
+        if (calls != 1U || returns != 1U || plan.value().stackDelta != 0) {
+            return service_failure<AbiAdapterPlan>(
+                "architecture.invalid_emission",
+                "ARM64 ABI adapter call, return, or stack balance verification failed");
+        }
+        return plan;
     }
 
     auto build_unwind(const UnwindRequest& request) const
@@ -448,12 +489,14 @@ public:
                 "architecture.request_mismatch",
                 "unwind request architecture does not match the fixed backend");
         }
-        if (architecture_ != Architecture::X86) {
+        if (architecture_ != Architecture::X86 && architecture_ != Architecture::ARM64) {
             return service_failure<UnwindPlan>(
                 "architecture.service_unsupported",
                 "the fixed backend does not implement unwind generation");
         }
-        return detail::build_x86_unwind_plan(request);
+        return architecture_ == Architecture::X86
+            ? detail::build_x86_unwind_plan(request)
+            : detail::build_arm64_unwind_plan(request);
     }
 
     auto decode(const DecodeRequest& request) const

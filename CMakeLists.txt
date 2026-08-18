@@ -108,6 +108,7 @@ if(BINOBF_ENABLE_UNDEFINED_SANITIZER OR BINOBF_ENABLE_ADDRESS_SANITIZER)
 endif()
 
 set(BINOBF_CORE_SOURCES
+    src/architecture/arm64_abi.cpp
     src/architecture/arm64_fixups.cpp
     src/architecture/arm64_templates.cpp
     src/architecture/capstone_backend.cpp
@@ -702,6 +703,14 @@ if(BINOBF_BUILD_TESTS)
     )
 
     add_executable(
+        binobf_arm64_abi_unwind_tests
+        tests/unit/arm64_abi_unwind_tests.cpp
+    )
+    target_link_libraries(binobf_arm64_abi_unwind_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_arm64_abi_unwind_tests)
+    add_test(NAME arm64_abi_unwind COMMAND binobf_arm64_abi_unwind_tests)
+
+    add_executable(
         binobf_instruction_transform_tests
         tests/unit/instruction_transform_tests.cpp
     )
@@ -909,6 +918,7 @@ if(BINOBF_BUILD_TESTS)
         find_program(BINOBF_LLVM_NM llvm-nm REQUIRED)
         find_program(BINOBF_LLD_LINK lld-link REQUIRED)
         find_program(BINOBF_LD_LLD ld.lld REQUIRED)
+        find_program(BINOBF_QEMU_SYSTEM_AARCH64 qemu-system-aarch64 REQUIRED)
 
         set(BINOBF_LINKED_FIXTURE_DIR "${CMAKE_CURRENT_BINARY_DIR}/linked-fixtures")
         set(BINOBF_LINKED_PE_OBJECT "${BINOBF_LINKED_FIXTURE_DIR}/linked-pe.obj")
@@ -1279,6 +1289,29 @@ if(BINOBF_BUILD_TESTS)
                 "-DGENERATOR=$<TARGET_FILE:binobf_x86_service_artifact_generator>"
                 "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/x86-unwind-semantics"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunX86UnwindSemantics.cmake"
+        )
+
+        add_executable(
+            binobf_arm64_service_artifact_generator
+            tests/differential/arm64_service_artifact_generator.cpp
+        )
+        target_link_libraries(
+            binobf_arm64_service_artifact_generator PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_arm64_service_artifact_generator)
+        add_test(
+            NAME arm64_abi_native_differential
+            COMMAND "${CMAKE_COMMAND}"
+                "-DCLANG=${CMAKE_C_COMPILER}"
+                "-DLD_LLD=${BINOBF_LD_LLD}"
+                "-DLLVM_READOBJ=${BINOBF_LLVM_READOBJ}"
+                "-DQEMU=${BINOBF_QEMU_SYSTEM_AARCH64}"
+                "-DENTRY_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/abi_native_entry.S"
+                "-DSEMIHOSTING_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/semihosting.S"
+                "-DWINDOWS_UNWIND_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/windows_unwind_reference.S"
+                "-DLINKER_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/qemu.ld"
+                "-DGENERATOR=$<TARGET_FILE:binobf_arm64_service_artifact_generator>"
+                "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/arm64-abi-native-differential"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunArm64AbiNativeDifferential.cmake"
         )
 
         if(WIN32)

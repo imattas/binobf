@@ -425,7 +425,7 @@ git commit -m "feat: analyze ARM64 compiler objects"
 - Consumes: `AbiAdapterRequest`, `IrType`, explicit bindings, and ARM64 LLVM MC emission.
 - Produces: `build_arm64_abi_adapter` with moves, stack usage, clobbers, call fixup, return binding, and unwind actions.
 
-- [ ] **Step 1: Add RED binding and rejection tests**
+- [x] **Step 1: Add RED binding and rejection tests**
 
 Cover integer/pointer `x0-x7`, FP/vector `v0-v7`, aligned stack overflow, `x8` indirect results,
 `x0/x1` wide integer results, `v0` FP/vector results, register cycles, binding overlap, huge offsets,
@@ -444,7 +444,7 @@ TEST_CASE(arm64_adapter_moves_register_and_stack_arguments_without_clobber) {
 }
 ```
 
-- [ ] **Step 2: Prove ARM64 ABI service is unsupported**
+- [x] **Step 2: Prove ARM64 ABI service is unsupported**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_abi_unwind_tests
@@ -452,7 +452,7 @@ cmake --build build\m13-verify-debug --target binobf_arm64_abi_unwind_tests
 
 Expected: source/target missing, then `architecture.service_unsupported`.
 
-- [ ] **Step 3: Implement ABI layout and move planning**
+- [x] **Step 3: Implement ABI layout and move planning**
 
 Validate the complete signature before emission. Derive integer/vector sequences independently,
 place exhausted arguments in aligned 8/16-byte slots, and use `x8` for indirect results. Explicit
@@ -462,12 +462,12 @@ Build a move graph; save all live sources before writes; resolve cycles with own
 `v16/v17`; reserve a 16-byte-aligned frame; save `x29/x30` and used nonvolatile scratch; emit stack
 arguments and `bl`; restore and `ret`. Reject unrepresentable frames/displacements.
 
-- [ ] **Step 4: Emit and verify ABI instructions**
+- [x] **Step 4: Emit and verify ABI instructions**
 
 Populate exact moves, stack bytes, clobbers, call26 fixup, and code-offset unwind actions. Decode
 every instruction and prove SP returns to its entry value on each exit.
 
-- [ ] **Step 5: Add QEMU ABI evidence**
+- [x] **Step 5: Add QEMU ABI evidence**
 
 The service artifact generator writes checked ARM64 adapter/unwind objects into a verified build-local
 directory. The fixture invokes same/cross-ABI adapters with register exhaustion, FP/vector values,
@@ -475,14 +475,14 @@ indirect results, a cycle, and two valid incoming SP positions. `semihosting.S` 
 `HLT #0xF000` write/exit helpers and `qemu.ld` supplies the `virt` RAM/stack layout. Enforce a
 15-second timeout.
 
-- [ ] **Step 6: Run unit and ABI-native gates**
+- [x] **Step 6: Run unit and ABI-native gates**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_abi_unwind_tests binobf_arm64_service_artifact_generator
 ctest --test-dir build\m13-verify-debug -C Debug -R "^(arm64_abi_unwind|arm64_abi_native_differential)$" --output-on-failure
 ```
 
-- [ ] **Step 7: Commit ARM64 ABI support**
+- [x] **Step 7: Commit ARM64 ABI support**
 
 ```powershell
 git add CMakeLists.txt cmake/RunArm64AbiNativeDifferential.cmake src/architecture/arm64_abi.* src/architecture/capstone_backend.cpp tests/unit/arm64_abi_unwind_tests.cpp tests/differential/arm64_service_artifact_generator.cpp tests/fixtures/arm64/abi_native_entry.S tests/fixtures/arm64/semihosting.S tests/fixtures/arm64/qemu.ld

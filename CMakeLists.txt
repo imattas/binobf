@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(binobf VERSION 0.1.2 LANGUAGES C CXX)
+project(binobf VERSION 0.1.3 LANGUAGES C CXX)
 
 option(BINOBF_BUILD_TESTS "Build the binobf test suite" ON)
 option(BINOBF_BUILD_C_SHARED "Build the shared library for the stable C ABI" ON)

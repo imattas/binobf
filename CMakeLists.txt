@@ -109,6 +109,7 @@ endif()
 
 set(BINOBF_CORE_SOURCES
     src/architecture/arm64_fixups.cpp
+    src/architecture/arm64_templates.cpp
     src/architecture/capstone_backend.cpp
     src/architecture/codegen_provider.cpp
     src/architecture/llvm_fixups.cpp
@@ -620,6 +621,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_arm64_fixup_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_arm64_fixup_tests)
     add_test(NAME arm64_fixup COMMAND binobf_arm64_fixup_tests)
+
+    add_executable(binobf_arm64_template_tests tests/unit/arm64_template_tests.cpp)
+    target_link_libraries(binobf_arm64_template_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_arm64_template_tests)
+    add_test(NAME arm64_template COMMAND binobf_arm64_template_tests)
 
     add_executable(binobf_x86_template_tests tests/unit/x86_template_tests.cpp)
     target_link_libraries(binobf_x86_template_tests PRIVATE binobf::core)

@@ -218,7 +218,7 @@ git commit -m "feat: encode ARM64 object fixups"
 - Consumes: `MachineTransformRequest`, LLVM MC emission, ARM64 fixups, and Capstone decode.
 - Produces: `emit_arm64_transform(const MachineTransformRequest&, const CodegenProvider&)` for all template kinds.
 
-- [ ] **Step 1: Add RED golden-template cases**
+- [x] **Step 1: Add RED golden-template cases**
 
 Require register-copy equivalence using `orr`, shortest deterministic `movz/movn/movk` constant
 synthesis, all 14 ordinary conditional inversions, direct `b`/`bl` fixups, and exact A64 NOP fill.
@@ -235,7 +235,7 @@ TEST_CASE(arm64_dead_code_is_exact_aligned_and_decodable) {
 }
 ```
 
-- [ ] **Step 2: Run and prove unsupported-service failure**
+- [x] **Step 2: Run and prove unsupported-service failure**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_template_tests
@@ -243,20 +243,20 @@ cmake --build build\m13-verify-debug --target binobf_arm64_template_tests
 
 Expected: ARM64 `emit_transform` returns `architecture.service_unsupported`.
 
-- [ ] **Step 3: Implement fixed-width templates**
+- [x] **Step 3: Implement fixed-width templates**
 
 Build assembly only from allowlisted register, condition, constant, and symbol tokens. Require every
 address and exact size to be four-byte aligned. Normalize LLVM MC fixups through Task 2. Constant
 synthesis chooses `movz` or `movn` by fewer lane updates, breaks ties for `movz`, and orders `movk`
 low-to-high. Conditional inversion uses a fixed table; branches never truncate.
 
-- [ ] **Step 4: Generalize backend self-verification**
+- [x] **Step 4: Generalize backend self-verification**
 
 Extract the x86 post-emission decode loop into a fixed-architecture verifier. ARM64 requires
 four-byte progress, complete coverage, expected control flow, flags, destination writes, no
 unexpected SP access, and exact fixup offsets. Preserve x86 checks unchanged.
 
-- [ ] **Step 5: Run template, backend, provider, and codegen fuzz tests**
+- [x] **Step 5: Run template, backend, provider, and codegen fuzz tests**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_template_tests binobf_architecture_backend_tests binobf_codegen_provider_tests
@@ -265,7 +265,7 @@ cmake --build build\m13-fuzz-final --target binobf_fuzz_codegen
 build\m13-fuzz-final\binobf_fuzz_codegen.exe -runs=2000 -seed=14003 -max_len=65536 -timeout=5 build\m13-fuzz-final\fuzz-corpus\codegen
 ```
 
-- [ ] **Step 6: Commit ARM64 templates**
+- [x] **Step 6: Commit ARM64 templates**
 
 ```powershell
 git add CMakeLists.txt src/architecture/arm64_templates.* src/architecture/capstone_backend.cpp src/architecture/codegen_provider.cpp tests/unit/arm64_template_tests.cpp tests/unit/architecture_backend_tests.cpp

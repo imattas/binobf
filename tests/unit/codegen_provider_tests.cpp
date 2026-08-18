@@ -398,6 +398,21 @@ TEST_CASE(codegen_provider_rejects_unsupported_and_excessive_fixups) {
     REQUIRE_EQ(excessive.error().code, "codegen.resource_limit");
 }
 
+TEST_CASE(codegen_provider_rejects_unaligned_arm64_machine_code_bases) {
+    auto provider = binobf::make_codegen_provider(binobf::Architecture::ARM64);
+    REQUIRE(provider.has_value());
+    binobf::MachineAssemblyRequest request{};
+    request.architecture = binobf::Architecture::ARM64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.triple = "aarch64-unknown-linux-gnu";
+    request.syntax = binobf::MachineSyntax::GNU;
+    request.baseAddress = {2U, binobf::AddressKind::Virtual};
+    request.assembly = "nop\n";
+    const auto result = provider.value()->emit(request);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "codegen.invalid_alignment");
+}
+
 TEST_CASE(codegen_provider_enforces_unique_symbols_before_and_after_assembly) {
     auto provider = binobf::make_codegen_provider(binobf::Architecture::X86_64);
     REQUIRE(provider.has_value());

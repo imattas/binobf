@@ -124,6 +124,12 @@ public:
                 "codegen.unsupported_triple",
                 "the target triple does not match the requested architecture and object format");
         }
+        if (architecture_ == Architecture::ARM64
+            && (request.baseAddress.value & 3U) != 0U) {
+            return failure(
+                "codegen.invalid_alignment",
+                "AArch64 machine-code base addresses must be four-byte aligned");
+        }
         if (!limits_are_valid(request.limits) ||
             request.assembly.size() > request.limits.maxAssemblyBytes ||
             (request.expectedInstructionCount.has_value() &&

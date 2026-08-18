@@ -1,6 +1,7 @@
 #include <binobf/architecture/backend.hpp>
 
 #include "arm64_fixups.hpp"
+#include "arm64_templates.hpp"
 #include "x86_fixups.hpp"
 #include "x86_abi.hpp"
 #include "x86_templates.hpp"
@@ -138,11 +139,19 @@ auto immediate_target(Architecture architecture, const cs_insn& instruction)
     return std::nullopt;
 }
 
-auto is_unconditional_direct_branch(Architecture architecture, unsigned int instructionId) -> bool {
+auto is_unconditional_direct_branch(
+    Architecture architecture,
+    const cs_insn& instruction) -> bool {
     if (architecture == Architecture::X86 || architecture == Architecture::X86_64) {
-        return instructionId == X86_INS_JMP;
+        return instruction.id == X86_INS_JMP;
     }
-    return architecture == Architecture::ARM64 && instructionId == ARM64_INS_B;
+    if (architecture != Architecture::ARM64 || instruction.id != ARM64_INS_B) {
+        return false;
+    }
+    if (instruction.detail == nullptr) return false;
+    const auto condition = instruction.detail->arm64.cc;
+    return condition == ARM64_CC_INVALID || condition == ARM64_CC_AL
+        || condition == ARM64_CC_NV;
 }
 
 auto normalize_registers(
@@ -251,12 +260,14 @@ public:
                 "architecture.request_mismatch",
                 "transform request architecture does not match the fixed backend");
         }
-        if (architecture_ != Architecture::X86) {
-            return service_failure<MachineTransformEmission>(
-                "architecture.service_unsupported",
-                "the fixed backend does not implement the requested transform service");
-        }
-        auto emitted = detail::emit_x86_transform(request, *codegen_);
+        Result<MachineTransformEmission, Diagnostic> emitted =
+            architecture_ == Architecture::X86
+            ? detail::emit_x86_transform(request, *codegen_)
+            : architecture_ == Architecture::ARM64
+                ? detail::emit_arm64_transform(request, *codegen_)
+                : service_failure<MachineTransformEmission>(
+                    "architecture.service_unsupported",
+                    "the fixed backend does not implement the requested transform service");
         if (!emitted.has_value()) {
             return service_failure<MachineTransformEmission>(
                 emitted.error().code, emitted.error().message);
@@ -268,12 +279,27 @@ public:
         bool decodedWritesFlags = false;
         bool decodedTouchesStack = false;
         bool decodedWritesRequestedRegister = false;
+        bool decodedReadsEquivalentSource = false;
         bool decodedHasUnexpectedEquivalentEffect = false;
+        const auto flagsRegister = architecture_ == Architecture::ARM64
+            ? std::string_view{"nzcv"} : std::string_view{"eflags"};
+        const auto stackRegister = architecture_ == Architecture::ARM64
+            ? std::string_view{"sp"} : std::string_view{"esp"};
+        std::string_view expectedDestination = request.condition;
+        std::string_view expectedSource;
+        if (architecture_ == Architecture::ARM64
+            && request.kind == MachineTransformKind::InstructionEquivalent
+            && request.source.has_value()
+            && request.source->registersRead.size() == 1U
+            && request.source->registersWritten.size() == 1U) {
+            expectedSource = request.source->registersRead.front().name;
+            expectedDestination = request.source->registersWritten.front().name;
+        }
         const auto baseAddress = request.source.has_value()
             ? request.source->address.value : 0U;
         while (offset < emitted.value().emission.bytes.size()) {
             const auto instruction = decode(DecodeRequest{
-                .architecture = Architecture::X86,
+                .architecture = architecture_,
                 .bytes = std::span<const std::byte>{emitted.value().emission.bytes}.subspan(offset),
                 .address = BinaryAddress{baseAddress + offset, AddressKind::Virtual},
                 .instructionId = EntityId{count + 1U},
@@ -283,25 +309,35 @@ public:
             if (!instruction.has_value() || instruction.value().encoding.empty()) {
                 return service_failure<MachineTransformEmission>(
                     "architecture.template_verification_failed",
-                    "x86 template did not decode completely");
+                    "machine template did not decode completely");
+            }
+            if (architecture_ == Architecture::ARM64
+                && instruction.value().encoding.size() != 4U) {
+                return service_failure<MachineTransformEmission>(
+                    "architecture.template_verification_failed",
+                    "ARM64 template did not advance by one aligned instruction");
             }
             lastKind = instruction.value().kind;
             decodedReadsFlags = decodedReadsFlags || std::ranges::any_of(
                 instruction.value().registersRead,
-                [](const auto& value) { return value.name == "eflags"; });
+                [&](const auto& value) { return value.name == flagsRegister; });
             decodedWritesFlags = decodedWritesFlags || std::ranges::any_of(
                 instruction.value().registersWritten,
-                [](const auto& value) { return value.name == "eflags"; });
+                [&](const auto& value) { return value.name == flagsRegister; });
             decodedTouchesStack = decodedTouchesStack || std::ranges::any_of(
                 instruction.value().registersRead,
-                [](const auto& value) { return value.name == "esp"; })
+                [&](const auto& value) { return value.name == stackRegister; })
                 || std::ranges::any_of(
                     instruction.value().registersWritten,
-                    [](const auto& value) { return value.name == "esp"; });
+                    [&](const auto& value) { return value.name == stackRegister; });
             decodedWritesRequestedRegister = decodedWritesRequestedRegister
                 || std::ranges::any_of(
                     instruction.value().registersWritten,
-                    [&](const auto& value) { return value.name == request.condition; });
+                    [&](const auto& value) { return value.name == expectedDestination; });
+            decodedReadsEquivalentSource = decodedReadsEquivalentSource
+                || std::ranges::any_of(
+                    instruction.value().registersRead,
+                    [&](const auto& value) { return value.name == expectedSource; });
             decodedHasUnexpectedEquivalentEffect = decodedHasUnexpectedEquivalentEffect
                 || !instruction.value().registersRead.empty()
                 || !instruction.value().registersWritten.empty();
@@ -312,23 +348,35 @@ public:
             || count != emitted.value().instructionCount) {
             return service_failure<MachineTransformEmission>(
                 "architecture.template_verification_failed",
-                "x86 template instruction count or byte coverage changed during decode");
+                "machine template instruction count or byte coverage changed during decode");
         }
         const auto expectedKind = emitted.value().controlFlow == MachineControlFlow::Conditional
             ? InstructionKind::ConditionalBranch
             : emitted.value().controlFlow == MachineControlFlow::Direct
-                ? InstructionKind::DirectBranch : InstructionKind::Normal;
+                ? InstructionKind::DirectBranch
+                : emitted.value().controlFlow == MachineControlFlow::Call
+                    ? InstructionKind::DirectCall : InstructionKind::Normal;
+        const bool equivalentMismatch = request.kind == MachineTransformKind::InstructionEquivalent
+            && (architecture_ == Architecture::X86
+                ? decodedHasUnexpectedEquivalentEffect
+                : !expectedSource.empty()
+                    && (!decodedReadsEquivalentSource || !decodedWritesRequestedRegister));
+        const bool arm64FixupsInvalid = architecture_ == Architecture::ARM64
+            && std::ranges::any_of(emitted.value().emission.fixups, [&](const auto& fixup) {
+                return (fixup.offset & 3U) != 0U
+                    || fixup.offset > emitted.value().emission.bytes.size()
+                    || emitted.value().emission.bytes.size() - fixup.offset < 4U;
+            });
         if (lastKind != expectedKind
             || decodedReadsFlags != emitted.value().readsFlags
             || decodedWritesFlags != emitted.value().writesFlags
             || decodedTouchesStack
             || (request.kind == MachineTransformKind::ConstantMaterialization
                 && !decodedWritesRequestedRegister)
-            || (request.kind == MachineTransformKind::InstructionEquivalent
-                && decodedHasUnexpectedEquivalentEffect)) {
+            || equivalentMismatch || arm64FixupsInvalid) {
             return service_failure<MachineTransformEmission>(
                 "architecture.template_verification_failed",
-                "decoded x86 control flow, flags, register, or stack effects do not match the template");
+                "decoded control flow, flags, register, stack, or fixup effects do not match the template");
         }
         return emitted;
     }
@@ -429,7 +477,7 @@ public:
         } else if (isJump) {
             if (!target.has_value()) {
                 kind = InstructionKind::IndirectBranch;
-            } else if (is_unconditional_direct_branch(architecture_, decoded.id)) {
+            } else if (is_unconditional_direct_branch(architecture_, decoded)) {
                 kind = InstructionKind::DirectBranch;
             } else {
                 kind = InstructionKind::ConditionalBranch;
@@ -452,6 +500,28 @@ public:
             return failure(
                 "analysis.register_access_failed",
                 std::string{"could not derive register access: "} + cs_strerror(access));
+        }
+        auto normalizedRegistersRead = normalize_registers(
+            handle_.value(), registersRead, registersReadCount);
+        auto normalizedRegistersWritten = normalize_registers(
+            handle_.value(), registersWritten, registersWrittenCount);
+        if (architecture_ == Architecture::ARM64 && decoded.detail != nullptr) {
+            const auto condition = decoded.detail->arm64.cc;
+            if (condition != ARM64_CC_INVALID && condition != ARM64_CC_AL
+                && condition != ARM64_CC_NV) {
+                normalizedRegistersRead.push_back(RegisterAccess{ARM64_REG_NZCV, "nzcv"});
+            }
+            if (decoded.detail->arm64.update_flags) {
+                normalizedRegistersWritten.push_back(RegisterAccess{ARM64_REG_NZCV, "nzcv"});
+            }
+            const auto normalize = [](auto& registers) {
+                std::sort(registers.begin(), registers.end(), [](const auto& left, const auto& right) {
+                    return left.id < right.id;
+                });
+                registers.erase(std::unique(registers.begin(), registers.end()), registers.end());
+            };
+            normalize(normalizedRegistersRead);
+            normalize(normalizedRegistersWritten);
         }
 
         std::vector<std::byte> encoding(decoded.size);
@@ -484,10 +554,8 @@ public:
             .kind = kind,
             .directTarget = directTarget,
             .hasFallthrough = hasFallthrough,
-            .registersRead = normalize_registers(
-                handle_.value(), registersRead, registersReadCount),
-            .registersWritten = normalize_registers(
-                handle_.value(), registersWritten, registersWrittenCount),
+            .registersRead = std::move(normalizedRegistersRead),
+            .registersWritten = std::move(normalizedRegistersWritten),
             .references = std::move(references),
             .lineage = TransformationLineage{{TransformationRecord{
                 .transform = TransformId{request.instructionId.value()},

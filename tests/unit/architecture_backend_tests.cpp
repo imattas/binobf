@@ -2,6 +2,7 @@
 
 #include "../test_support.hpp"
 
+#include <algorithm>
 #include <array>
 #include <span>
 #include <string>
@@ -128,6 +129,26 @@ TEST_CASE(backends_own_fixed_codegen_providers_and_verify_deterministic_emission
         }
         REQUIRE_EQ(instructionCount, std::size_t{2});
     }
+}
+
+TEST_CASE(arm64_decoder_distinguishes_conditional_b_and_exposes_nzcv_reads) {
+    auto backend = binobf::make_architecture_backend(binobf::Architecture::ARM64);
+    REQUIRE(backend.has_value());
+    const std::array encoded{
+        std::byte{0x01}, std::byte{0x08}, std::byte{0x00}, std::byte{0x54}};
+    const auto decoded = backend.value()->decode(binobf::DecodeRequest{
+        .architecture = binobf::Architecture::ARM64,
+        .bytes = encoded,
+        .address = {0x1000, binobf::AddressKind::Virtual},
+        .instructionId = binobf::EntityId{1},
+        .sectionId = binobf::EntityId{2},
+    });
+    REQUIRE(decoded.has_value());
+    REQUIRE_EQ(decoded.value().kind, binobf::InstructionKind::ConditionalBranch);
+    REQUIRE_EQ(decoded.value().directTarget->value, UINT64_C(0x1100));
+    REQUIRE(std::ranges::find(decoded.value().registersRead, "nzcv",
+                              &binobf::RegisterAccess::name)
+            != decoded.value().registersRead.end());
 }
 
 int main() {

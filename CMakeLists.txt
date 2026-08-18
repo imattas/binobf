@@ -412,10 +412,27 @@ install(TARGETS binobf binobf_core capstone_static
     ARCHIVE DESTINATION lib
 )
 if(BINOBF_BUILD_C_SHARED)
+    set_target_properties(binobf_c PROPERTIES EXPORT_NAME c)
     install(TARGETS binobf_c
+        EXPORT binobfTargets
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
+    )
+
+    include(CMakePackageConfigHelpers)
+    configure_package_config_file(
+        cmake/binobfConfig.cmake.in
+        "${CMAKE_CURRENT_BINARY_DIR}/binobfConfig.cmake"
+        INSTALL_DESTINATION lib/cmake/binobf
+    )
+    install(EXPORT binobfTargets
+        FILE binobfTargets.cmake
+        NAMESPACE binobf::
+        DESTINATION lib/cmake/binobf
+    )
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/binobfConfig.cmake"
+        DESTINATION lib/cmake/binobf
     )
 endif()
 install(TARGETS ${BINOBF_LLVM_INSTALL_LIBRARIES}

@@ -27,6 +27,15 @@ CMake install prefix:
 cmake --install build/release --prefix build/install
 ```
 
+When `BINOBF_BUILD_C_SHARED=ON` (the default), the install also provides a
+relocatable CMake package. Consumers can use the shared ABI without manually
+listing its dependency closure:
+
+```cmake
+find_package(binobf CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE binobf::c)
+```
+
 The C API does not yet expose object mutation. That surface will be added only
 after its ownership, transaction, diagnostic, and verification contracts are
 independently stable.

@@ -291,6 +291,7 @@ TEST_CASE(object_ownership_accepts_a_valid_coff_associative_comdat) {
 TEST_CASE(object_ownership_accepts_a_valid_elf_group) {
     auto image = base_image();
     image.format = binobf::BinaryFormat::ELF;
+    image.sections[2].formatType = 17;
     image.sectionAssociations.push_back(binobf::SectionAssociation{
         .section = binobf::EntityId{3},
         .kind = binobf::SectionAssociationKind::ElfGroup,

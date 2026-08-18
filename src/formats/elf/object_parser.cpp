@@ -1,12 +1,15 @@
 #include "../object_parser_internal.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace binobf::formats::detail {
@@ -19,6 +22,8 @@ constexpr std::uint32_t shtRela = 4;
 constexpr std::uint32_t shtNobits = 8;
 constexpr std::uint32_t shtRel = 9;
 constexpr std::uint32_t shtDynsym = 11;
+constexpr std::uint32_t shtGroup = 17;
+constexpr std::uint32_t shtSymtabShndx = 18;
 constexpr std::size_t maximumSectionCount = 16'384;
 constexpr std::size_t maximumSymbolCount = 1'000'000;
 constexpr std::size_t maximumRelocationCount = 4'000'000;
@@ -86,7 +91,9 @@ auto relocation_kind(Architecture architecture, std::uint64_t rawType) noexcept
     switch (architecture) {
     case Architecture::X86:
         if (rawType == 1) return RelocationKind::Absolute;
-        if (rawType == 2) return RelocationKind::PcRelative;
+        if (rawType == 2 || rawType == 4 || rawType == 10) {
+            return RelocationKind::PcRelative;
+        }
         break;
     case Architecture::X86_64:
         if (rawType == 1 || rawType == 10 || rawType == 11) {
@@ -174,6 +181,48 @@ auto section_bytes(const ByteReader& reader, const ElfSectionHeader& header)
     return reader.bytes(*offset, *size);
 }
 
+auto span_u32(std::span<const std::byte> bytes, std::size_t offset)
+    -> std::optional<std::uint32_t> {
+    if (offset > bytes.size() || 4U > bytes.size() - offset) return std::nullopt;
+    std::uint32_t value = 0;
+    for (std::size_t index = 0; index < 4; ++index) {
+        value |= static_cast<std::uint32_t>(
+            std::to_integer<std::uint8_t>(bytes[offset + index]))
+            << static_cast<unsigned int>(index * 8U);
+    }
+    return value;
+}
+
+auto implicit_i386_addend(
+    std::span<const std::byte> contents,
+    std::uint64_t offset,
+    std::uint64_t rawType) -> std::optional<std::int64_t> {
+    if (rawType == 0) return INT64_C(0);
+    const auto hostOffset = to_size(offset);
+    if (!hostOffset) return std::nullopt;
+    const auto value = span_u32(contents, *hostOffset);
+    return value.has_value()
+        ? std::optional<std::int64_t>{std::bit_cast<std::int32_t>(*value)}
+        : std::nullopt;
+}
+
+auto tls_model_for_i386_relocation(std::uint64_t rawType) noexcept
+    -> std::optional<TlsModel> {
+    switch (rawType) {
+    case 18: return TlsModel::GeneralDynamic;
+    case 19:
+    case 32: return TlsModel::LocalDynamic;
+    case 15:
+    case 16:
+    case 33: return TlsModel::InitialExec;
+    case 14:
+    case 17:
+    case 34:
+    case 37: return TlsModel::LocalExec;
+    default: return std::nullopt;
+    }
+}
+
 } // namespace
 
 auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& detection)
@@ -201,25 +250,47 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
         : std::optional<std::uint64_t>{reader.u32(32).value_or(0)};
     const auto sectionEntrySize = reader.u16(is64Bit ? 58 : 46);
     const auto sectionCountValue = reader.u16(is64Bit ? 60 : 48);
-    const auto sectionNameIndex = reader.u16(is64Bit ? 62 : 50);
-    if (!sectionOffsetValue || !sectionEntrySize || !sectionCountValue || !sectionNameIndex) {
+    const auto sectionNameIndexValue = reader.u16(is64Bit ? 62 : 50);
+    if (!sectionOffsetValue || !sectionEntrySize || !sectionCountValue
+        || !sectionNameIndexValue) {
         return failure("elf.truncated", "ELF section-table fields are truncated");
     }
     const auto expectedEntrySize = is64Bit ? std::size_t{64} : std::size_t{40};
-    if (*sectionCountValue == 0 || *sectionNameIndex == 0xffffU) {
-        return failure("elf.unsupported", "ELF extended section numbering is not yet supported");
-    }
-    const auto sectionCount = static_cast<std::size_t>(*sectionCountValue);
-    if (sectionCount > maximumSectionCount || *sectionEntrySize < expectedEntrySize) {
-        return failure("elf.invalid", "ELF section-table dimensions are invalid");
+    if (*sectionEntrySize < expectedEntrySize) {
+        return failure("elf.invalid", "ELF section-table entry size is invalid");
     }
     const auto sectionOffset = to_size(*sectionOffsetValue);
+    if (!sectionOffset) {
+        return failure("elf.invalid", "ELF section-table offset exceeds host limits");
+    }
+    std::optional<ElfSectionHeader> sectionZero;
+    const bool extendedSectionCount = *sectionCountValue == 0;
+    const bool extendedSectionNameIndex = *sectionNameIndexValue == 0xffffU;
+    if (extendedSectionCount || extendedSectionNameIndex) {
+        sectionZero = read_section_header(reader, *sectionOffset, is64Bit);
+        if (!sectionZero) {
+            return failure("elf.truncated", "ELF extended section-zero header is truncated");
+        }
+    }
+    const auto resolvedSectionCount = extendedSectionCount
+        ? sectionZero->size
+        : static_cast<std::uint64_t>(*sectionCountValue);
+    const auto resolvedSectionNameIndex = extendedSectionNameIndex
+        ? static_cast<std::uint64_t>(sectionZero->link)
+        : static_cast<std::uint64_t>(*sectionNameIndexValue);
+    const auto sectionCountSize = to_size(resolvedSectionCount);
+    const auto sectionNameIndexSize = to_size(resolvedSectionNameIndex);
+    if (!sectionCountSize || *sectionCountSize == 0
+        || *sectionCountSize > maximumSectionCount || !sectionNameIndexSize) {
+        return failure("elf.invalid", "ELF section-table dimensions are invalid");
+    }
+    const auto sectionCount = *sectionCountSize;
+    const auto sectionNameIndex = *sectionNameIndexSize;
     const auto tableSize = checked_multiply(sectionCount, *sectionEntrySize);
-    if (!sectionOffset || !tableSize
-        || !contains_range(*sectionOffset, *tableSize, reader.size())) {
+    if (!tableSize || !contains_range(*sectionOffset, *tableSize, reader.size())) {
         return failure("elf.truncated", "ELF section table is truncated");
     }
-    if (*sectionNameIndex >= sectionCount) {
+    if (sectionNameIndex >= sectionCount) {
         return failure("elf.invalid", "ELF section-name table index is invalid");
     }
 
@@ -236,13 +307,17 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
         if (!header) {
             return failure("elf.truncated", "ELF section header is truncated");
         }
-        if (header->type != shtNobits && !section_bytes(reader, *header).has_value()) {
+        if (index != 0 && header->type != shtNobits
+            && !section_bytes(reader, *header).has_value()) {
             return failure("elf.truncated", "ELF section contents are truncated");
         }
         headers.push_back(*header);
     }
+    if (headers.front().type != 0U) {
+        return failure("elf.invalid", "ELF section zero is not SHT_NULL");
+    }
 
-    const auto& sectionNameHeader = headers[*sectionNameIndex];
+    const auto& sectionNameHeader = headers[sectionNameIndex];
     if (sectionNameHeader.type != shtStrtab) {
         return failure("elf.invalid", "ELF section-name table is not a string table");
     }
@@ -258,6 +333,8 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
     image.objectMetadata.osAbi = *osAbi;
     image.objectMetadata.abiVersion = *abiVersion;
     image.objectMetadata.formatFlags = *formatFlags;
+    image.objectMetadata.elfExtendedSectionCount = extendedSectionCount;
+    image.objectMetadata.elfExtendedSectionNameIndex = extendedSectionNameIndex;
     EntityIdAllocator ids;
     std::vector<std::optional<EntityId>> sectionIds(sectionCount);
 
@@ -285,7 +362,7 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             .formatLink = header.link,
             .formatInfo = header.info,
             .formatEntrySize = header.entrySize,
-            .isSectionNameTable = index == *sectionNameIndex,
+            .isSectionNameTable = index == sectionNameIndex,
             .name = *name,
             .kind = section_kind(header.type, header.flags, *name),
             .address = BinaryAddress{header.address, AddressKind::RelativeVirtual},
@@ -301,6 +378,19 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
 
     using SymbolMap = std::vector<std::optional<EntityId>>;
     std::vector<std::optional<SymbolMap>> symbolMaps(sectionCount);
+    std::vector<std::optional<std::size_t>> extendedIndexSections(sectionCount);
+    for (std::size_t sectionIndex = 1; sectionIndex < sectionCount; ++sectionIndex) {
+        const auto& header = headers[sectionIndex];
+        if (header.type != shtSymtabShndx) continue;
+        if (header.link == 0 || header.link >= sectionCount
+            || (headers[header.link].type != shtSymtab
+                && headers[header.link].type != shtDynsym)
+            || extendedIndexSections[header.link].has_value()
+            || header.entrySize != 4U || header.size % 4U != 0U) {
+            return failure("elf.invalid", "ELF extended-index companion is invalid");
+        }
+        extendedIndexSections[header.link] = sectionIndex;
+    }
     for (std::size_t sectionIndex = 1; sectionIndex < sectionCount; ++sectionIndex) {
         const auto& header = headers[sectionIndex];
         if (header.type != shtSymtab && header.type != shtDynsym) {
@@ -323,6 +413,19 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
         const auto stringData = section_bytes(reader, headers[header.link]);
         if (!symbolData || !stringData) {
             return failure("elf.truncated", "ELF symbol or string table is truncated");
+        }
+        std::optional<std::span<const std::byte>> extendedIndexData;
+        std::optional<std::size_t> extendedIndexSection;
+        if (extendedIndexSections[sectionIndex].has_value()) {
+            extendedIndexSection = *extendedIndexSections[sectionIndex];
+            const auto& companion = headers[*extendedIndexSection];
+            if (companion.size / 4U != symbolCount) {
+                return failure("elf.invalid", "ELF extended-index companion count is invalid");
+            }
+            extendedIndexData = section_bytes(reader, companion);
+            if (!extendedIndexData) {
+                return failure("elf.truncated", "ELF extended-index companion is truncated");
+            }
         }
         const auto symbolBase = to_size(header.offset).value();
         for (std::size_t symbolIndex = 1; symbolIndex < symbolCount; ++symbolIndex) {
@@ -357,14 +460,24 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             bool defined = *sectionIndexValue != 0;
             std::optional<SymbolDefinitionKind> definition;
             std::uint64_t commonAlignment = 0;
-            if (*sectionIndexValue > 0 && *sectionIndexValue < sectionCount) {
-                if (!sectionIds[*sectionIndexValue].has_value()) {
+            std::uint32_t resolvedSectionIndex = *sectionIndexValue;
+            if (*sectionIndexValue == 0xffffU) {
+                if (!extendedIndexData || !extendedIndexSection) {
+                    return failure(
+                        "elf.invalid", "ELF extended symbol index has no companion table");
+                }
+                const auto extended = span_u32(*extendedIndexData, symbolIndex * 4U);
+                if (!extended || *extended == 0U || *extended >= sectionCount) {
+                    return failure("elf.invalid", "ELF extended symbol index is out of range");
+                }
+                resolvedSectionIndex = *extended;
+            }
+            if (resolvedSectionIndex > 0 && resolvedSectionIndex < sectionCount) {
+                if (!sectionIds[resolvedSectionIndex].has_value()) {
                     return failure("elf.invalid", "ELF symbol section is unavailable");
                 }
-                section = sectionIds[*sectionIndexValue];
+                section = sectionIds[resolvedSectionIndex];
                 definition = SymbolDefinitionKind::SectionRelative;
-            } else if (*sectionIndexValue == 0xffffU) {
-                return failure("elf.unsupported", "ELF extended symbol section indices are unsupported");
             } else if (*sectionIndexValue == 0) {
                 definition = SymbolDefinitionKind::Undefined;
                 defined = false;
@@ -402,8 +515,61 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
                     : TlsModel::None,
                 .lineage = {},
             });
+            if (*sectionIndexValue == 0xffffU) {
+                image.extendedSectionIndices.push_back(ExtendedSectionIndex{
+                    .symbol = id,
+                    .indexSection = *sectionIds[*extendedIndexSection],
+                    .section = *section,
+                    .rawSectionIndex = resolvedSectionIndex,
+                });
+            }
         }
         symbolMaps[sectionIndex] = std::move(map);
+    }
+
+    for (std::size_t sectionIndex = 1; sectionIndex < sectionCount; ++sectionIndex) {
+        const auto& header = headers[sectionIndex];
+        if (header.type != shtGroup) continue;
+        if (header.link >= sectionCount || !symbolMaps[header.link].has_value()
+            || header.entrySize != 4U || header.size < 8U || header.size % 4U != 0U) {
+            return failure("elf.invalid", "ELF group layout is invalid");
+        }
+        const auto groupData = section_bytes(reader, header);
+        if (!groupData) {
+            return failure("elf.truncated", "ELF group contents are truncated");
+        }
+        const auto flags = span_u32(*groupData, 0);
+        const auto& symbolMap = *symbolMaps[header.link];
+        if (!flags || (*flags & 1U) == 0U || header.info == 0U
+            || header.info >= symbolMap.size() || !symbolMap[header.info].has_value()) {
+            return failure("elf.invalid", "ELF group signature or flags are invalid");
+        }
+        std::vector<EntityId> members;
+        std::unordered_set<std::uint32_t> memberIndices;
+        const auto memberCount = static_cast<std::size_t>(header.size / 4U) - 1U;
+        members.reserve(memberCount);
+        for (std::size_t member = 0; member < memberCount; ++member) {
+            const auto rawIndex = span_u32(*groupData, (member + 1U) * 4U);
+            if (!rawIndex || *rawIndex == 0U || *rawIndex >= sectionCount
+                || !sectionIds[*rawIndex].has_value()
+                || !memberIndices.insert(*rawIndex).second) {
+                return failure("elf.invalid", "ELF group member index is invalid");
+            }
+            members.push_back(*sectionIds[*rawIndex]);
+        }
+        image.sectionAssociations.push_back(SectionAssociation{
+            .section = *sectionIds[sectionIndex],
+            .kind = SectionAssociationKind::ElfGroup,
+            .coffSelection = CoffComdatSelection::None,
+            .signatureSymbol = *symbolMap[header.info],
+            .parentSection = std::nullopt,
+            .members = std::move(members),
+        });
+    }
+
+    std::unordered_map<std::uint64_t, Symbol*> symbolsById;
+    for (auto& symbol : image.symbols) {
+        symbolsById.emplace(symbol.id.value(), &symbol);
     }
 
     for (std::size_t sectionIndex = 1; sectionIndex < sectionCount; ++sectionIndex) {
@@ -473,6 +639,16 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             const auto rawType = is64Bit
                 ? (information & UINT64_C(0xffffffff))
                 : (information & UINT64_C(0xff));
+            if (!is64Bit && header.type == shtRel) {
+                const auto targetContents = section_bytes(reader, headers[header.info]);
+                const auto implicit = targetContents
+                    ? implicit_i386_addend(*targetContents, offset, rawType)
+                    : std::nullopt;
+                if (!implicit) {
+                    return failure("elf.invalid", "ELF REL implicit addend is out of range");
+                }
+                addend = *implicit;
+            }
             if (symbolIndex >= symbolMap.size()) {
                 return failure("elf.invalid", "ELF relocation symbol index is invalid");
             }
@@ -482,6 +658,19 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
                     return failure("elf.invalid", "ELF relocation references an unavailable symbol");
                 }
                 targetSymbol = symbolMap[symbolIndex];
+            }
+            if (targetSymbol.has_value()) {
+                const auto target = symbolsById.find(targetSymbol->value());
+                const auto model = tls_model_for_i386_relocation(rawType);
+                if (target != symbolsById.end() && target->second->kind == SymbolKind::Tls
+                    && model.has_value()) {
+                    if (target->second->tlsModel == TlsModel::Unknown
+                        || target->second->tlsModel == *model) {
+                        target->second->tlsModel = *model;
+                    } else {
+                        target->second->tlsModel = TlsModel::Unknown;
+                    }
+                }
             }
             image.relocations.push_back(Relocation{
                 .id = ids.allocate(),

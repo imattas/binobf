@@ -21,6 +21,8 @@ constexpr std::uint64_t shtRela = 4;
 constexpr std::uint64_t shtNobits = 8;
 constexpr std::uint64_t shtRel = 9;
 constexpr std::uint64_t shtDynsym = 11;
+constexpr std::uint64_t shtGroup = 17;
+constexpr std::uint64_t shtSymtabShndx = 18;
 
 struct EncodedSection {
     const Section* source{nullptr};
@@ -95,6 +97,18 @@ void put_i64(std::span<std::byte> output, std::size_t offset, std::int64_t value
     put_u64(output, offset, std::bit_cast<std::uint64_t>(value));
 }
 
+auto read_u32(std::span<const std::byte> input, std::size_t offset)
+    -> std::optional<std::uint32_t> {
+    if (offset > input.size() || 4U > input.size() - offset) return std::nullopt;
+    std::uint32_t value = 0;
+    for (std::size_t index = 0; index < 4; ++index) {
+        value |= static_cast<std::uint32_t>(
+            std::to_integer<std::uint8_t>(input[offset + index]))
+            << static_cast<unsigned int>(index * 8U);
+    }
+    return value;
+}
+
 auto append_string(std::vector<std::byte>& table, const std::string& value)
     -> std::optional<std::uint32_t> {
     if (table.size() > std::numeric_limits<std::uint32_t>::max()) {
@@ -148,11 +162,16 @@ auto write_elf_object(const BinaryImage& image)
     }
 
     std::unordered_map<std::uint32_t, const Section*> sectionsByIndex;
+    std::unordered_map<std::uint64_t, const Section*> sectionsById;
     std::unordered_map<std::uint64_t, const Symbol*> symbolsById;
     std::unordered_map<std::uint32_t, std::vector<const Symbol*>> symbolsByTable;
     std::unordered_map<std::uint32_t, std::vector<const Relocation*>> relocationsByTable;
+    std::unordered_map<std::uint64_t, const SectionAssociation*> associationsBySection;
+    std::unordered_map<std::uint64_t, std::vector<const ExtendedSectionIndex*>>
+        extendedIndicesBySection;
     for (const auto* section : orderedSections) {
         sectionsByIndex.emplace(section->formatIndex, section);
+        sectionsById.emplace(section->id.value(), section);
     }
     for (const auto& symbol : image.symbols) {
         symbolsById.emplace(symbol.id.value(), &symbol);
@@ -160,6 +179,12 @@ auto write_elf_object(const BinaryImage& image)
     }
     for (const auto& relocation : image.relocations) {
         relocationsByTable[relocation.formatTableIndex].push_back(&relocation);
+    }
+    for (const auto& association : image.sectionAssociations) {
+        associationsBySection.emplace(association.section.value(), &association);
+    }
+    for (const auto& extended : image.extendedSectionIndices) {
+        extendedIndicesBySection[extended.indexSection.value()].push_back(&extended);
     }
     for (auto& [table, symbols] : symbolsByTable) {
         static_cast<void>(table);
@@ -240,6 +265,56 @@ auto write_elf_object(const BinaryImage& image)
                         offsets.resize(static_cast<std::size_t>(symbol->formatIndex) + 1);
                     }
                     offsets[symbol->formatIndex] = *offset;
+                }
+            }
+        } else if (section->formatType == shtGroup) {
+            const auto association = associationsBySection.find(section->id.value());
+            if (association == associationsBySection.end()
+                || association->second->kind != SectionAssociationKind::ElfGroup) {
+                return failure("object.model_invalid", "ELF group has no normalized association");
+            }
+            const auto wordCount = checked_add(association->second->members.size(), 1U);
+            const auto byteCount = wordCount ? checked_multiply(*wordCount, 4U) : std::nullopt;
+            if (!byteCount) {
+                return failure("object.size_limit", "ELF group member table is too large");
+            }
+            encoded.bytes.assign(*byteCount, std::byte{0});
+            auto output = std::span<std::byte>{encoded.bytes};
+            const auto sourceFlags = read_u32(section->contents, 0);
+            put_u32(output, 0,
+                    sourceFlags.has_value() && (*sourceFlags & 1U) != 0U
+                        ? *sourceFlags
+                        : 1U);
+            for (std::size_t index = 0; index < association->second->members.size(); ++index) {
+                const auto member = sectionsById.find(
+                    association->second->members[index].value());
+                if (member == sectionsById.end()) {
+                    return failure("object.model_invalid", "ELF group member is missing");
+                }
+                put_u32(output, (index + 1U) * 4U, member->second->formatIndex);
+            }
+        } else if (section->formatType == shtSymtabShndx) {
+            const auto symbols = symbolsByTable.find(section->formatLink);
+            const auto entryCount = checked_add(
+                symbols == symbolsByTable.end() ? 0U : symbols->second.size(), 1U);
+            const auto byteCount = entryCount ? checked_multiply(*entryCount, 4U) : std::nullopt;
+            if (!byteCount) {
+                return failure("object.size_limit", "ELF extended-index table is too large");
+            }
+            encoded.bytes.assign(*byteCount, std::byte{0});
+            auto output = std::span<std::byte>{encoded.bytes};
+            const auto records = extendedIndicesBySection.find(section->id.value());
+            if (records != extendedIndicesBySection.end()) {
+                for (const auto* record : records->second) {
+                    const auto symbol = symbolsById.find(record->symbol.value());
+                    const auto target = sectionsById.find(record->section.value());
+                    if (symbol == symbolsById.end() || target == sectionsById.end()
+                        || symbol->second->formatTableIndex != section->formatLink) {
+                        return failure(
+                            "object.model_invalid", "ELF extended-index owner is missing");
+                    }
+                    put_u32(output, static_cast<std::size_t>(symbol->second->formatIndex) * 4U,
+                            target->second->formatIndex);
                 }
             }
         } else if (section->formatType != shtSymtab && section->formatType != shtDynsym
@@ -348,6 +423,35 @@ auto write_elf_object(const BinaryImage& image)
             : static_cast<std::uint64_t>(encoded.bytes.size());
     }
 
+    if (!is64Bit) {
+        for (const auto& relocationSection : encodedSections) {
+            if (relocationSection.source->formatType != shtRel) continue;
+            const auto relocations = relocationsByTable.find(
+                relocationSection.source->formatIndex);
+            if (relocations == relocationsByTable.end()) continue;
+            const auto target = std::find_if(
+                encodedSections.begin(), encodedSections.end(), [&](const auto& candidate) {
+                    return candidate.source->formatIndex
+                        == relocationSection.source->formatInfo;
+                });
+            if (target == encodedSections.end()) {
+                return failure("object.model_invalid", "ELF REL target section is missing");
+            }
+            auto targetBytes = std::span<std::byte>{target->bytes};
+            for (const auto* relocation : relocations->second) {
+                if (relocation->rawType == 0) continue;
+                if (relocation->addend < std::numeric_limits<std::int32_t>::min()
+                    || relocation->addend > std::numeric_limits<std::int32_t>::max()
+                    || relocation->offset > targetBytes.size()
+                    || 4U > targetBytes.size() - static_cast<std::size_t>(relocation->offset)) {
+                    return failure("object.size_limit", "ELF REL implicit addend is out of range");
+                }
+                put_i32(targetBytes, static_cast<std::size_t>(relocation->offset),
+                        static_cast<std::int32_t>(relocation->addend));
+            }
+        }
+    }
+
     std::size_t cursor = headerSize;
     for (auto& encoded : encodedSections) {
         const auto alignment = to_size(encoded.source->alignment);
@@ -378,6 +482,10 @@ auto write_elf_object(const BinaryImage& image)
         || *sectionHeaderCount > std::numeric_limits<std::uint16_t>::max()) {
         return failure("object.size_limit", "ELF section-header layout exceeds limits");
     }
+    const bool extendedSectionCount = image.objectMetadata.elfExtendedSectionCount
+        || *sectionHeaderCount >= 0xff00U;
+    const bool extendedSectionNameIndex = image.objectMetadata.elfExtendedSectionNameIndex
+        || sectionNameTableIndex >= 0xffffU;
 
     std::vector<std::byte> output(*outputSize, std::byte{0});
     for (const auto& encoded : encodedSections) {
@@ -404,21 +512,74 @@ auto write_elf_object(const BinaryImage& image)
         put_u32(outputSpan, 48, static_cast<std::uint32_t>(image.objectMetadata.formatFlags));
         put_u16(outputSpan, 52, 64);
         put_u16(outputSpan, 58, 64);
-        put_u16(outputSpan, 60, static_cast<std::uint16_t>(*sectionHeaderCount));
-        put_u16(outputSpan, 62, static_cast<std::uint16_t>(sectionNameTableIndex));
+        put_u16(outputSpan, 60, extendedSectionCount
+                ? 0U
+                : static_cast<std::uint16_t>(*sectionHeaderCount));
+        put_u16(outputSpan, 62, extendedSectionNameIndex
+                ? 0xffffU
+                : static_cast<std::uint16_t>(sectionNameTableIndex));
     } else {
         put_u32(outputSpan, 32, static_cast<std::uint32_t>(*sectionTableOffset));
         put_u32(outputSpan, 36, static_cast<std::uint32_t>(image.objectMetadata.formatFlags));
         put_u16(outputSpan, 40, 52);
         put_u16(outputSpan, 46, 40);
-        put_u16(outputSpan, 48, static_cast<std::uint16_t>(*sectionHeaderCount));
-        put_u16(outputSpan, 50, static_cast<std::uint16_t>(sectionNameTableIndex));
+        put_u16(outputSpan, 48, extendedSectionCount
+                ? 0U
+                : static_cast<std::uint16_t>(*sectionHeaderCount));
+        put_u16(outputSpan, 50, extendedSectionNameIndex
+                ? 0xffffU
+                : static_cast<std::uint16_t>(sectionNameTableIndex));
+    }
+    if (extendedSectionCount) {
+        if (is64Bit) {
+            put_u64(outputSpan, *sectionTableOffset + 32U, *sectionHeaderCount);
+        } else {
+            put_u32(outputSpan, *sectionTableOffset + 20U,
+                    static_cast<std::uint32_t>(*sectionHeaderCount));
+        }
+    }
+    if (extendedSectionNameIndex) {
+        const auto linkOffset = is64Bit ? std::size_t{40} : std::size_t{24};
+        put_u32(outputSpan, *sectionTableOffset + linkOffset, sectionNameTableIndex);
     }
 
     for (const auto& encoded : encodedSections) {
         const auto index = static_cast<std::size_t>(encoded.source->formatIndex);
         const auto headerOffset = *sectionTableOffset + index * sectionHeaderSize;
         const auto& section = *encoded.source;
+        std::uint32_t sectionLink = section.formatLink;
+        std::uint32_t sectionInfo = section.formatInfo;
+        if (section.formatType == shtSymtab || section.formatType == shtDynsym) {
+            sectionInfo = 1;
+            bool sawNonLocal = false;
+            const auto symbols = symbolsByTable.find(section.formatIndex);
+            if (symbols != symbolsByTable.end()) {
+                for (const auto* symbol : symbols->second) {
+                    if (symbol->formatStorage == 0) {
+                        if (sawNonLocal) {
+                            return failure(
+                                "object.model_invalid", "ELF local symbols must precede globals");
+                        }
+                        sectionInfo = symbol->formatIndex + 1U;
+                    } else {
+                        sawNonLocal = true;
+                    }
+                }
+            }
+        } else if (section.formatType == shtGroup) {
+            const auto association = associationsBySection.find(section.id.value());
+            if (association == associationsBySection.end()
+                || !association->second->signatureSymbol.has_value()) {
+                return failure("object.model_invalid", "ELF group signature is missing");
+            }
+            const auto signature = symbolsById.find(
+                association->second->signatureSymbol->value());
+            if (signature == symbolsById.end()) {
+                return failure("object.model_invalid", "ELF group signature symbol is missing");
+            }
+            sectionLink = signature->second->formatTableIndex;
+            sectionInfo = signature->second->formatIndex;
+        }
         put_u32(outputSpan, headerOffset, encoded.nameOffset);
         put_u32(outputSpan, headerOffset + 4, static_cast<std::uint32_t>(section.formatType));
         if (is64Bit) {
@@ -426,8 +587,8 @@ auto write_elf_object(const BinaryImage& image)
             put_u64(outputSpan, headerOffset + 16, section.address.value);
             put_u64(outputSpan, headerOffset + 24, encoded.fileOffset);
             put_u64(outputSpan, headerOffset + 32, encoded.logicalSize);
-            put_u32(outputSpan, headerOffset + 40, section.formatLink);
-            put_u32(outputSpan, headerOffset + 44, section.formatInfo);
+            put_u32(outputSpan, headerOffset + 40, sectionLink);
+            put_u32(outputSpan, headerOffset + 44, sectionInfo);
             put_u64(outputSpan, headerOffset + 48, section.alignment);
             put_u64(outputSpan, headerOffset + 56, section.formatEntrySize);
         } else {
@@ -435,8 +596,8 @@ auto write_elf_object(const BinaryImage& image)
             put_u32(outputSpan, headerOffset + 12, static_cast<std::uint32_t>(section.address.value));
             put_u32(outputSpan, headerOffset + 16, static_cast<std::uint32_t>(encoded.fileOffset));
             put_u32(outputSpan, headerOffset + 20, static_cast<std::uint32_t>(encoded.logicalSize));
-            put_u32(outputSpan, headerOffset + 24, section.formatLink);
-            put_u32(outputSpan, headerOffset + 28, section.formatInfo);
+            put_u32(outputSpan, headerOffset + 24, sectionLink);
+            put_u32(outputSpan, headerOffset + 28, sectionInfo);
             put_u32(outputSpan, headerOffset + 32, static_cast<std::uint32_t>(section.alignment));
             put_u32(outputSpan, headerOffset + 36,
                     static_cast<std::uint32_t>(section.formatEntrySize));

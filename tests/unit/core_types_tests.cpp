@@ -95,6 +95,8 @@ TEST_CASE(object_metadata_survives_value_copies) {
         .formatFlags = 0x1234,
         .characteristics = 0x200,
         .coffBigObj = false,
+        .elfExtendedSectionCount = true,
+        .elfExtendedSectionNameIndex = true,
     };
     image.sections.push_back(binobf::Section{
         .id = binobf::EntityId{11},
@@ -166,6 +168,8 @@ TEST_CASE(object_metadata_survives_value_copies) {
     const auto copy = image;
     REQUIRE_EQ(copy.objectMetadata.osAbi, 3U);
     REQUIRE_EQ(copy.objectMetadata.formatFlags, UINT64_C(0x1234));
+    REQUIRE(copy.objectMetadata.elfExtendedSectionCount);
+    REQUIRE(copy.objectMetadata.elfExtendedSectionNameIndex);
     REQUIRE_EQ(copy.sections.front().formatIndex, 5U);
     REQUIRE_EQ(copy.sections.front().formatType, UINT64_C(8));
     REQUIRE_EQ(copy.sections.front().logicalSize, UINT64_C(128));

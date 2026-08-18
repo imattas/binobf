@@ -26,6 +26,8 @@ struct ObjectMetadata {
     std::uint64_t formatFlags{0};
     std::uint32_t characteristics{0};
     bool coffBigObj{false};
+    bool elfExtendedSectionCount{false};
+    bool elfExtendedSectionNameIndex{false};
 };
 
 enum class SectionKind : std::uint8_t {

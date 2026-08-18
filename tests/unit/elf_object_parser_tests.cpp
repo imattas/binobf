@@ -300,14 +300,14 @@ TEST_CASE(elf64_object_normalizes_sections_symbols_and_rela) {
     REQUIRE_EQ(relocation.addend, INT64_C(-4));
 }
 
-TEST_CASE(elf32_rel_entries_have_implicit_zero_addends) {
+TEST_CASE(elf32_rel_entries_read_implicit_field_addends) {
     const auto fixture = make_elf32_object();
     const auto parsed = binobf::parse_object(fixture.bytes, "fixture.o");
     REQUIRE(parsed.has_value());
     REQUIRE_EQ(parsed.value().architecture, binobf::Architecture::X86);
     REQUIRE_EQ(parsed.value().relocations.size(), std::size_t{1});
     REQUIRE_EQ(parsed.value().relocations.front().rawType, UINT64_C(2));
-    REQUIRE_EQ(parsed.value().relocations.front().addend, INT64_C(0));
+    REQUIRE_EQ(parsed.value().relocations.front().addend, INT64_C(-1869574000));
     REQUIRE_EQ(parsed.value().relocations.front().kind, binobf::RelocationKind::PcRelative);
 }
 
@@ -349,7 +349,7 @@ TEST_CASE(elf32_object_round_trip_rebuilds_rel_entries) {
     REQUIRE(reparsed.has_value());
     REQUIRE_EQ(reparsed.value().architecture, binobf::Architecture::X86);
     REQUIRE_EQ(reparsed.value().relocations.size(), std::size_t{1});
-    REQUIRE_EQ(reparsed.value().relocations.front().addend, INT64_C(0));
+    REQUIRE_EQ(reparsed.value().relocations.front().addend, INT64_C(-1869574000));
 }
 
 TEST_CASE(elf_object_parser_rejects_linked_or_malformed_inputs) {

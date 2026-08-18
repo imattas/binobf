@@ -492,6 +492,11 @@ if(BINOBF_BUILD_TESTS)
     binobf_enable_warnings(binobf_elf_object_parser_tests)
     add_test(NAME elf_object_parser COMMAND binobf_elf_object_parser_tests)
 
+    add_executable(binobf_elf32_extended_tests tests/unit/elf32_extended_tests.cpp)
+    target_link_libraries(binobf_elf32_extended_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_elf32_extended_tests)
+    add_test(NAME elf32_extended COMMAND binobf_elf32_extended_tests)
+
     add_executable(binobf_coff_object_parser_tests tests/unit/coff_object_parser_tests.cpp)
     target_link_libraries(binobf_coff_object_parser_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_coff_object_parser_tests)

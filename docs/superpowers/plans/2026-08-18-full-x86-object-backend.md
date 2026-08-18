@@ -381,11 +381,11 @@ git commit -m "feat: support extended i386 COFF objects"
 - Consumes: normalized ownership plus ELF32 raw section/symbol/relocation fields.
 - Produces: extended numbering/indices, groups, common/TLS symbols, REL/RELA, and exact ELF32 reconstruction.
 
-- [ ] **Step 1: Add synthetic ELF32 boundary fixtures**
+- [x] **Step 1: Add synthetic ELF32 boundary fixtures**
 
 Cover `e_shnum == 0` with section-zero count, `e_shstrndx == SHN_XINDEX`, symbol `SHN_XINDEX` through `SHT_SYMTAB_SHNDX`, `SHN_COMMON`, `STT_TLS`, `SHT_GROUP` with COMDAT flag/signature, REL implicit addends, RELA explicit addends, and i386 GOT/PLT/GOTOFF/GOTPC/TLS relocations. Add missing companion tables, invalid group member, truncated extended header, and out-of-range symbol index.
 
-- [ ] **Step 2: Prove extended paths are RED**
+- [x] **Step 2: Prove extended paths are RED**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_elf32_extended_tests
@@ -394,35 +394,35 @@ ctest --test-dir build\m13-dev -R elf32_extended --output-on-failure
 
 Expected: current parser returns `elf.unsupported` for extended numbering and extended symbol indices.
 
-- [ ] **Step 3: Resolve extended counts and symbol indices before allocation**
+- [x] **Step 3: Resolve extended counts and symbol indices before allocation**
 
 Read section zero first using the declared entry size. Resolve actual section count from `sh_size`,
 actual name-table index from `sh_link`, and per-symbol extended indices from a single correctly linked
 `SHT_SYMTAB_SHNDX` table. Apply existing 16,384-section and 1,000,000-symbol resource ceilings after
 resolution.
 
-- [ ] **Step 4: Normalize groups, common/TLS, and i386 relocations**
+- [x] **Step 4: Normalize groups, common/TLS, and i386 relocations**
 
 Parse group word zero as flags and remaining words as section indices; bind the signature through
 `sh_info` in the linked symbol table. Map `SHN_COMMON` value to alignment and size to allocation
 size. Preserve TLS binding/model. For REL records, read the field bytes using backend fixup semantics
 and store the normalized signed addend without changing the raw section bytes.
 
-- [ ] **Step 5: Emit direct or extended encodings deterministically**
+- [x] **Step 5: Emit direct or extended encodings deterministically**
 
 Use direct header/index forms when values fit and preserve extended source form for unchanged
 objects. Emit section-zero extended fields, `SHT_SYMTAB_SHNDX`, local-symbol boundary `sh_info`,
 group member indices/signature, common/TLS symbols, and REL field addends. Require every referenced
 section/symbol to have a rebuilt index.
 
-- [ ] **Step 6: Run ELF32 and existing writer/parser suites**
+- [x] **Step 6: Run ELF32 and existing writer/parser suites**
 
 ```powershell
 cmake --build build\m13-dev --target binobf_elf32_extended_tests binobf_elf_object_parser_tests binobf_object_writer_tests
 ctest --test-dir build\m13-dev -R "elf32_extended|elf_object_parser|object_writer" --output-on-failure
 ```
 
-- [ ] **Step 7: Commit complete ELF32 metadata**
+- [x] **Step 7: Commit complete ELF32 metadata**
 
 ```powershell
 git add CMakeLists.txt src/formats/elf tests/unit/elf32_extended_tests.cpp tests/unit/elf_object_parser_tests.cpp tests/unit/object_writer_tests.cpp

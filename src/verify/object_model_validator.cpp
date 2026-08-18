@@ -277,8 +277,10 @@ auto validate_object_ownership(const BinaryImage& image)
             }
             break;
         }
-        case SectionAssociationKind::ElfGroup:
+        case SectionAssociationKind::ElfGroup: {
+            const auto owner = sections.find(association.section.value());
             if (image.format != BinaryFormat::ELF
+                || owner == sections.end() || owner->second->formatType != 17U
                 || association.coffSelection != CoffComdatSelection::None
                 || association.parentSection.has_value() || association.members.empty()) {
                 return ownership_failure(
@@ -287,6 +289,7 @@ auto validate_object_ownership(const BinaryImage& image)
                     association.section);
             }
             break;
+        }
         }
     }
 
@@ -568,6 +571,9 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
     }
 
     if (image.format == BinaryFormat::ELF) {
+        if (image.objectMetadata.coffBigObj) {
+            return invalid("ELF object contains COFF bigobj metadata");
+        }
         if (sectionNameTableCount != 1) {
             return invalid("ELF object must identify exactly one section-name table");
         }
@@ -597,6 +603,10 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
             }
         }
     } else {
+        if (image.objectMetadata.elfExtendedSectionCount
+            || image.objectMetadata.elfExtendedSectionNameIndex) {
+            return invalid("COFF object contains ELF extended-numbering metadata");
+        }
         if (image.objectMetadata.characteristics
             > std::numeric_limits<std::uint16_t>::max()) {
             return size_limit("COFF characteristics exceed 16-bit encoding");
@@ -648,6 +658,7 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
                 return invalid("ELF symbol has invalid raw metadata");
             }
             if (referencedSection != nullptr
+                && symbol.formatSectionIndex != 0xffff
                 && symbol.formatSectionIndex
                     != static_cast<std::int32_t>(referencedSection->formatIndex)) {
                 return invalid("ELF symbol section metadata disagrees with its entity reference");

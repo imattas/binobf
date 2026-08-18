@@ -123,6 +123,9 @@ function(binobf_link_llvm_mc target)
     # a static consumer pulls a different subset of the MC implementation.
     target_compile_options(${target} PRIVATE
         "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fno-rtti>"
+        # UBSan's vptr check requires C++ RTTI and reports false positives for
+        # valid polymorphic objects compiled consistently without RTTI.
+        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fno-sanitize=vptr>"
         "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/GR->"
     )
     target_link_libraries(${target} PRIVATE ${BINOBF_LLVM_LIBRARIES})

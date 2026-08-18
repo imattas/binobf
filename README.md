@@ -62,6 +62,8 @@ Every push to `main` and pull request is built and tested on Windows and Linux x
 
 Dedicated UBSan, libFuzzer, and benchmark commands are documented in [Hardening](docs/hardening.md). The current Windows LLVM/MSVC standard library cannot link AddressSanitizer because its required STL integration library is absent; CMake rejects that unsupported combination explicitly.
 
+Embedding applications can use the stable C ABI documented in [C API](docs/c-api.md); it currently provides version and non-owning binary detection without exposing C++ ownership types.
+
 ## Quick start
 
 ```powershell

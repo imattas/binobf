@@ -128,6 +128,7 @@ set(BINOBF_CORE_SOURCES
     src/analysis/capstone_instruction_decoder.cpp
     src/analysis/object_analyzer.cpp
     src/cli/command.cpp
+    src/c_api.cpp
     src/config/config.cpp
     src/core/diagnostic.cpp
     src/core/types.cpp
@@ -512,6 +513,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_diagnostic_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_diagnostic_tests)
     add_test(NAME diagnostic COMMAND binobf_diagnostic_tests)
+
+    add_executable(binobf_c_api_tests tests/unit/c_api_tests.cpp)
+    target_link_libraries(binobf_c_api_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_c_api_tests)
+    add_test(NAME c_api COMMAND binobf_c_api_tests)
 
     add_executable(binobf_deterministic_rng_tests tests/unit/deterministic_rng_tests.cpp)
     target_link_libraries(binobf_deterministic_rng_tests PRIVATE binobf::core)

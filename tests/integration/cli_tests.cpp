@@ -258,6 +258,15 @@ auto make_archive() -> std::vector<std::byte> {
     return bytes;
 }
 
+auto make_parallel_archive() -> std::vector<std::byte> {
+    std::vector<std::byte> bytes;
+    append_text(bytes, "!<arch>\n");
+    append_archive_member(bytes, "first.obj/", make_coff_object());
+    append_archive_member(bytes, "second.obj/", make_coff_object());
+    append_archive_member(bytes, "note.txt/", {std::byte{'o'}, std::byte{'k'}});
+    return bytes;
+}
+
 auto read_all(const std::filesystem::path& path) -> std::vector<std::byte> {
     std::ifstream stream(path, std::ios::binary | std::ios::ate);
     if (!stream) {
@@ -495,6 +504,34 @@ TEST_CASE(transform_rejects_out_of_range_archive_jobs) {
     REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 2);
     REQUIRE(output.str().empty());
     REQUIRE_CONTAINS(errors.str(), "transform jobs must be an integer from 1 through 64");
+}
+
+TEST_CASE(transform_archive_jobs_preserve_deterministic_output) {
+    const TemporaryFile input{"binobf-cli-parallel-input.a", make_parallel_archive()};
+    const TemporaryOutput serial{"binobf-cli-parallel-serial.a"};
+    const TemporaryOutput parallel{"binobf-cli-parallel-parallel.a"};
+    const auto inputPath = input.path().string();
+    const auto serialPath = serial.path().string();
+    const auto parallelPath = parallel.path().string();
+    const std::array<std::string_view, 7> serialArguments{
+        "transform"sv, inputPath, "-o"sv, serialPath,
+        "--passes=none"sv, "--seed=52"sv, "--jobs=1"sv,
+    };
+    const std::array<std::string_view, 7> parallelArguments{
+        "transform"sv, inputPath, "-o"sv, parallelPath,
+        "--passes=none"sv, "--seed=52"sv, "--jobs=2"sv,
+    };
+    std::ostringstream serialOutput;
+    std::ostringstream serialErrors;
+    std::ostringstream parallelOutput;
+    std::ostringstream parallelErrors;
+
+    REQUIRE_EQ(binobf::cli::run_cli(serialArguments, serialOutput, serialErrors), 0);
+    REQUIRE_EQ(binobf::cli::run_cli(parallelArguments, parallelOutput, parallelErrors), 0);
+    REQUIRE_EQ(read_all(serial.path()), read_all(parallel.path()));
+    REQUIRE_CONTAINS(parallelOutput.str(), "object-members: 2");
+    REQUIRE(serialErrors.str().empty());
+    REQUIRE(parallelErrors.str().empty());
 }
 
 TEST_CASE(verify_reports_each_structural_check_without_overclaiming) {

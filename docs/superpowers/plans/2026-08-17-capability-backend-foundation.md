@@ -226,7 +226,7 @@ ctest --test-dir build\m12-verify-debug -R '^capability_registry$' --output-on-f
 
 Expected: `capability_registry` passes and reports every current matrix cell exactly once.
 
-- [ ] **Step 6: Commit the typed registry**
+- [x] **Step 6: Commit the typed registry**
 
 ```powershell
 git add CMakeLists.txt include/binobf/capabilities/registry.hpp `
@@ -250,7 +250,7 @@ git commit -m "feat: add typed capability registry"
 - Consumes: `CapabilityRegistry::records()` and the generated root `CTestTestfile.cmake`.
 - Produces: `AcceptanceEvidence`, `builtin_acceptance_evidence()`, and `validate_capability_evidence()`.
 
-- [ ] **Step 1: Add failing evidence validation tests**
+- [x] **Step 1: Add failing evidence validation tests**
 
 Append to `tests/unit/capability_registry_tests.cpp`:
 
@@ -277,7 +277,7 @@ TEST_CASE(unknown_and_duplicate_evidence_ids_are_rejected) {
 }
 ```
 
-- [ ] **Step 2: Run the focused build and confirm the missing-header failure**
+- [x] **Step 2: Run the focused build and confirm the missing-header failure**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_capability_registry_tests
@@ -285,7 +285,7 @@ cmake --build build\m12-verify-debug --target binobf_capability_registry_tests
 
 Expected: compilation fails because `binobf/capabilities/evidence.hpp` is absent.
 
-- [ ] **Step 3: Implement the evidence catalog contract**
+- [x] **Step 3: Implement the evidence catalog contract**
 
 Create `include/binobf/capabilities/evidence.hpp`:
 
@@ -325,7 +325,7 @@ applicable: `format_detector`, `object_parser_integration`, `object_writer_integ
 `instruction_transform_integration`, `vm_lowering_differential`, and
 `vm_protection_integration`.
 
-- [ ] **Step 4: Add an integration test that checks actual registered CTest names**
+- [x] **Step 4: Add an integration test that checks actual registered CTest names**
 
 Create `tests/integration/capability_evidence_tests.cpp` that accepts exactly one path argument,
 reads the generated root `CTestTestfile.cmake`, calls `validate_capability_evidence`, and verifies
@@ -348,7 +348,7 @@ add_test(
 )
 ```
 
-- [ ] **Step 5: Run both evidence tests to green**
+- [x] **Step 5: Run both evidence tests to green**
 
 ```powershell
 cmake --build build\m12-verify-debug --target `

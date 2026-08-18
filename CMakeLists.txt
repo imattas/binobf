@@ -107,6 +107,7 @@ if(BINOBF_ENABLE_UNDEFINED_SANITIZER OR BINOBF_ENABLE_ADDRESS_SANITIZER)
 endif()
 
 set(BINOBF_CORE_SOURCES
+    src/capabilities/evidence.cpp
     src/capabilities/registry.cpp
     src/formats/archive.cpp
     src/formats/archive_writer.cpp
@@ -1006,4 +1007,16 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_cli_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_cli_tests)
     add_test(NAME cli COMMAND binobf_cli_tests)
+
+    add_executable(
+        binobf_capability_evidence_tests
+        tests/integration/capability_evidence_tests.cpp
+    )
+    target_link_libraries(binobf_capability_evidence_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_capability_evidence_tests)
+    add_test(
+        NAME capability_evidence
+        COMMAND binobf_capability_evidence_tests
+            "${CMAKE_CURRENT_BINARY_DIR}/CTestTestfile.cmake"
+    )
 endif()

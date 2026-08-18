@@ -1,4 +1,5 @@
 #include <binobf/capabilities/registry.hpp>
+#include <binobf/capabilities/evidence.hpp>
 
 #include "../test_support.hpp"
 
@@ -48,6 +49,57 @@ TEST_CASE(capability_registry_rejects_duplicate_keys_and_unknown_lookups) {
                 .capability = binobf::Capability::Detection,
                 .format = binobf::BinaryFormat::Unknown,
             }) == nullptr);
+}
+
+TEST_CASE(supported_capabilities_require_known_release_evidence) {
+    const auto validated = binobf::validate_capability_evidence(
+        binobf::builtin_capability_registry(),
+        binobf::builtin_acceptance_evidence());
+    REQUIRE(validated.has_value());
+    REQUIRE(validated.value() > 0U);
+}
+
+TEST_CASE(unknown_and_duplicate_evidence_ids_are_rejected) {
+    const std::array duplicateEvidence{
+        binobf::AcceptanceEvidence{"format-detection", "format_detector", true},
+        binobf::AcceptanceEvidence{"format-detection", "core_types", true},
+    };
+    const auto duplicate = binobf::validate_capability_evidence(
+        binobf::builtin_capability_registry(), duplicateEvidence);
+    REQUIRE(!duplicate.has_value());
+    REQUIRE_EQ(duplicate.error().code, "capability.duplicate_evidence");
+
+    const std::array unknownRecords{
+        binobf::CapabilityRecord{
+            .key = {.capability = binobf::Capability::Detection,
+                    .format = binobf::BinaryFormat::PE},
+            .support = binobf::SupportLevel::Supported,
+            .qualifier = {},
+            .evidence = {"does-not-exist"},
+        },
+    };
+    const auto unknownRegistry = binobf::CapabilityRegistry::create(unknownRecords);
+    REQUIRE(unknownRegistry.has_value());
+    const auto unknown = binobf::validate_capability_evidence(
+        unknownRegistry.value(), binobf::builtin_acceptance_evidence());
+    REQUIRE(!unknown.has_value());
+    REQUIRE_EQ(unknown.error().code, "capability.unknown_evidence");
+
+    const std::array missingRecords{
+        binobf::CapabilityRecord{
+            .key = {.capability = binobf::Capability::Detection,
+                    .format = binobf::BinaryFormat::PE},
+            .support = binobf::SupportLevel::Supported,
+            .qualifier = {},
+            .evidence = {},
+        },
+    };
+    const auto missingRegistry = binobf::CapabilityRegistry::create(missingRecords);
+    REQUIRE(missingRegistry.has_value());
+    const auto missing = binobf::validate_capability_evidence(
+        missingRegistry.value(), binobf::builtin_acceptance_evidence());
+    REQUIRE(!missing.has_value());
+    REQUIRE_EQ(missing.error().code, "capability.missing_evidence");
 }
 
 int main() {

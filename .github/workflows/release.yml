@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   package:
@@ -67,11 +69,35 @@ jobs:
         shell: bash
         run: tar -C staging -czf binobf-${{ matrix.platform }}.tar.gz binobf
 
+      - name: Create Windows integrity files
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = "binobf-${{ matrix.platform }}.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content -NoNewline "$archive.sha256"
+          @{ schema_version = 1; tag = "${{ github.ref_name }}"; commit = "${{ github.sha }}"; platform = "${{ matrix.platform }}"; archive = $archive; sha256 = $hash } | ConvertTo-Json -Compress | Set-Content "binobf-${{ matrix.platform }}.manifest.json"
+
+      - name: Create Linux integrity files
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          archive="binobf-${{ matrix.platform }}.tar.gz"
+          hash="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          printf '%s  %s\n' "$hash" "$archive" > "$archive.sha256"
+          printf '{"schema_version":1,"tag":"%s","commit":"%s","platform":"%s","archive":"%s","sha256":"%s"}\n' "${{ github.ref_name }}" "${{ github.sha }}" "${{ matrix.platform }}" "$archive" "$hash" > "binobf-${{ matrix.platform }}.manifest.json"
+
+      - name: Attest archive
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: binobf-${{ matrix.platform }}.*
+
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
           name: binobf-${{ matrix.platform }}
-          path: binobf-${{ matrix.platform }}.*
+          path: |
+            binobf-${{ matrix.platform }}.*
           if-no-files-found: error
 
   publish:

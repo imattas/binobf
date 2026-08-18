@@ -1,6 +1,6 @@
 # binobf
 
-`binobf` is a native-code software-protection framework designed like a compiler. It will transform supported object files and linked binaries only when it can understand, reconstruct, and verify the affected structures.
+`binobf` is a native-code software-protection framework designed like a compiler. It will transform supported object files and linked binaries only when it can understand, reconstruct, and verify the affected structures. ARM64 COFF and ELF object analysis, code generation, relocations, unwind ownership, fixed-width transformations, corpus/linker validation, and bounded native evidence are supported.
 
 The project is in active development. The current implementation provides a typed core library, structured diagnostics with remediation and lineage, deterministic seeded randomness, safe container/header detection, normalized ELF/COFF relocatable-object parsing, canonical object reconstruction, conservative PE/ELF linked-image parsing and address-stable rewriting, GNU/COFF archive parsing and reconstruction, transactional object-member transformation, public structural verification, compile-transform-run differential testing, a supported i386 object-analysis/code-generation backend, conservative x86-64 machine-code analysis, a bounded architecture-neutral VM core, fail-closed lowering of a deliberately small x86-64 arithmetic/control-flow subset into versioned VM bytecode, deterministic standalone VM control-flow flattening, outlining, and function splitting, restricted selected-function bytecode embedding for x86-64 COFF/ELF objects, and opt-in generated-property, mutation, fuzz, sanitizer, and benchmark tooling. General native lifting and post-link code-layout rewriting remain under development.
 
@@ -19,7 +19,7 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 | Structural verification | supported | supported | supported | supported |
 | Exact linked/object emission | supported | supported | supported | supported |
 | Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported per object member |
-| x86/x86-64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |
+| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |
 | Selected x86-64 function VM lowering | n/a | restricted | restricted | unsupported |
 | Embedded selected-function VM protection | n/a | restricted | restricted | unsupported |
 
@@ -27,7 +27,7 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 |---|---:|---:|---:|---:|
 | x86 | supported | supported | supported | supported |
 | x86-64 | supported | supported | supported | restricted object backend |
-| ARM64 | supported | supported | experimental | planned |
+| ARM64 | supported | supported | supported | supported |
 <!-- binobf:feature-matrix:end -->
 
 PE classification includes executables, DLLs, and `.sys` files after a valid PE header is established. ELF classification includes relocatable objects, executables, and shared objects. GNU/BSD-style `ar` containers and Microsoft COFF `.lib` files expose resolved member names, ELF/COFF objects, import records, metadata, architecture, and symbol-to-member relationships.

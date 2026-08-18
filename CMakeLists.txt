@@ -462,6 +462,27 @@ if(BINOBF_BUILD_TESTS)
         RUN_SERIAL TRUE
         TIMEOUT 180
     )
+    add_test(
+        NAME installed_track4_consumer
+        COMMAND "${CMAKE_COMMAND}"
+            "-DBINOBF_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+            "-DBINOBF_BUILD_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+            "-DBINOBF_INSTALL_PREFIX=${CMAKE_CURRENT_BINARY_DIR}/installed-track4-consumer"
+            "-DBINOBF_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+            "-DBINOBF_C_COMPILER=${CMAKE_C_COMPILER}"
+            "-DBINOBF_CONFIGURATION=${CMAKE_BUILD_TYPE}"
+            "-DBINOBF_UNDEFINED_SANITIZER=${BINOBF_ENABLE_UNDEFINED_SANITIZER}"
+            "-DBINOBF_INSTALLED_LIBRARIES=${_binobf_installed_libraries}"
+            "-DBINOBF_CONSUMER_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/installed/track4_consumer.cpp"
+            "-DBINOBF_CONSUMER_NAME=binobf-track4-installed-consumer"
+            "-DBINOBF_TRACK4=ON"
+            "-DBINOBF_ARM64_FIXTURE_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/transform_patterns.S"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunInstalledConsumer.cmake"
+    )
+    set_tests_properties(installed_track4_consumer PROPERTIES
+        RUN_SERIAL TRUE
+        TIMEOUT 180
+    )
 
     add_executable(binobf_core_types_tests tests/unit/core_types_tests.cpp)
     target_link_libraries(binobf_core_types_tests PRIVATE binobf::core)
@@ -1178,6 +1199,13 @@ if(BINOBF_BUILD_TESTS)
         binobf_enable_warnings(binobf_x86_backend_mutation_tests)
         add_test(NAME x86_backend_mutation COMMAND binobf_x86_backend_mutation_tests)
         add_executable(
+            binobf_arm64_backend_mutation_tests
+            tests/mutation/arm64_backend_mutation_tests.cpp
+        )
+        target_link_libraries(binobf_arm64_backend_mutation_tests PRIVATE binobf::core)
+        binobf_enable_warnings(binobf_arm64_backend_mutation_tests)
+        add_test(NAME arm64_backend_mutation COMMAND binobf_arm64_backend_mutation_tests)
+        add_executable(
             binobf_object_writer_integration_tests
             tests/integration/object_writer_integration_tests.cpp
         )
@@ -1405,6 +1433,21 @@ if(BINOBF_BUILD_TESTS)
                 "-DLINKER_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/qemu.ld"
                 "-DGENERATOR=$<TARGET_FILE:binobf_arm64_service_artifact_generator>"
                 "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/arm64-abi-native-differential"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunArm64AbiNativeDifferential.cmake"
+        )
+        add_test(
+            NAME arm64_native_differential
+            COMMAND "${CMAKE_COMMAND}"
+                "-DCLANG=${CMAKE_C_COMPILER}"
+                "-DLD_LLD=${BINOBF_LD_LLD}"
+                "-DLLVM_READOBJ=${BINOBF_LLVM_READOBJ}"
+                "-DQEMU=${BINOBF_QEMU_SYSTEM_AARCH64}"
+                "-DENTRY_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/abi_native_entry.S"
+                "-DSEMIHOSTING_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/semihosting.S"
+                "-DWINDOWS_UNWIND_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/windows_unwind_reference.S"
+                "-DLINKER_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/qemu.ld"
+                "-DGENERATOR=$<TARGET_FILE:binobf_arm64_service_artifact_generator>"
+                "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/arm64-native-differential"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunArm64AbiNativeDifferential.cmake"
         )
 

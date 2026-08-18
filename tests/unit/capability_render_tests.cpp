@@ -21,7 +21,7 @@ constexpr std::string_view expectedMarkdown =
     "| Structural verification | supported | supported | supported | supported |\n"
     "| Exact linked/object emission | supported | supported | supported | supported |\n"
     "| Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported per object member |\n"
-    "| x86/x86-64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |\n"
+    "| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |\n"
     "| Selected x86-64 function VM lowering | n/a | restricted | restricted | unsupported |\n"
     "| Embedded selected-function VM protection | n/a | restricted | restricted | unsupported |\n"
     "\n"
@@ -29,17 +29,17 @@ constexpr std::string_view expectedMarkdown =
     "|---|---:|---:|---:|---:|\n"
     "| x86 | supported | supported | supported | supported |\n"
     "| x86-64 | supported | supported | supported | restricted object backend |\n"
-    "| ARM64 | supported | supported | experimental | planned |\n";
+    "| ARM64 | supported | supported | supported | supported |\n";
 
 constexpr std::string_view expectedPassText =
-    "block-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
-    "block-splitting risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
-    "branch-inversion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
+    "block-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
+    "block-splitting risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
+    "branch-inversion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
     "cleanup-metadata risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "constant-rewriting risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
-    "dead-code-insertion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
-    "function-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
-    "instruction-substitution risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=x86,x86-64\n"
+    "constant-rewriting risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
+    "dead-code-insertion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
+    "function-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
+    "instruction-substitution risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
     "rename-private-symbols risk=low cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
     "strip-debug risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
     "strip-local-symbols risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n";

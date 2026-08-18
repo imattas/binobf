@@ -25,6 +25,10 @@ constexpr std::array kBuiltinEvidence{
     AcceptanceEvidence{"x86_codegen", "x86_native_differential", true},
     AcceptanceEvidence{"x86_object_backend", "x86_object_backend", true},
     AcceptanceEvidence{"x86_unwind", "x86_unwind_semantics", true},
+    AcceptanceEvidence{"arm64_abi_adapter", "arm64_abi_native_differential", true},
+    AcceptanceEvidence{"arm64_codegen", "arm64_native_differential", true},
+    AcceptanceEvidence{"arm64_object_backend", "arm64_object_backend", true},
+    AcceptanceEvidence{"arm64_unwind", "arm64_unwind_semantics", true},
 };
 
 auto failure(std::string code, std::string message)

@@ -32,7 +32,10 @@ constexpr std::array<std::string_view, 1> kX86AnalysisEvidence{"x86_object_backe
 constexpr std::array<std::string_view, 1> kX86CodegenEvidence{"x86_codegen"};
 constexpr std::array<std::string_view, 1> kX86AbiEvidence{"x86_abi_adapter"};
 constexpr std::array<std::string_view, 1> kX86UnwindEvidence{"x86_unwind"};
-constexpr std::array<std::string_view, 1> kArm64AbiEvidence{"arm64_abi_unwind"};
+constexpr std::array<std::string_view, 1> kArm64AnalysisEvidence{"arm64_object_backend"};
+constexpr std::array<std::string_view, 1> kArm64CodegenEvidence{"arm64_codegen"};
+constexpr std::array<std::string_view, 1> kArm64AbiEvidence{"arm64_abi_adapter"};
+constexpr std::array<std::string_view, 1> kArm64UnwindEvidence{"arm64_unwind"};
 
 auto failure(std::string code, std::string message) -> Result<Instruction, Diagnostic> {
     return Result<Instruction, Diagnostic>::failure(Diagnostic{
@@ -199,13 +202,15 @@ auto pc_relative_data_target(Architecture architecture, const cs_insn& instructi
 
 auto analysis_support(Architecture architecture) -> SupportLevel {
     return architecture == Architecture::X86 || architecture == Architecture::X86_64
-        ? SupportLevel::Supported : SupportLevel::Experimental;
+        || architecture == Architecture::ARM64 ? SupportLevel::Supported
+                                                : SupportLevel::Experimental;
 }
 
 auto codegen_support(Architecture architecture) -> SupportLevel {
     if (architecture == Architecture::X86) return SupportLevel::Supported;
-    return architecture == Architecture::X86_64
-        ? SupportLevel::Restricted : SupportLevel::Planned;
+    return architecture == Architecture::X86_64 ? SupportLevel::Restricted
+        : architecture == Architecture::ARM64 ? SupportLevel::Supported
+                                              : SupportLevel::Planned;
 }
 
 class CapstoneArchitectureBackend final : public ArchitectureBackend {
@@ -224,23 +229,30 @@ public:
                       ? std::span<const std::string_view>{kX86AnalysisEvidence}
                       : architecture == Architecture::X86_64
                           ? std::span<const std::string_view>{kAnalysisEvidence}
-                          : std::span<const std::string_view>{}},
+                          : architecture == Architecture::ARM64
+                              ? std::span<const std::string_view>{kArm64AnalysisEvidence}
+                              : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::EmitCode, codegen_support(architecture),
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86CodegenEvidence}
-                      : std::span<const std::string_view>{}},
+                      : architecture == Architecture::ARM64
+                          ? std::span<const std::string_view>{kArm64CodegenEvidence}
+                          : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::EncodeFixups,
                   architecture == Architecture::X86
-                      ? SupportLevel::Supported : SupportLevel::Unsupported,
+                      || architecture == Architecture::ARM64 ? SupportLevel::Supported
+                                                              : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86CodegenEvidence}
-                      : std::span<const std::string_view>{}},
+                      : architecture == Architecture::ARM64
+                          ? std::span<const std::string_view>{kArm64CodegenEvidence}
+                          : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::BuildAbiAdapter,
                   architecture == Architecture::X86 ? SupportLevel::Supported
-                      : architecture == Architecture::ARM64 ? SupportLevel::Restricted
+                      : architecture == Architecture::ARM64 ? SupportLevel::Supported
                                                             : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86AbiEvidence}
@@ -250,12 +262,12 @@ public:
               BackendServiceRecord{
                   BackendService::BuildUnwind,
                   architecture == Architecture::X86 ? SupportLevel::Supported
-                      : architecture == Architecture::ARM64 ? SupportLevel::Restricted
+                      : architecture == Architecture::ARM64 ? SupportLevel::Supported
                                                             : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86UnwindEvidence}
                       : architecture == Architecture::ARM64
-                          ? std::span<const std::string_view>{kArm64AbiEvidence}
+                          ? std::span<const std::string_view>{kArm64UnwindEvidence}
                           : std::span<const std::string_view>{}},
           } {}
 

@@ -373,7 +373,7 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
         output.str(),
         "x86 detection=supported decoder=supported object-analysis=supported codegen=supported\n"
         "x86-64 detection=supported decoder=supported object-analysis=supported codegen=restricted object backend\n"
-        "arm64 detection=supported decoder=supported object-analysis=experimental codegen=planned\n");
+        "arm64 detection=supported decoder=supported object-analysis=supported codegen=supported\n");
     REQUIRE(errors.str().empty());
 }
 

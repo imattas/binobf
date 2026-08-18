@@ -112,6 +112,31 @@ if(BINOBF_TRACK3)
     list(APPEND _consumer_arguments "${_coff_fixture}" "${_elf_fixture}")
 endif()
 
+if(BINOBF_TRACK4)
+    if(NOT DEFINED BINOBF_C_COMPILER OR NOT DEFINED BINOBF_ARM64_FIXTURE_SOURCE)
+        message(FATAL_ERROR "Track 4 installed consumer requires its C compiler and ARM64 fixture")
+    endif()
+    set(_fixture_dir "${_install_root}/share/binobf-track4-fixtures")
+    file(MAKE_DIRECTORY "${_fixture_dir}")
+    set(_coff_fixture "${_fixture_dir}/transform-patterns.obj")
+    set(_elf_fixture "${_fixture_dir}/transform-patterns.o")
+    execute_process(
+        COMMAND "${BINOBF_C_COMPILER}" --target=aarch64-pc-windows-msvc
+            -c "${BINOBF_ARM64_FIXTURE_SOURCE}" -o "${_coff_fixture}"
+        RESULT_VARIABLE _coff_result OUTPUT_VARIABLE _coff_output ERROR_VARIABLE _coff_error)
+    if(NOT _coff_result EQUAL 0)
+        message(FATAL_ERROR "Track 4 COFF fixture failed (${_coff_result})\n${_coff_output}${_coff_error}")
+    endif()
+    execute_process(
+        COMMAND "${BINOBF_C_COMPILER}" --target=aarch64-unknown-linux-gnu
+            -c "${BINOBF_ARM64_FIXTURE_SOURCE}" -o "${_elf_fixture}"
+        RESULT_VARIABLE _elf_result OUTPUT_VARIABLE _elf_output ERROR_VARIABLE _elf_error)
+    if(NOT _elf_result EQUAL 0)
+        message(FATAL_ERROR "Track 4 ELF fixture failed (${_elf_result})\n${_elf_output}${_elf_error}")
+    endif()
+    list(APPEND _consumer_arguments "${_coff_fixture}" "${_elf_fixture}")
+endif()
+
 execute_process(
     COMMAND "${_consumer}" ${_consumer_arguments}
     RESULT_VARIABLE _run_result

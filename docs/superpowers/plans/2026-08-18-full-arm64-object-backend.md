@@ -690,7 +690,7 @@ git commit -m "test: validate the ARM64 compiler object corpus"
 - Consumes: runtime-safe corpus objects and transformed counterparts.
 - Produces: original/transformed A64 behavior under bounded system emulation.
 
-- [ ] **Step 1: Add a hard QEMU host probe**
+- [x] **Step 1: Add a hard QEMU host probe**
 
 Compile `_start` for `aarch64-none-elf`, link at `virt` RAM with an aligned stack, and call
 `SYS_EXIT_EXTENDED` through `hlt #0xf000`. Run:
@@ -701,7 +701,7 @@ qemu-system-aarch64 -M virt -cpu cortex-a57 -nographic -monitor none -serial non
 
 Require a designed nonzero exit code. Missing QEMU, timeout, trap, or wrong status fails; no skip.
 
-- [ ] **Step 2: Prove the probe target is RED**
+- [x] **Step 2: Prove the probe target is RED**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_native_differential_tests
@@ -709,19 +709,19 @@ cmake --build build\m13-verify-debug --target binobf_arm64_native_differential_t
 
 Expected: target/source is absent.
 
-- [ ] **Step 3: Build deterministic result reporting**
+- [x] **Step 3: Build deterministic result reporting**
 
 Expose `binobf_semihost_write0` and `binobf_semihost_exit`. The entry prints a fixed record with
 magic, function ID, return value, selected global bytes, and checksum. No host path comes from
 transformed code. Capture output and enforce a 15-second timeout.
 
-- [ ] **Step 4: Compare every runtime-safe pass**
+- [x] **Step 4: Compare every runtime-safe pass**
 
 Link original/transformed objects with the same entry, execute fresh QEMU processes, and require
 identical exit/result records. Every pass must execute at least once. Crash, timeout, unexpected
 output, or checksum mismatch fails.
 
-- [ ] **Step 5: Run the differential target twice**
+- [x] **Step 5: Run the differential target twice**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_native_differential_tests
@@ -731,7 +731,7 @@ ctest --test-dir build\m13-verify-debug -C Debug -R "^arm64_native_differential$
 
 Require identical hashes and totals.
 
-- [ ] **Step 6: Commit QEMU evidence**
+- [x] **Step 6: Commit QEMU evidence**
 
 ```powershell
 git add CMakeLists.txt cmake/RunArm64NativeDifferential.cmake tests/fixtures/arm64/native_entry.S tests/fixtures/arm64/semihosting.S tests/fixtures/arm64/qemu.ld tests/differential/arm64_native_differential_tests.cpp
@@ -756,19 +756,19 @@ git commit -m "test: prove ARM64 behavior under QEMU"
 - Consumes: ARM64 template, fixup, parser, unwind, and transaction boundaries.
 - Produces: deterministic fuzz coverage and required mutation kills.
 
-- [ ] **Step 1: Add RED mutation counterexamples**
+- [x] **Step 1: Add RED mutation counterexamples**
 
 Mutants omit four-byte alignment, branch scale/range, ADR mapping, ADRP page bias, low12 access
 scale, group ownership, packed-unwind length, CFI ownership, unknown-section identity, and source
 snapshot comparison. Each golden input passes production and kills its mutant.
 
-- [ ] **Step 2: Extend bounded fuzz mapping**
+- [x] **Step 2: Extend bounded fuzz mapping**
 
 Map bytes to ARM64 COFF/ELF seeds, known/unknown relocations, masked fields, aligned windows, unwind
 mutations, and resource limits. Successful plans write/reparse/verify but never execute. Repeated
 refusals require the same nonempty diagnostic.
 
-- [ ] **Step 3: Prove the mutation target is RED**
+- [x] **Step 3: Prove the mutation target is RED**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_backend_mutation_tests
@@ -776,7 +776,7 @@ cmake --build build\m13-verify-debug --target binobf_arm64_backend_mutation_test
 
 Expected: target/source absent.
 
-- [ ] **Step 4: Run mutation and all nine fuzz surfaces**
+- [x] **Step 4: Run mutation and all nine fuzz surfaces**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_backend_mutation_tests
@@ -786,7 +786,7 @@ cmake --build build\m13-fuzz-final --target fuzz-smoke
 
 Require all mutants killed and nine surfaces times 2,000 UBSan runs without crash/timeout/instability.
 
-- [ ] **Step 5: Commit robustness evidence**
+- [x] **Step 5: Commit robustness evidence**
 
 ```powershell
 git add CMakeLists.txt docs/hardening.md tests/fuzz tests/mutation/arm64_backend_mutation_tests.cpp
@@ -820,7 +820,7 @@ git commit -m "test: harden the ARM64 object backend"
 - Consumes: all Track 4 implementation and evidence.
 - Produces: supported ARM64 object capabilities, installed proof, reviewed commits, and a public milestone.
 
-- [ ] **Step 1: Bind enabled acceptance evidence**
+- [x] **Step 1: Bind enabled acceptance evidence**
 
 ```cpp
 AcceptanceEvidence{"arm64_abi_adapter", "arm64_abi_native_differential", true},
@@ -831,18 +831,18 @@ AcceptanceEvidence{"arm64_unwind", "arm64_unwind_semantics", true},
 
 Validation fails for missing, duplicate, disabled, or absent-CTest evidence.
 
-- [ ] **Step 2: Promote ARM64 records and services**
+- [x] **Step 2: Promote ARM64 records and services**
 
 Set ARM64 ObjectAnalysis/CodeGeneration and AnalyzeObject/EmitCode/EncodeFixups/BuildAbiAdapter/
 BuildUnwind to supported with split evidence. Preserve x86/x86-64 and later-track states.
 
-- [ ] **Step 3: Add installed-only Track 4 consumption**
+- [x] **Step 3: Add installed-only Track 4 consumption**
 
 The consumer compiles ARM64 COFF/ELF fixtures, parses/analyzes, emits every template, encodes
 scalar/split/scaled fixups, builds both adapters/unwind plans, runs seven transforms on eligible
 inputs, writes/reparses, and validates evidence. It uses installed headers and exact archives only.
 
-- [ ] **Step 4: Update documentation from the registry**
+- [x] **Step 4: Update documentation from the registry**
 
 Render ARM64 object analysis/codegen supported. Document fixed-width transforms, relocations,
 ABI/unwind limits, corpus/linker/QEMU evidence, and safety. Do not promote Tracks 5-10.

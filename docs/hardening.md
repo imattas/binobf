@@ -27,7 +27,11 @@ The target generates valid COFF and ELF objects, PE and ELF linked images, a GNU
 
 ## Generated and mutation tests
 
-The ordinary CTest suite includes `vm_properties`, `parser_robustness`, and `artifact_mutation`. VM properties compare generated programs against an independent host oracle. Parser robustness requires repeatable diagnostics or successful reconstruction and verification. Artifact mutation reports a killed/total score and fails unless the required matrix is 100% killed; the current matrix contains 19 targeted mutations.
+The ordinary CTest suite includes `vm_properties`, `parser_robustness`, `artifact_mutation`, and
+`arm64_backend_mutation`. VM properties compare generated programs against an independent host
+oracle. Parser robustness requires repeatable diagnostics or successful reconstruction and
+verification. Mutation tests report killed/total scores and fail unless their required matrix is
+100% killed; the ARM64 backend matrix covers fixed-width alignment and branch-range guards.
 
 ## Benchmarks
 

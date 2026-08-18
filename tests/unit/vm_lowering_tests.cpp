@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
+#include <string>
 #include <variant>
 
 namespace {
@@ -23,6 +24,16 @@ auto branching_function() -> binobf::ir::IrFunction {
         .returnType = IrWidth::U32,
         .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
         .storageLocations = {},
+        .signature = IrFunctionSignature{
+            .callingConvention = IrCallingConvention::C,
+            .parameterTypes = {IrWidth::U32, IrWidth::U32},
+            .returnType = IrWidth::U32,
+            .variadic = false,
+            .parameterBindings = {},
+            .returnBinding = std::nullopt,
+            .clobbers = {},
+            .mayUnwind = false,
+        },
         .entry = IrBlockId{0},
         .blocks = {
             IrBlock{IrBlockId{0}, binobf::EntityId{20}, {
@@ -44,6 +55,7 @@ auto branching_function() -> binobf::ir::IrFunction {
                 IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{36}},
             }},
         },
+        .unwindRegions = {},
     };
 }
 
@@ -62,17 +74,20 @@ auto internal_call_module() -> binobf::ir::IrModule {
         .returnType = IrWidth::U32,
         .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
         .storageLocations = {},
+        .signature = helper.signature,
         .entry = IrBlockId{0},
         .blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{50}, {
             IrInternalCall{
                 helper.sourceFunction, IrWidth::U32, IrVariable{2},
                 {IrVariableOperand{IrVariable{0}}, IrVariableOperand{IrVariable{1}}},
-                binobf::EntityId{51}},
+                binobf::EntityId{51}, std::nullopt},
             IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{52}},
         }}},
+        .unwindRegions = {},
     };
     return IrModule{
         .entryFunction = wrapper.sourceFunction,
+        .declarations = {},
         .functions = {std::move(wrapper), std::move(helper)},
     };
 }
@@ -93,6 +108,17 @@ auto execute(
         throw std::runtime_error(result.error().code + ": " + result.error().message);
     }
     return result.value().returnValue.bits();
+}
+
+void require_unsupported(
+    const binobf::ir::IrFunction& function,
+    std::string_view node,
+    std::uint64_t source) {
+    const auto result = binobf::ir::lower_to_vm(function);
+    REQUIRE(!result.has_value());
+    REQUIRE_EQ(result.error().code, "vm.unsupported_native_ir");
+    REQUIRE(result.error().message.find(node) != std::string::npos);
+    REQUIRE(result.error().message.find(std::to_string(source)) != std::string::npos);
 }
 
 } // namespace
@@ -149,7 +175,10 @@ TEST_CASE(vm_lowering_rejects_fallbacks_and_invalid_ir) {
     auto fallback = branching_function();
     fallback.blocks[0].instructions.insert(
         fallback.blocks[0].instructions.begin(),
-        binobf::ir::IrFallback{binobf::EntityId{29}, {}, "unsupported"});
+        binobf::ir::IrFallback{
+            binobf::EntityId{29}, {}, "unsupported",
+            binobf::ir::IrFallbackEffects{{}, {}, {}, true, true, true, true, true},
+            std::nullopt});
     auto result = binobf::ir::lower_to_vm(fallback);
     REQUIRE(!result.has_value());
     REQUIRE_EQ(result.error().code, "ir.fallback_not_lowerable");
@@ -182,6 +211,79 @@ TEST_CASE(single_function_lowering_rejects_internal_calls_without_a_module) {
     const auto result = binobf::ir::lower_to_vm(module.functions.front());
     REQUIRE(!result.has_value());
     REQUIRE_EQ(result.error().code, "ir.internal_call_requires_module");
+}
+
+TEST_CASE(vm_lowering_rejects_float_vector_and_memory_nodes_explicitly) {
+    using namespace binobf::ir;
+    for (const auto type : {
+             IrType{IrTypeKind::FloatingPoint, 32U},
+             IrType{IrTypeKind::Vector, 32U, 2U}}) {
+        auto function = branching_function();
+        function.variableTypes[2] = type;
+        function.blocks = {IrBlock{
+            IrBlockId{0}, binobf::EntityId{20}, {
+                IrMove{type, IrVariable{2}, IrImmediateOperand{type, 0U},
+                       binobf::EntityId{70}},
+                IrReturn{IrWidth::U32, IrVariable{0}, binobf::EntityId{71}},
+            }}};
+        require_unsupported(function, "IrMove", 70U);
+    }
+
+    auto memory = branching_function();
+    const IrType pointer{IrTypeKind::Pointer, 64U};
+    memory.arguments.push_back(IrArgumentBinding{2U, IrVariable{3}, pointer});
+    memory.signature.parameterTypes.push_back(pointer);
+    memory.variableTypes.push_back(pointer);
+    memory.blocks = {IrBlock{
+        IrBlockId{0}, binobf::EntityId{20}, {
+            IrLoad{IrWidth::U32, IrVariable{2},
+                   IrAddress{IrVariable{3}, std::nullopt, 1U, 0, 0U, 4U},
+                   IrByteOrder::Little, false, IrAtomicOrdering::None,
+                   binobf::EntityId{72}, std::nullopt},
+            IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{73}},
+        }}};
+    require_unsupported(memory, "IrLoad", 72U);
+}
+
+TEST_CASE(vm_lowering_rejects_advanced_control_calls_and_unwind_explicitly) {
+    using namespace binobf::ir;
+    auto switched = branching_function();
+    switched.blocks[0].instructions.back() = IrSwitch{
+        IrVariable{2}, {IrSwitchCase{1U, IrBlockId{1}}}, IrBlockId{2},
+        binobf::EntityId{80}};
+    require_unsupported(switched, "IrSwitch", 80U);
+
+    auto indirect = branching_function();
+    indirect.blocks[0].instructions.back() = IrIndirectJump{
+        IrVariable{2}, {IrBlockId{1}, IrBlockId{2}}, binobf::EntityId{81}};
+    require_unsupported(indirect, "IrIndirectJump", 81U);
+
+    auto external = branching_function();
+    external.blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{20}, {
+        IrExternalCall{"external", external.signature, IrVariable{2},
+                       {IrVariableOperand{IrVariable{0}},
+                        IrVariableOperand{IrVariable{1}}},
+                       binobf::EntityId{82}, std::nullopt},
+        IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{83}},
+    }}};
+    require_unsupported(external, "IrExternalCall", 82U);
+
+    auto tail = branching_function();
+    tail.blocks = {IrBlock{
+        IrBlockId{0}, binobf::EntityId{20}, {
+            IrTailCall{IrCallTarget{binobf::EntityId{11}}, tail.signature,
+                       {IrVariableOperand{IrVariable{0}},
+                        IrVariableOperand{IrVariable{1}}},
+                       binobf::EntityId{84}, std::nullopt},
+        }}};
+    require_unsupported(tail, "IrTailCall", 84U);
+
+    auto unwind = branching_function();
+    unwind.unwindRegions = {
+        IrUnwindRegion{1U, IrUnwindRegionKind::Cleanup, std::nullopt,
+                       IrBlockId{2}, {IrBlockId{1}}, {"cleanup"}},
+    };
+    require_unsupported(unwind, "IrUnwindRegion", 10U);
 }
 
 int main() {

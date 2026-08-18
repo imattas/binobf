@@ -538,29 +538,29 @@ git commit -m "feat: model native calls control flow and unwind"
 - Consumes: canonical Task 5/6 IR.
 - Produces: unchanged existing integer lifting/transform/lowering semantics using canonical types.
 
-- [ ] **Step 1: Compile all affected targets to expose migration failures**
+- [x] **Step 1: Compile all affected targets to expose migration failures**
 
 Build native lifter, control-flow, outlining, VM lowering, CLI, and differential targets. Preserve
 the compiler error list as the migration checklist; do not add compatibility duplicate fields.
 
-- [ ] **Step 2: Migrate construction and type checks**
+- [x] **Step 2: Migrate construction and type checks**
 
 Replace every `variableWidths`/`returnWidth`/call `resultWidth` construction with canonical
 `IrType`. Use `integer_width()` only at the VM boundary and propagate its diagnostic. Keep all
 existing golden functions structurally equal after converting widths to types.
 
-- [ ] **Step 3: Add explicit unsupported-node lowering diagnostics**
+- [x] **Step 3: Add explicit unsupported-node lowering diagnostics**
 
 For new memory, floating, vector, external-call, switch, indirect, tail, and unwind nodes that Track
 5 has not yet lowered, return `vm.unsupported_native_ir` naming the exact node/source instruction.
 Never reinterpret one as fallback or silently skip it.
 
-- [ ] **Step 4: Preserve transform fallback boundaries**
+- [x] **Step 4: Preserve transform fallback boundaries**
 
 Control-flow flattening, outlining, and splitting must reject regions blocked by incomplete
 fallback effects with `ir.fallback_blocks_transform`. Byte-preserving existing cases remain green.
 
-- [ ] **Step 5: Run all IR/VM regression targets**
+- [x] **Step 5: Run all IR/VM regression targets**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_native_lifter_tests `
@@ -571,7 +571,7 @@ ctest --test-dir build\m12-verify-debug `
   --output-on-failure
 ```
 
-- [ ] **Step 6: Commit canonical IR migration**
+- [x] **Step 6: Commit canonical IR migration**
 
 ```powershell
 git add include/binobf/ir/native_lifter.hpp src/ir src/cli/command.cpp tests

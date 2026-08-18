@@ -26,6 +26,16 @@ auto branching_function() -> binobf::ir::IrFunction {
         .returnType = IrWidth::U32,
         .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
         .storageLocations = {},
+        .signature = IrFunctionSignature{
+            .callingConvention = IrCallingConvention::C,
+            .parameterTypes = {IrWidth::U32, IrWidth::U32},
+            .returnType = IrWidth::U32,
+            .variadic = false,
+            .parameterBindings = {},
+            .returnBinding = std::nullopt,
+            .clobbers = {},
+            .mayUnwind = false,
+        },
         .entry = IrBlockId{0},
         .blocks = {
             IrBlock{IrBlockId{0}, binobf::EntityId{20}, {
@@ -47,6 +57,7 @@ auto branching_function() -> binobf::ir::IrFunction {
                 IrReturn{IrWidth::U32, IrVariable{2}, binobf::EntityId{36}},
             }},
         },
+        .unwindRegions = {},
     };
 }
 
@@ -165,10 +176,13 @@ TEST_CASE(block_outlining_rejects_entry_non_return_and_fallback_blocks) {
     auto fallback = branching_function();
     fallback.blocks[1].instructions.insert(
         fallback.blocks[1].instructions.begin(),
-        binobf::ir::IrFallback{binobf::EntityId{39}, {}, "unsupported"});
+        binobf::ir::IrFallback{
+            binobf::EntityId{39}, {}, "unsupported",
+            binobf::ir::IrFallbackEffects{{}, {}, {}, true, true, true, true, true},
+            std::nullopt});
     result = binobf::ir::outline_block(fallback, binobf::ir::IrBlockId{1}, 1);
     REQUIRE(!result.has_value());
-    REQUIRE_EQ(result.error().code, "ir.fallback_not_transformable");
+    REQUIRE_EQ(result.error().code, "ir.fallback_blocks_transform");
 }
 
 int main() {

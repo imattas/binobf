@@ -129,12 +129,6 @@ auto remap_instruction(
 
 auto validate_source(const IrFunction& function, const IrLimits& limits)
     -> std::optional<Diagnostic> {
-    if (function_contains_fallback(function)) {
-        return Diagnostic{
-            DiagnosticSeverity::Error,
-            "ir.fallback_not_transformable",
-            "functions containing native fallbacks cannot be outlined or split"};
-    }
     if (contains_internal_call(function)) {
         return Diagnostic{
             DiagnosticSeverity::Error,
@@ -154,6 +148,14 @@ auto split_function(
     const IrLimits& limits) -> Result<InternalizationReport, Diagnostic> {
     if (const auto invalid = validate_source(function, limits); invalid.has_value()) {
         return Result<InternalizationReport, Diagnostic>::failure(*invalid);
+    }
+    std::vector<IrBlockId> rewriteBlocks;
+    rewriteBlocks.reserve(function.blocks.size());
+    for (const auto& block : function.blocks) rewriteBlocks.push_back(block.id);
+    if (fallback_blocks_rewrite(function, rewriteBlocks)) {
+        return failure(
+            "ir.fallback_blocks_transform",
+            "native fallback effects block function splitting");
     }
     const auto entryBlock = std::find_if(
         function.blocks.begin(), function.blocks.end(),
@@ -237,15 +239,15 @@ auto outline_block(
     IrBlockId blockId,
     std::uint64_t seed,
     const IrLimits& limits) -> Result<InternalizationReport, Diagnostic> {
-    if (function_contains_fallback(function)) {
-        return failure(
-            "ir.fallback_not_transformable",
-            "functions containing native fallbacks cannot be outlined");
-    }
     const auto selected = std::find_if(function.blocks.begin(), function.blocks.end(),
         [blockId](const auto& block) { return block.id == blockId; });
     if (selected == function.blocks.end()) {
         return failure("ir.outline_block_missing", "selected outline block does not exist");
+    }
+    if (fallback_blocks_rewrite(function, {blockId})) {
+        return failure(
+            "ir.fallback_blocks_transform",
+            "native fallback effects block outlining the selected region");
     }
     if (blockId == function.entry) {
         return failure("ir.outline_entry_block", "the entry block cannot be outlined");

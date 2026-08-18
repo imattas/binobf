@@ -6,6 +6,8 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -16,6 +18,91 @@ namespace {
 auto failure(std::string code, std::string message) -> Result<VmLoweringReport, Diagnostic> {
     return Result<VmLoweringReport, Diagnostic>::failure(Diagnostic{
         DiagnosticSeverity::Error, std::move(code), std::move(message)});
+}
+
+auto compatibility_failure(std::string_view node, EntityId source)
+    -> Result<std::size_t, Diagnostic> {
+    return Result<std::size_t, Diagnostic>::failure(Diagnostic{
+        DiagnosticSeverity::Error,
+        "vm.unsupported_native_ir",
+        "VM lowering does not support " + std::string{node} +
+            " at source instruction " + std::to_string(source.value()),
+    });
+}
+
+auto instruction_source(const IrInstruction& instruction) -> EntityId {
+    return std::visit(
+        [](const auto& item) { return item.sourceInstruction; }, instruction);
+}
+
+auto instruction_name(const IrInstruction& instruction) -> std::string_view {
+    return std::visit([](const auto& item) -> std::string_view {
+        using T = std::decay_t<decltype(item)>;
+        if constexpr (std::is_same_v<T, IrMove>) return "IrMove";
+        else if constexpr (std::is_same_v<T, IrBinaryOperation>) return "IrBinaryOperation";
+        else if constexpr (std::is_same_v<T, IrUnaryOperation>) return "IrUnaryOperation";
+        else if constexpr (std::is_same_v<T, IrCompare>) return "IrCompare";
+        else if constexpr (std::is_same_v<T, IrTest>) return "IrTest";
+        else if constexpr (std::is_same_v<T, IrJump>) return "IrJump";
+        else if constexpr (std::is_same_v<T, IrConditionalJump>) return "IrConditionalJump";
+        else if constexpr (std::is_same_v<T, IrSwitch>) return "IrSwitch";
+        else if constexpr (std::is_same_v<T, IrIndirectJump>) return "IrIndirectJump";
+        else if constexpr (std::is_same_v<T, IrInternalCall>) return "IrInternalCall";
+        else if constexpr (std::is_same_v<T, IrExternalCall>) return "IrExternalCall";
+        else if constexpr (std::is_same_v<T, IrTailCall>) return "IrTailCall";
+        else if constexpr (std::is_same_v<T, IrLoad>) return "IrLoad";
+        else if constexpr (std::is_same_v<T, IrStore>) return "IrStore";
+        else if constexpr (std::is_same_v<T, IrAddressOf>) return "IrAddressOf";
+        else if constexpr (std::is_same_v<T, IrPointerOffset>) return "IrPointerOffset";
+        else if constexpr (std::is_same_v<T, IrCast>) return "IrCast";
+        else if constexpr (std::is_same_v<T, IrReturn>) return "IrReturn";
+        else return "IrFallback";
+    }, instruction);
+}
+
+auto instruction_vm_compatible(const IrInstruction& instruction, bool moduleLowering)
+    -> bool {
+    return std::visit([moduleLowering](const auto& item) {
+        using T = std::decay_t<decltype(item)>;
+        if constexpr (std::is_same_v<T, IrMove> ||
+                      std::is_same_v<T, IrBinaryOperation> ||
+                      std::is_same_v<T, IrUnaryOperation> ||
+                      std::is_same_v<T, IrCompare> ||
+                      std::is_same_v<T, IrTest> ||
+                      std::is_same_v<T, IrReturn>) {
+            return integer_width(item.type).has_value();
+        } else if constexpr (std::is_same_v<T, IrJump> ||
+                             std::is_same_v<T, IrConditionalJump>) {
+            return true;
+        } else if constexpr (std::is_same_v<T, IrInternalCall>) {
+            return moduleLowering && integer_width(item.resultType).has_value();
+        } else {
+            return false;
+        }
+    }, instruction);
+}
+
+auto validate_vm_compatibility(const IrFunction& function, bool moduleLowering)
+    -> Result<std::size_t, Diagnostic> {
+    if (!function.unwindRegions.empty()) {
+        return compatibility_failure("IrUnwindRegion", function.sourceFunction);
+    }
+    for (const auto& block : function.blocks) {
+        for (const auto& instruction : block.instructions) {
+            if (!instruction_vm_compatible(instruction, moduleLowering)) {
+                if (!moduleLowering && std::holds_alternative<IrInternalCall>(instruction)) {
+                    return Result<std::size_t, Diagnostic>::failure(Diagnostic{
+                        DiagnosticSeverity::Error,
+                        "ir.internal_call_requires_module",
+                        "IR internal calls require module VM lowering",
+                    });
+                }
+                return compatibility_failure(
+                    instruction_name(instruction), instruction_source(instruction));
+            }
+        }
+    }
+    return Result<std::size_t, Diagnostic>::success(0U);
 }
 
 auto vm_width(const IrType& type) -> vm::VmWidth {
@@ -223,7 +310,9 @@ private:
                 "ir.internal_call_requires_module",
                 "IR internal calls require module VM lowering");
         } else {
-            return failure("ir.fallback_not_lowerable", "IR fallback cannot be lowered to the VM");
+            const auto unsupported = compatibility_failure(
+                instruction_name(instruction), instruction_source(instruction));
+            return Result<VmLoweringReport, Diagnostic>::failure(unsupported.error());
         }
         return Result<VmLoweringReport, Diagnostic>::success(VmLoweringReport{});
     }
@@ -460,10 +549,8 @@ private:
             emit(vm::VmReturn{vm::VmRegister{returned->value.index}},
                 returned->sourceInstruction);
         } else {
-            return Result<std::size_t, Diagnostic>::failure(Diagnostic{
-                DiagnosticSeverity::Error,
-                "ir.fallback_not_lowerable",
-                "IR fallback cannot be lowered to the VM"});
+            return compatibility_failure(
+                instruction_name(instruction), instruction_source(instruction));
         }
         return Result<std::size_t, Diagnostic>::success(1);
     }
@@ -492,6 +579,10 @@ auto lower_to_vm(
     const auto validated = validate_function(function, irLimits);
     if (!validated.has_value()) {
         return Result<VmLoweringReport, Diagnostic>::failure(validated.error());
+    }
+    const auto compatible = validate_vm_compatibility(function, false);
+    if (!compatible.has_value()) {
+        return Result<VmLoweringReport, Diagnostic>::failure(compatible.error());
     }
     LoweringBuilder builder{function};
     auto lowered = builder.build();
@@ -522,6 +613,12 @@ auto lower_module_to_vm(
     const auto validated = validate_module(module, effectiveIrLimits);
     if (!validated.has_value()) {
         return Result<VmLoweringReport, Diagnostic>::failure(validated.error());
+    }
+    for (const auto& function : module.functions) {
+        const auto compatible = validate_vm_compatibility(function, true);
+        if (!compatible.has_value()) {
+            return Result<VmLoweringReport, Diagnostic>::failure(compatible.error());
+        }
     }
     ModuleLoweringBuilder builder{module};
     auto lowered = builder.build();

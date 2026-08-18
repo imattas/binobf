@@ -91,9 +91,12 @@ auto flatten_control_flow(
     const IrFunction& function,
     std::uint64_t seed,
     const IrLimits& limits) -> Result<FlatteningReport, Diagnostic> {
-    if (function_contains_fallback(function)) {
+    std::vector<IrBlockId> rewriteBlocks;
+    rewriteBlocks.reserve(function.blocks.size());
+    for (const auto& block : function.blocks) rewriteBlocks.push_back(block.id);
+    if (fallback_blocks_rewrite(function, rewriteBlocks)) {
         return failure(
-            "ir.fallback_not_transformable",
+            "ir.fallback_blocks_transform",
             "functions containing native fallbacks cannot be CFG-flattened");
     }
     const auto sourceValidated = validate_function(function, limits);

@@ -26,7 +26,7 @@ set(LLVM_ENABLE_CURL OFF CACHE BOOL "Do not use curl in private LLVM" FORCE)
 set(LLVM_ENABLE_LIBEDIT OFF CACHE BOOL "Do not use libedit in private LLVM" FORCE)
 set(LLVM_ENABLE_LIBPFM OFF CACHE BOOL "Do not use libpfm in private LLVM" FORCE)
 set(LLVM_ENABLE_HTTPLIB OFF CACHE BOOL "Do not use httplib in private LLVM" FORCE)
-set(LLVM_ENABLE_RTTI OFF CACHE BOOL "Match LLVM's default no-RTTI configuration" FORCE)
+set(LLVM_ENABLE_RTTI ON CACHE BOOL "Enable RTTI for safe polymorphic LLVM consumers" FORCE)
 set(LLVM_ENABLE_EH OFF CACHE BOOL "Match LLVM's default no-exceptions configuration" FORCE)
 
 FetchContent_Declare(
@@ -117,16 +117,6 @@ function(binobf_link_llvm_mc target)
     target_include_directories(${target} SYSTEM PRIVATE
         "${llvm_dependency_SOURCE_DIR}/llvm/include"
         "${llvm_dependency_BINARY_DIR}/include"
-    )
-    # The bundled LLVM is built without C++ RTTI.  Keep consumers aligned;
-    # otherwise Clang can emit references to LLVM's unavailable typeinfo when
-    # a static consumer pulls a different subset of the MC implementation.
-    target_compile_options(${target} PRIVATE
-        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fno-rtti>"
-        # UBSan's vptr check requires C++ RTTI and reports false positives for
-        # valid polymorphic objects compiled consistently without RTTI.
-        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fno-sanitize=vptr>"
-        "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/GR->"
     )
     target_link_libraries(${target} PRIVATE ${BINOBF_LLVM_LIBRARIES})
 endfunction()

@@ -906,7 +906,7 @@ git add CMakeLists.txt README.md cmake docs include src tests
 git commit -m "feat: promote the full x86 object backend"
 ```
 
-- [ ] **Step 9: Push the verified milestone**
+- [x] **Step 9: Push the verified milestone**
 
 ```powershell
 gh auth status

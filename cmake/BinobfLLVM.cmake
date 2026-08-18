@@ -118,5 +118,12 @@ function(binobf_link_llvm_mc target)
         "${llvm_dependency_SOURCE_DIR}/llvm/include"
         "${llvm_dependency_BINARY_DIR}/include"
     )
+    # The bundled LLVM is built without C++ RTTI.  Keep consumers aligned;
+    # otherwise Clang can emit references to LLVM's unavailable typeinfo when
+    # a static consumer pulls a different subset of the MC implementation.
+    target_compile_options(${target} PRIVATE
+        "$<$<COMPILE_LANG_AND_ID:CXX,GNU,Clang,AppleClang>:-fno-rtti>"
+        "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/GR->"
+    )
     target_link_libraries(${target} PRIVATE ${BINOBF_LLVM_LIBRARIES})
 endfunction()

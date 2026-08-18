@@ -271,8 +271,38 @@ auto find_section(BinaryImage& image, EntityId id) -> Section* {
     return found == image.sections.end() ? nullptr : &*found;
 }
 
-auto normalize_i386_unwind(BinaryImage& image, EntityIdAllocator& ids) -> void {
-    if (image.architecture != Architecture::X86) return;
+auto add_signed_offset(std::uint64_t base, std::int64_t addend)
+    -> std::optional<std::uint64_t> {
+    if (addend >= 0) {
+        const auto value = static_cast<std::uint64_t>(addend);
+        if (base > std::numeric_limits<std::uint64_t>::max() - value) return std::nullopt;
+        return base + value;
+    }
+    const auto magnitude = static_cast<std::uint64_t>(-(addend + 1)) + 1U;
+    if (base < magnitude) return std::nullopt;
+    return base - magnitude;
+}
+
+auto arm64_cie_is_canonical(
+    const Section& section, std::size_t cursor, std::size_t recordSize) -> bool {
+    if (recordSize < 20U || cursor > section.contents.size()
+        || recordSize > section.contents.size() - cursor) {
+        return false;
+    }
+    const auto byte = [&](std::size_t offset) {
+        return std::to_integer<std::uint8_t>(section.contents[cursor + offset]);
+    };
+    return byte(8) == 1U && byte(9) == static_cast<std::uint8_t>('z')
+        && byte(10) == static_cast<std::uint8_t>('R') && byte(11) == 0U
+        && byte(12) == 1U && byte(13) == 0x78U && byte(14) == 30U
+        && byte(15) == 1U && byte(16) == 0x1bU;
+}
+
+auto normalize_elf_unwind(BinaryImage& image, EntityIdAllocator& ids) -> void {
+    if (image.architecture != Architecture::X86
+        && image.architecture != Architecture::ARM64) {
+        return;
+    }
     for (const auto& section : image.sections) {
         if (section.name != ".eh_frame" && section.name != ".debug_frame") continue;
         const auto append_unknown = [&](std::size_t offset, std::size_t size) {
@@ -318,7 +348,10 @@ auto normalize_i386_unwind(BinaryImage& image, EntityIdAllocator& ids) -> void {
                 continue;
             }
             if (*ciePointer == 0U) {
-                cieOffsets.insert(cursor);
+                if (image.architecture != Architecture::ARM64
+                    || arm64_cie_is_canonical(section, cursor, recordSize)) {
+                    cieOffsets.insert(cursor);
+                }
                 cursor += recordSize;
                 continue;
             }
@@ -339,16 +372,14 @@ auto normalize_i386_unwind(BinaryImage& image, EntityIdAllocator& ids) -> void {
             if (target != image.symbols.end() && target->defined
                 && target->section.has_value()) {
                 if (target->kind == SymbolKind::Function) {
-                    symbol = &*target;
-                } else if (target->kind == SymbolKind::Section && relocation->addend >= 0) {
-                    const auto relative = static_cast<std::uint64_t>(relocation->addend);
-                    if (relative <= std::numeric_limits<std::uint64_t>::max()
-                            - target->address.value) {
-                        const auto address = target->address.value + relative;
+                    if (relocation->addend == 0) symbol = &*target;
+                } else if (target->kind == SymbolKind::Section) {
+                    if (const auto address = add_signed_offset(
+                            target->address.value, relocation->addend)) {
                         for (const auto& candidate : image.symbols) {
                             if (!candidate.defined || candidate.kind != SymbolKind::Function
                                 || candidate.section != target->section
-                                || candidate.address.value != address) {
+                                || candidate.address.value != *address) {
                                 continue;
                             }
                             if (symbol != nullptr) {
@@ -411,7 +442,9 @@ auto normalize_i386_unwind(BinaryImage& image, EntityIdAllocator& ids) -> void {
                 .sectionOffset = cursor,
                 .codeOffset = symbol->address.value - codeSection->address.value,
                 .codeSize = *range,
-                .format = UnwindFormat::DwarfCfi32,
+                .format = image.architecture == Architecture::ARM64
+                    ? UnwindFormat::DwarfCfi64
+                    : UnwindFormat::DwarfCfi32,
                 .relocations = std::move(ownedRelocations),
                 .rewriteState = UnwindRewriteState::Opaque,
                 .lineage = {},
@@ -893,7 +926,7 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             });
         }
     }
-    normalize_i386_unwind(image, ids);
+    normalize_elf_unwind(image, ids);
     return Result<BinaryImage, Diagnostic>::success(std::move(image));
 }
 

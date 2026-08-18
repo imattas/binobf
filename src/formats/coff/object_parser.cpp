@@ -7,6 +7,8 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -216,6 +218,245 @@ auto read_section_header(const ByteReader& reader, std::size_t offset)
     header.relocationCount = *relocationCount;
     header.characteristics = *characteristics;
     return header;
+}
+
+auto span_u32(std::span<const std::byte> bytes, std::size_t offset)
+        -> std::optional<std::uint32_t> {
+    if (offset > bytes.size() || 4U > bytes.size() - offset)
+        return std::nullopt;
+    return std::to_integer<std::uint32_t>(bytes[offset]) |
+                  (std::to_integer<std::uint32_t>(bytes[offset + 1U]) << 8U) |
+                  (std::to_integer<std::uint32_t>(bytes[offset + 2U]) << 16U) |
+                  (std::to_integer<std::uint32_t>(bytes[offset + 3U]) << 24U);
+}
+
+auto add_signed_offset(std::uint64_t base, std::int64_t addend)
+        -> std::optional<std::uint64_t> {
+    if (addend >= 0) {
+        const auto value = static_cast<std::uint64_t>(addend);
+        if (base > std::numeric_limits<std::uint64_t>::max() - value)
+            return std::nullopt;
+        return base + value;
+    }
+    const auto magnitude = static_cast<std::uint64_t>(-(addend + 1)) + 1U;
+    if (base < magnitude)
+        return std::nullopt;
+    return base - magnitude;
+}
+
+auto find_section(BinaryImage &image, EntityId id) -> Section * {
+    const auto found = std::ranges::find(image.sections, id, &Section::id);
+    return found == image.sections.end() ? nullptr : &*found;
+}
+
+auto resolve_arm64_pdata_symbol(const BinaryImage &image,
+                                                                const Relocation &relocation)
+        -> const Symbol * {
+    if (!relocation.targetSymbol.has_value())
+        return nullptr;
+    const auto target =
+            std::ranges::find(image.symbols, *relocation.targetSymbol, &Symbol::id);
+    if (target == image.symbols.end() || !target->defined ||
+            !target->section.has_value()) {
+        return nullptr;
+    }
+    if (target->kind == SymbolKind::Function)
+        return relocation.addend == 0 ? &*target : nullptr;
+    if (target->kind != SymbolKind::Section)
+        return nullptr;
+    const auto address =
+            add_signed_offset(target->address.value, relocation.addend);
+    if (!address.has_value())
+        return nullptr;
+    const Symbol *resolved = nullptr;
+    for (const auto &candidate : image.symbols) {
+        if (!candidate.defined || candidate.kind != SymbolKind::Function ||
+                candidate.section != target->section ||
+                candidate.address.value != *address) {
+            continue;
+        }
+        if (resolved != nullptr)
+            return nullptr;
+        resolved = &candidate;
+    }
+    return resolved;
+}
+
+auto relocation_targets_section_named(const BinaryImage &image,
+                                                                            const Relocation &relocation,
+                                                                            std::string_view name) -> bool {
+    if (!relocation.targetSymbol.has_value())
+        return false;
+    const auto symbol =
+            std::ranges::find(image.symbols, *relocation.targetSymbol, &Symbol::id);
+    if (symbol == image.symbols.end() || !symbol->defined ||
+            !symbol->section.has_value()) {
+        return false;
+    }
+    const auto section =
+            std::ranges::find(image.sections, *symbol->section, &Section::id);
+    return section != image.sections.end() && section->name == name;
+}
+
+auto function_extent(const BinaryImage &image, const Symbol &symbol,
+                                          const Section &section) -> std::uint64_t {
+    if (symbol.size != 0U)
+        return symbol.size;
+    if (section.address.value >
+            std::numeric_limits<std::uint64_t>::max() - section.logicalSize) {
+        return 0U;
+    }
+    auto end = section.address.value + section.logicalSize;
+    for (const auto &candidate : image.symbols) {
+        if (!candidate.defined || candidate.kind != SymbolKind::Function ||
+                candidate.section != symbol.section ||
+                candidate.address.value <= symbol.address.value) {
+            continue;
+        }
+        end = std::min(end, candidate.address.value);
+    }
+    return end > symbol.address.value ? end - symbol.address.value : 0U;
+}
+
+auto normalize_arm64_coff_unwind(BinaryImage &image, EntityIdAllocator &ids)
+        -> void {
+    if (image.architecture != Architecture::ARM64)
+        return;
+    for (const auto &section : image.sections) {
+        if (section.name != ".pdata")
+            continue;
+        const auto append_unknown = [&](std::size_t offset, std::size_t size) {
+            image.unwindInfo.push_back(UnwindInfo{
+                    .id = ids.allocate(),
+                    .function = {},
+                    .encoded = std::vector<std::byte>(
+                            section.contents.begin() + static_cast<std::ptrdiff_t>(offset),
+                            section.contents.begin() +
+                                    static_cast<std::ptrdiff_t>(offset + size)),
+                    .section = section.id,
+                    .sectionOffset = offset,
+                    .codeOffset = 0,
+                    .codeSize = 0,
+                    .format = UnwindFormat::Unknown,
+                    .relocations = {},
+                    .rewriteState = UnwindRewriteState::Opaque,
+                    .lineage = {},
+            });
+        };
+        std::size_t cursor = 0;
+        while (cursor + 8U <= section.contents.size()) {
+            const auto firstRelocation =
+                    std::ranges::find_if(image.relocations, [&](const auto &relocation) {
+                        return relocation.section == section.id &&
+                                      relocation.offset == cursor && relocation.rawType == 0x0002U;
+                    });
+            const auto *symbol =
+                    firstRelocation == image.relocations.end()
+                            ? nullptr
+                            : resolve_arm64_pdata_symbol(image, *firstRelocation);
+            const auto packedWord = span_u32(section.contents, cursor + 4U);
+            const auto *codeSection =
+                    symbol == nullptr || !symbol->section.has_value()
+                            ? nullptr
+                            : find_section(image, *symbol->section);
+            const auto flag = packedWord.has_value() ? *packedWord & 0x3U : 0U;
+            const auto integerRegisters =
+                    packedWord.has_value() ? (*packedWord >> 16U) & 0xfU : 0U;
+            const auto chainRecord =
+                    packedWord.has_value() ? (*packedWord >> 21U) & 0x3U : 0U;
+            const auto frameUnits =
+                    packedWord.has_value() ? (*packedWord >> 23U) & 0x1ffU : 0U;
+            const bool validPackedFields =
+                    integerRegisters <= 10U &&
+                    ((chainRecord != 2U && chainRecord != 3U) || frameUnits != 0U);
+            auto codeSize =
+                    packedWord.has_value()
+                            ? static_cast<std::uint64_t>((*packedWord >> 2U) & 0x7ffU) * 4U
+                            : 0U;
+            auto rewriteState = UnwindRewriteState::Unchanged;
+            if (flag != 1U && flag != 2U) {
+                const auto xdataRelocation = std::ranges::find_if(
+                        image.relocations, [&](const auto &relocation) {
+                            return relocation.section == section.id &&
+                                          relocation.offset == cursor + 4U &&
+                                          relocation.rawType == 0x0002U;
+                        });
+                if (xdataRelocation != image.relocations.end() && symbol != nullptr &&
+                        codeSection != nullptr &&
+                        relocation_targets_section_named(image, *xdataRelocation,
+                                                                                          ".xdata")) {
+                    codeSize = function_extent(image, *symbol, *codeSection);
+                    rewriteState = UnwindRewriteState::Opaque;
+                }
+            }
+            const auto codeOffset =
+                    symbol == nullptr || codeSection == nullptr ||
+                                    symbol->address.value < codeSection->address.value
+                            ? std::optional<std::uint64_t>{}
+                            : std::optional<std::uint64_t>{symbol->address.value -
+                                                                                          codeSection->address.value};
+            const bool valid = symbol != nullptr && codeSection != nullptr &&
+                                                  codeOffset.has_value() && codeSize != 0U &&
+                                                  *codeOffset <= codeSection->logicalSize &&
+                                                  codeSize <= codeSection->logicalSize - *codeOffset &&
+                                                  (((flag == 1U || flag == 2U) && validPackedFields) ||
+                                                    rewriteState == UnwindRewriteState::Opaque);
+            if (!valid) {
+                append_unknown(cursor, 8U);
+                cursor += 8U;
+                continue;
+            }
+            auto function =
+                    std::ranges::find_if(image.functions, [&](const auto &value) {
+                        return value.symbol == symbol->id;
+                    });
+            if (function == image.functions.end()) {
+                image.functions.push_back(Function{
+                        .id = ids.allocate(),
+                        .name = symbol->name,
+                        .section = *symbol->section,
+                        .symbol = symbol->id,
+                        .address = symbol->address,
+                        .size = codeSize,
+                        .discovery = FunctionDiscovery::Symbol,
+                        .instructions = {},
+                        .basicBlocks = {},
+                        .entryBlock = std::nullopt,
+                        .externallyVisible =
+                                symbol->visibility == SymbolVisibility::External,
+                        .complete = true,
+                        .lineage = {},
+                });
+                function = std::prev(image.functions.end());
+            }
+            std::vector<EntityId> ownedRelocations;
+            for (const auto &relocation : image.relocations) {
+                if (relocation.section == section.id && relocation.offset >= cursor &&
+                        relocation.offset < cursor + 8U) {
+                    ownedRelocations.push_back(relocation.id);
+                }
+            }
+            image.unwindInfo.push_back(UnwindInfo{
+                    .id = ids.allocate(),
+                    .function = function->id,
+                    .encoded = std::vector<std::byte>(
+                            section.contents.begin() + static_cast<std::ptrdiff_t>(cursor),
+                            section.contents.begin() +
+                                    static_cast<std::ptrdiff_t>(cursor + 8U)),
+                    .section = section.id,
+                    .sectionOffset = cursor,
+                    .codeOffset = *codeOffset,
+                    .codeSize = codeSize,
+                    .format = UnwindFormat::WindowsARM64,
+                    .relocations = std::move(ownedRelocations),
+                    .rewriteState = rewriteState,
+                    .lineage = {},
+            });
+            cursor += 8U;
+        }
+        if (cursor < section.contents.size())
+            append_unknown(cursor, section.contents.size() - cursor);
+    }
 }
 
 } // namespace
@@ -645,6 +886,7 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             });
         }
     }
+    normalize_arm64_coff_unwind(image, ids);
     return Result<BinaryImage, Diagnostic>::success(std::move(image));
 }
 

@@ -39,7 +39,7 @@ constexpr std::array coffGoldens{
            ObjectFixupFieldEncoding::ScalarLittleEndian, 0, 0, 0},
     Golden{BinaryFormat::COFF, 0x0001, MachineFixupKind::Absolute32, 32, false, false, true,
            ObjectFixupFieldEncoding::ScalarLittleEndian, 4, 0, 0},
-    Golden{BinaryFormat::COFF, 0x0002, MachineFixupKind::Absolute32, 32, false, false, true,
+    Golden{BinaryFormat::COFF, 0x0002, MachineFixupKind::ImageRelative32, 32, false, false, true,
            ObjectFixupFieldEncoding::ScalarLittleEndian, 4, 0, 0},
     Golden{BinaryFormat::COFF, 0x0003, MachineFixupKind::AArch64Branch26, 26, true, true, true,
            ObjectFixupFieldEncoding::AArch64Branch26, 4, 2, 0},

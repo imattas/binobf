@@ -22,6 +22,14 @@ auto backend() -> std::unique_ptr<binobf::ArchitectureBackend> {
   return std::move(result).value();
 }
 
+auto u32(const std::vector<std::byte> &bytes, std::size_t offset)
+    -> std::uint32_t {
+  return std::to_integer<std::uint32_t>(bytes.at(offset)) |
+         std::to_integer<std::uint32_t>(bytes.at(offset + 1U)) << 8U |
+         std::to_integer<std::uint32_t>(bytes.at(offset + 2U)) << 16U |
+         std::to_integer<std::uint32_t>(bytes.at(offset + 3U)) << 24U;
+}
+
 auto u64() -> binobf::ir::IrType {
   return binobf::ir::IrType{binobf::ir::IrWidth::U64};
 }
@@ -243,7 +251,10 @@ TEST_CASE(arm64_unwind_emits_windows_and_dwarf64_records) {
   REQUIRE(plan.has_value());
   REQUIRE_EQ(plan.value().disposition, binobf::UnwindDisposition::Emit);
   REQUIRE_EQ(plan.value().encoding, binobf::UnwindEncoding::WindowsARM64);
-  REQUIRE(!plan.value().encoded.empty());
+  REQUIRE_EQ(plan.value().encoded.size(), std::size_t{8});
+  REQUIRE_EQ(plan.value().fixups.size(), std::size_t{1});
+  REQUIRE_EQ(plan.value().fixups.front().kind,
+             binobf::MachineFixupKind::ImageRelative32);
 
   value.format = binobf::BinaryFormat::ELF;
   plan = fixed->build_unwind(value);
@@ -252,6 +263,20 @@ TEST_CASE(arm64_unwind_emits_windows_and_dwarf64_records) {
   REQUIRE_EQ(plan.value().fixups.size(), std::size_t{1});
   REQUIRE_EQ(plan.value().fixups.front().kind,
              binobf::MachineFixupKind::PcRelative32);
+  const auto &dwarf = plan.value().encoded;
+  REQUIRE_EQ(u32(dwarf, 0), std::uint32_t{16});
+  REQUIRE_EQ(dwarf[8], std::byte{1});
+  REQUIRE_EQ(dwarf[9], std::byte{'z'});
+  REQUIRE_EQ(dwarf[10], std::byte{'R'});
+  REQUIRE_EQ(dwarf[12], std::byte{1});
+  REQUIRE_EQ(dwarf[13], std::byte{0x78});
+  REQUIRE_EQ(dwarf[14], std::byte{30});
+  REQUIRE_EQ(dwarf[16], std::byte{0x1b});
+  REQUIRE_EQ(u32(dwarf, 24), std::uint32_t{24});
+  REQUIRE_EQ(plan.value().fixups.front().offset, std::uint64_t{28});
+  REQUIRE_EQ(dwarf.size() % 4U, std::size_t{0});
+  REQUIRE(std::ranges::find(dwarf, std::byte{0x9d}) != dwarf.end());
+  REQUIRE(std::ranges::find(dwarf, std::byte{0x9e}) != dwarf.end());
 }
 
 TEST_CASE(arm64_unwind_rejects_unowned_handlers_and_invalid_actions) {
@@ -267,6 +292,12 @@ TEST_CASE(arm64_unwind_rejects_unowned_handlers_and_invalid_actions) {
   REQUIRE_EQ(plan.error().code, "architecture.unwind_unowned");
 
   value.handlerSymbol.reset();
+  value.handlerOwned = true;
+  plan = fixed->build_unwind(value);
+  REQUIRE(!plan.has_value());
+  REQUIRE_EQ(plan.error().code, "architecture.unwind_unowned");
+
+  value.handlerOwned = false;
   value.actions = {
       {binobf::UnwindActionKind::SaveRegister, "x29",
        std::numeric_limits<std::int64_t>::min(), 12},
@@ -283,6 +314,7 @@ TEST_CASE(arm64_windows_unwind_matches_the_llvm_canonical_frame_record) {
   value.architecture = binobf::Architecture::ARM64;
   value.format = binobf::BinaryFormat::COFF;
   value.codeSize = 24;
+  value.codeSymbol = "owned_function";
   value.actions = {
       {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0},
       {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 16, 4},
@@ -298,17 +330,158 @@ TEST_CASE(arm64_windows_unwind_matches_the_llvm_canonical_frame_record) {
   const auto plan = fixed->build_unwind(value);
   REQUIRE(plan.has_value());
   const std::vector<std::byte> expected{
-      std::byte{0x06}, std::byte{0x00}, std::byte{0x40}, std::byte{0x08},
-      std::byte{0x04}, std::byte{0x00}, std::byte{0x40}, std::byte{0x00},
-      std::byte{0x05}, std::byte{0xe1}, std::byte{0x81}, std::byte{0xe4},
+      std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+      std::byte{0x19}, std::byte{0x00}, std::byte{0x60}, std::byte{0x03},
   };
   REQUIRE_EQ(plan.value().encoded, expected);
+  REQUIRE_EQ(plan.value().fixups.size(), std::size_t{1});
+  REQUIRE_EQ(plan.value().fixups.front().offset, std::uint64_t{0});
+  REQUIRE_EQ(plan.value().fixups.front().symbol, "owned_function");
 
   value.actions[5].offset = 528;
   const auto medium = fixed->build_unwind(value);
   REQUIRE(medium.has_value());
-  REQUIRE_EQ(medium.value().encoded[8], std::byte{0xc0});
-  REQUIRE_EQ(medium.value().encoded[9], std::byte{0x20});
+  REQUIRE_EQ(medium.value().encoded.size(), std::size_t{8});
+}
+
+TEST_CASE(arm64_windows_unwind_omits_leaf_records) {
+  auto fixed = backend();
+  binobf::UnwindRequest value{};
+  value.architecture = binobf::Architecture::ARM64;
+  value.format = binobf::BinaryFormat::COFF;
+  value.codeSize = 4;
+  value.actions = {
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0}};
+  const auto plan = fixed->build_unwind(value);
+  REQUIRE(plan.has_value());
+  REQUIRE_EQ(plan.value().disposition, binobf::UnwindDisposition::NotRequired);
+  REQUIRE(plan.value().encoded.empty());
+  REQUIRE(plan.value().fixups.empty());
+}
+
+TEST_CASE(arm64_windows_packed_unwind_encodes_integer_and_vector_saves) {
+  auto fixed = backend();
+  binobf::UnwindRequest value{};
+  value.architecture = binobf::Architecture::ARM64;
+  value.format = binobf::BinaryFormat::COFF;
+  value.codeSize = 40;
+  value.codeSymbol = "saved_register_function";
+  value.actions = {
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0},
+      {binobf::UnwindActionKind::SaveRegister, "x29", -16, 4},
+      {binobf::UnwindActionKind::SaveRegister, "x30", -8, 4},
+      {binobf::UnwindActionKind::SaveRegister, "x19", -24, 4},
+      {binobf::UnwindActionKind::SaveRegister, "x20", -32, 4},
+      {binobf::UnwindActionKind::SaveRegister, "v8", -40, 4},
+      {binobf::UnwindActionKind::SaveRegister, "v9", -48, 4},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "x29", 16, 8},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 80, 12},
+      {binobf::UnwindActionKind::RestoreRegister, "x29", 0, 32},
+      {binobf::UnwindActionKind::RestoreRegister, "x30", 0, 32},
+      {binobf::UnwindActionKind::RestoreRegister, "x19", 0, 32},
+      {binobf::UnwindActionKind::RestoreRegister, "x20", 0, 32},
+      {binobf::UnwindActionKind::RestoreRegister, "v8", 0, 32},
+      {binobf::UnwindActionKind::RestoreRegister, "v9", 0, 32},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 36},
+  };
+  const auto plan = fixed->build_unwind(value);
+  REQUIRE(plan.has_value());
+  const auto &bytes = plan.value().encoded;
+  const auto word = std::to_integer<std::uint32_t>(bytes[4]) |
+                    std::to_integer<std::uint32_t>(bytes[5]) << 8U |
+                    std::to_integer<std::uint32_t>(bytes[6]) << 16U |
+                    std::to_integer<std::uint32_t>(bytes[7]) << 24U;
+  REQUIRE_EQ((word >> 2U) & 0x7ffU, std::uint32_t{10});
+  REQUIRE_EQ((word >> 13U) & 0x7U, std::uint32_t{1});
+  REQUIRE_EQ((word >> 16U) & 0xfU, std::uint32_t{2});
+  REQUIRE_EQ((word >> 21U) & 0x3U, std::uint32_t{3});
+  REQUIRE_EQ((word >> 23U) & 0x1ffU, std::uint32_t{5});
+}
+
+TEST_CASE(arm64_windows_packed_unwind_accepts_register_field_boundaries) {
+  auto fixed = backend();
+  binobf::UnwindRequest value{};
+  value.architecture = binobf::Architecture::ARM64;
+  value.format = binobf::BinaryFormat::COFF;
+  value.codeSize = 48;
+  value.codeSymbol = "maximum_saved_registers";
+  value.actions = {
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0},
+      {binobf::UnwindActionKind::SaveRegister, "x29", -16, 4},
+      {binobf::UnwindActionKind::SaveRegister, "x30", -8, 4},
+  };
+  std::int64_t offset = -24;
+  for (unsigned reg = 19; reg <= 28; ++reg, offset -= 8)
+    value.actions.push_back({binobf::UnwindActionKind::SaveRegister,
+                             "x" + std::to_string(reg), offset, 4});
+  for (unsigned reg = 8; reg <= 15; ++reg, offset -= 8)
+    value.actions.push_back({binobf::UnwindActionKind::SaveRegister,
+                             "v" + std::to_string(reg), offset, 4});
+  value.actions.push_back(
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "x29", 16, 8});
+  value.actions.push_back(
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 160, 12});
+  value.actions.push_back(
+      {binobf::UnwindActionKind::RestoreRegister, "x29", 0, 40});
+  value.actions.push_back(
+      {binobf::UnwindActionKind::RestoreRegister, "x30", 0, 40});
+  for (unsigned reg = 19; reg <= 28; ++reg)
+    value.actions.push_back({binobf::UnwindActionKind::RestoreRegister,
+                             "x" + std::to_string(reg), 0, 40});
+  for (unsigned reg = 8; reg <= 15; ++reg)
+    value.actions.push_back({binobf::UnwindActionKind::RestoreRegister,
+                             "v" + std::to_string(reg), 0, 40});
+  value.actions.push_back(
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 44});
+  const auto plan = fixed->build_unwind(value);
+  REQUIRE(plan.has_value());
+  const auto word = u32(plan.value().encoded, 4);
+  REQUIRE_EQ((word >> 13U) & 0x7U, std::uint32_t{7});
+  REQUIRE_EQ((word >> 16U) & 0xfU, std::uint32_t{10});
+
+  value.actions[4].registerName = "x22";
+  REQUIRE(!fixed->build_unwind(value).has_value());
+}
+
+TEST_CASE(arm64_windows_packed_unwind_refuses_unrepresentable_boundaries) {
+  auto fixed = backend();
+  binobf::UnwindRequest value{};
+  value.architecture = binobf::Architecture::ARM64;
+  value.format = binobf::BinaryFormat::COFF;
+  value.codeSize = 8192;
+  value.codeSymbol = "too_large";
+  REQUIRE(!fixed->build_unwind(value).has_value());
+
+  value.codeSize = 8188;
+  value.actions = {
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0},
+      {binobf::UnwindActionKind::SaveRegister, "x29", -16, 4},
+      {binobf::UnwindActionKind::SaveRegister, "x30", -8, 4},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "x29", 16, 8},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 8176, 12},
+      {binobf::UnwindActionKind::RestoreRegister, "x29", 0, 8180},
+      {binobf::UnwindActionKind::RestoreRegister, "x30", 0, 8180},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 8184},
+  };
+  const auto boundary = fixed->build_unwind(value);
+  REQUIRE(boundary.has_value());
+  REQUIRE_EQ((u32(boundary.value().encoded, 4) >> 2U) & 0x7ffU,
+             std::uint32_t{0x7ff});
+  REQUIRE_EQ((u32(boundary.value().encoded, 4) >> 23U) & 0x1ffU,
+             std::uint32_t{0x1ff});
+
+  value.codeSize = 32;
+  value.actions = {
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0},
+      {binobf::UnwindActionKind::SaveRegister, "x29", -16, 4},
+      {binobf::UnwindActionKind::SaveRegister, "x30", -8, 4},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "x29", 16, 8},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 8192, 12},
+      {binobf::UnwindActionKind::RestoreRegister, "x29", 0, 24},
+      {binobf::UnwindActionKind::RestoreRegister, "x30", 0, 24},
+      {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 28},
+  };
+  REQUIRE(!fixed->build_unwind(value).has_value());
 }
 
 int main() { return binobf::test::run_all(); }

@@ -159,11 +159,74 @@ void write_adapter_object(const std::filesystem::path &path,
   write_file(path, bytes.value());
 }
 
+void write_windows_unwind_object(const std::filesystem::path &path,
+                                 const binobf::UnwindPlan &plan,
+                                 const std::vector<std::byte> &code,
+                                 const std::string &codeSymbol) {
+  binobf::BinaryImage image{};
+  image.format = binobf::BinaryFormat::COFF;
+  image.type = binobf::BinaryType::RelocatableObject;
+  image.architecture = binobf::Architecture::ARM64;
+  binobf::Section text{};
+  text.id = binobf::EntityId{1};
+  text.formatIndex = 1;
+  text.formatFlags = 0x60000020U;
+  text.name = ".text";
+  text.kind = binobf::SectionKind::Code;
+  text.logicalSize = code.size();
+  text.alignment = 4;
+  text.readable = true;
+  text.executable = true;
+  text.contents = code;
+  binobf::Section pdata{};
+  pdata.id = binobf::EntityId{2};
+  pdata.formatIndex = 2;
+  pdata.formatFlags = 0x40000040U;
+  pdata.name = ".pdata";
+  pdata.kind = binobf::SectionKind::InitializedData;
+  pdata.logicalSize = plan.encoded.size();
+  pdata.alignment = 4;
+  pdata.readable = true;
+  pdata.contents = plan.encoded;
+  image.sections = {std::move(text), std::move(pdata)};
+  binobf::Symbol function{};
+  function.id = binobf::EntityId{3};
+  function.formatIndex = 0;
+  function.formatType = 0x20;
+  function.formatStorage = 2;
+  function.formatSectionIndex = 1;
+  function.name = codeSymbol;
+  function.section = binobf::EntityId{1};
+  function.size = code.size();
+  function.kind = binobf::SymbolKind::Function;
+  function.visibility = binobf::SymbolVisibility::External;
+  function.defined = true;
+  function.definition = binobf::SymbolDefinitionKind::SectionRelative;
+  function.tlsModel = binobf::TlsModel::None;
+  image.symbols.push_back(std::move(function));
+  image.relocations.push_back(binobf::Relocation{
+      .id = binobf::EntityId{4},
+      .formatIndex = 0,
+      .formatTableIndex = 2,
+      .section = binobf::EntityId{2},
+      .offset = plan.fixups.front().offset,
+      .kind = binobf::RelocationKind::ImageRelative,
+      .rawType = 0x0002,
+      .targetSymbol = binobf::EntityId{3},
+      .addend = plan.fixups.front().addend,
+      .lineage = {},
+  });
+  const auto bytes = binobf::write_object(image);
+  if (!bytes.has_value())
+    throw std::runtime_error(bytes.error().message);
+  write_file(path, bytes.value());
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
   try {
-    if (argc != 3)
+    if (argc != 3 && argc != 4)
       return 2;
     auto backend =
         binobf::make_architecture_backend(binobf::Architecture::ARM64);
@@ -260,6 +323,18 @@ int main(int argc, char **argv) {
     if (!unwindBytes.has_value())
       throw std::runtime_error(unwindBytes.error().message);
     write_file(argv[2], unwindBytes.value());
+    if (argc == 4) {
+      auto windowsRequest = adapterPlan.value().unwind;
+      windowsRequest.format = binobf::BinaryFormat::COFF;
+      windowsRequest.codeStart = {0, binobf::AddressKind::RelativeVirtual};
+      windowsRequest.codeSymbol = "binobf_arm64_windows_unwind_target";
+      const auto windowsPlan = backend.value()->build_unwind(windowsRequest);
+      if (!windowsPlan.has_value())
+        throw std::runtime_error(windowsPlan.error().message);
+      write_windows_unwind_object(argv[3], windowsPlan.value(),
+                                  adapterPlan.value().emission.bytes,
+                                  *windowsRequest.codeSymbol);
+    }
     return 0;
   } catch (const std::exception &) {
     return 1;

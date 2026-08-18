@@ -9,7 +9,4 @@ namespace binobf::detail {
                                            const CodegenProvider &codegen)
     -> Result<AbiAdapterPlan, Diagnostic>;
 
-[[nodiscard]] auto build_arm64_unwind_plan(const UnwindRequest &request)
-    -> Result<UnwindPlan, Diagnostic>;
-
 } // namespace binobf::detail

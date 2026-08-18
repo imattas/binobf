@@ -510,19 +510,19 @@ git commit -m "feat: generate ARM64 ABI adapters"
 - Consumes: ordered unwind actions and function-owned relocations.
 - Produces: `build_arm64_unwind_plan`, normalized Windows/DWARF64 records, and opaque/unknown refusal states.
 
-- [ ] **Step 1: Add RED Windows packed-unwind tests**
+- [x] **Step 1: Add RED Windows packed-unwind tests**
 
 Require no record for a leaf and exact 8-byte `.pdata` for canonical frames. Validate four-byte
 function length, frame size, integer/vector saves, frame-chain bits, `ADDR32NB` relocation, and
 refusal of handlers/noncanonical prologues. Include every field boundary and overflow.
 
-- [ ] **Step 2: Add RED ELF64 CFI tests**
+- [x] **Step 2: Add RED ELF64 CFI tests**
 
 Require a version-1 `zR` CIE with alignments 1/-8, return register 30, nonzero FDE back-pointer,
 ordered PC advances, signed CFA offsets, function relocation, and padding. Link at a nonzero text
 offset and assert LLVM reports the FDE initial location equal to the symbol.
 
-- [ ] **Step 3: Prove unwind tests fail**
+- [x] **Step 3: Prove unwind tests fail**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_abi_unwind_tests binobf_coff_arm64_extended_tests binobf_elf64_arm64_extended_tests
@@ -530,27 +530,27 @@ cmake --build build\m13-verify-debug --target binobf_arm64_abi_unwind_tests bino
 
 Expected: build-unwind is unsupported and frame records remain unknown.
 
-- [ ] **Step 4: Implement bounded unwind emission**
+- [x] **Step 4: Implement bounded unwind emission**
 
 Validate architecture, format, symbol, action ordering, code offsets, registers, alignment, length,
 and arithmetic. Emit only canonical Windows packed records; refuse `.xdata` generation. Emit ELF64
 CIE/FDE with guarded ULEB/SLEB helpers including `INT64_MIN` and size limits.
 
-- [ ] **Step 5: Normalize compiler unwind records**
+- [x] **Step 5: Normalize compiler unwind records**
 
 COFF associates `.pdata` through function-start relocations, parses packed words, and retains owned
 `.xdata` as opaque. ELF generalizes CIE/FDE parsing to ELF64, follows function or section-symbol plus
 addend relocations, and requires one unique function range. Unknown records use `Unknown`; recognized
 unmodeled records use `Opaque`.
 
-- [ ] **Step 6: Run unwind unit/link/inspection gates**
+- [x] **Step 6: Run unwind unit/link/inspection gates**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_abi_unwind_tests binobf_coff_arm64_extended_tests binobf_elf64_arm64_extended_tests binobf_arm64_service_artifact_generator
 ctest --test-dir build\m13-verify-debug -C Debug -R "^(arm64_abi_unwind|coff_arm64_extended|elf64_arm64_extended|arm64_unwind_semantics)$" --output-on-failure
 ```
 
-- [ ] **Step 7: Commit ARM64 unwind support**
+- [x] **Step 7: Commit ARM64 unwind support**
 
 ```powershell
 git add CMakeLists.txt cmake/RunArm64UnwindSemantics.cmake src/architecture/arm64_unwind.* src/architecture/capstone_backend.cpp src/formats src/verify/object_model_validator.cpp tests/unit/arm64_abi_unwind_tests.cpp tests/unit/coff_arm64_extended_tests.cpp tests/unit/elf64_arm64_extended_tests.cpp

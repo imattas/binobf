@@ -414,8 +414,14 @@ auto validate_object_ownership(const BinaryImage& image)
             || unwind.codeSize > codeSection->second->logicalSize - unwind.codeOffset
             || (unwind.format == UnwindFormat::WindowsI386
                 && image.format != BinaryFormat::COFF)
+            || (unwind.format == UnwindFormat::WindowsARM64
+                && (image.format != BinaryFormat::COFF
+                    || image.architecture != Architecture::ARM64))
             || (unwind.format == UnwindFormat::DwarfCfi32
-                && image.format != BinaryFormat::ELF)) {
+                && image.format != BinaryFormat::ELF)
+            || (unwind.format == UnwindFormat::DwarfCfi64
+                && (image.format != BinaryFormat::ELF
+                    || image.architecture != Architecture::ARM64))) {
             return ownership_failure(
                 "object.ownership_unwind",
                 "normalized unwind range or format is invalid",

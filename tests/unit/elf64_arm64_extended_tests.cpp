@@ -1,5 +1,6 @@
 #include "../test_support.hpp"
 
+#include <binobf/architecture/backend.hpp>
 #include <binobf/formats/object_parser.hpp>
 #include <binobf/formats/object_writer.hpp>
 
@@ -7,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -158,6 +160,70 @@ auto round_trip(const binobf::BinaryImage& input) -> binobf::BinaryImage {
     return parsed.value();
 }
 
+auto unwind_image(bool sectionSymbol) -> binobf::BinaryImage {
+    auto result = image();
+    result.relocations.clear();
+    if (sectionSymbol) {
+        result.sections.front().contents.resize(52, std::byte{0});
+        result.sections.front().logicalSize = 52;
+        auto entry =
+                std::ranges::find(result.symbols, "entry", &binobf::Symbol::name);
+        entry->address = {4, binobf::AddressKind::RelativeVirtual};
+        entry->size = 48;
+    }
+    auto backendResult =
+            binobf::make_architecture_backend(binobf::Architecture::ARM64);
+    if (!backendResult.has_value())
+        throw std::runtime_error(backendResult.error().message);
+    auto backend = std::move(backendResult).value();
+    binobf::UnwindRequest request{};
+    request.architecture = binobf::Architecture::ARM64;
+    request.format = binobf::BinaryFormat::ELF;
+    request.codeSize = 48;
+    request.codeSymbol = "entry";
+    request.actions = {
+            {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 0},
+            {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 16, 4},
+            {binobf::UnwindActionKind::SaveRegister, "x29", -16, 4},
+            {binobf::UnwindActionKind::SaveRegister, "x30", -8, 4},
+            {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "x29", 16, 8},
+            {binobf::UnwindActionKind::RestoreRegister, "x29", 0, 40},
+            {binobf::UnwindActionKind::RestoreRegister, "x30", 0, 40},
+            {binobf::UnwindActionKind::DefineCanonicalFrameAddress, "sp", 0, 44},
+    };
+    const auto plan = backend->build_unwind(request);
+    if (!plan.has_value())
+        throw std::runtime_error(plan.error().message);
+    auto ehFrame = section(30, 8, 1, ".eh_frame", 2, 8);
+    ehFrame.contents = plan.value().encoded;
+    ehFrame.logicalSize = ehFrame.contents.size();
+    auto ehRelocations = section(31, 9, 4, ".rela.eh_frame", 0, 8);
+    ehRelocations.formatLink = 4;
+    ehRelocations.formatInfo = 8;
+    ehRelocations.formatEntrySize = 24;
+    result.sections.push_back(std::move(ehFrame));
+    result.sections.push_back(std::move(ehRelocations));
+    if (sectionSymbol) {
+        auto textSection = symbol(32, 6, ".text", 3, 1, 1, binobf::EntityId{1});
+        textSection.kind = binobf::SymbolKind::Section;
+        result.symbols.push_back(std::move(textSection));
+    }
+    result.relocations.push_back(binobf::Relocation{
+            .id = binobf::EntityId{33},
+            .formatIndex = 0,
+            .formatTableIndex = 9,
+            .section = binobf::EntityId{30},
+            .offset = plan.value().fixups.front().offset,
+            .kind = binobf::RelocationKind::PcRelative,
+            .rawType = 0x105,
+            .targetSymbol =
+                    sectionSymbol ? binobf::EntityId{32} : binobf::EntityId{11},
+            .addend = sectionSymbol ? 4 : 0,
+            .lineage = {},
+    });
+    return result;
+}
+
 auto find_symbol(const binobf::BinaryImage& input, std::string_view name) -> const binobf::Symbol& {
     const auto found = std::ranges::find(input.symbols, name, &binobf::Symbol::name);
     if (found == input.symbols.end()) throw std::runtime_error("missing symbol");
@@ -224,6 +290,39 @@ TEST_CASE(elf64_arm64_rejects_unaligned_known_instruction_relocations) {
     const auto written = binobf::write_object(source);
     REQUIRE(!written.has_value());
     REQUIRE_EQ(written.error().code, "object.model_invalid");
+}
+
+TEST_CASE(elf64_arm64_normalizes_canonical_eh_frame_ownership) {
+    for (const bool sectionSymbol : {false, true}) {
+        const auto parsed = round_trip(unwind_image(sectionSymbol));
+        REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+        const auto &unwind = parsed.unwindInfo.front();
+        REQUIRE_EQ(unwind.format, binobf::UnwindFormat::DwarfCfi64);
+        REQUIRE_EQ(unwind.codeOffset, sectionSymbol ? UINT64_C(4) : UINT64_C(0));
+        REQUIRE_EQ(unwind.codeSize, UINT64_C(48));
+        REQUIRE_EQ(unwind.relocations.size(), std::size_t{1});
+        REQUIRE_EQ(unwind.rewriteState, binobf::UnwindRewriteState::Opaque);
+    }
+}
+
+TEST_CASE(elf64_arm64_refuses_nonzero_direct_function_fde_addends) {
+    auto source = unwind_image(false);
+    source.relocations.front().addend = 4;
+    const auto parsed = round_trip(source);
+    REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.unwindInfo.front().format, binobf::UnwindFormat::Unknown);
+}
+
+TEST_CASE(elf64_arm64_rejects_noncanonical_cie_ownership) {
+    auto source = unwind_image(false);
+    const auto ehFrame =
+            std::ranges::find(source.sections, ".eh_frame", &binobf::Section::name);
+    ehFrame->contents[14] = std::byte{31};
+    const auto parsed = round_trip(source);
+    REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.unwindInfo.front().format, binobf::UnwindFormat::Unknown);
+    REQUIRE_EQ(parsed.unwindInfo.front().rewriteState,
+                          binobf::UnwindRewriteState::Opaque);
 }
 
 int main() {

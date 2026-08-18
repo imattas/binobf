@@ -3,6 +3,7 @@
 #include "arm64_abi.hpp"
 #include "arm64_fixups.hpp"
 #include "arm64_templates.hpp"
+#include "arm64_unwind.hpp"
 #include "x86_fixups.hpp"
 #include "x86_abi.hpp"
 #include "x86_templates.hpp"

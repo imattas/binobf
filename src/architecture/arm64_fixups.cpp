@@ -65,7 +65,7 @@ constexpr auto instruction(BinaryFormat format, std::uint64_t rawType, Kind kind
 constexpr std::array rows{
     row(BinaryFormat::COFF, 0x0000, Kind::Absolute32, 0, false, false, false),
     scalar(BinaryFormat::COFF, 0x0001, Kind::Absolute32, 32, false, false, true),
-    scalar(BinaryFormat::COFF, 0x0002, Kind::Absolute32, 32, false, false, true),
+    scalar(BinaryFormat::COFF, 0x0002, Kind::ImageRelative32, 32, false, false, true),
     instruction(BinaryFormat::COFF, 0x0003, Kind::AArch64Branch26, 26, true, true, true,
                 Field::AArch64Branch26, 2),
     instruction(BinaryFormat::COFF, 0x0004, Kind::AArch64Page21, 21, true, true, true,

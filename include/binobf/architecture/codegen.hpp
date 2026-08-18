@@ -70,6 +70,7 @@ enum class MachineFixupKind : std::uint8_t {
     AArch64TlsPage21,
     AArch64TlsLow12,
     AArch64TlsDescriptor,
+    ImageRelative32,
 };
 
 struct MachineCodeLimits {

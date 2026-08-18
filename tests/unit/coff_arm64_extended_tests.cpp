@@ -141,6 +141,92 @@ auto round_trip(const binobf::BinaryImage& input) -> binobf::BinaryImage {
     return parsed.value();
 }
 
+auto pdata_image(bool sectionSymbol, bool unknownRecord = false)
+        -> binobf::BinaryImage {
+    binobf::BinaryImage result{};
+    result.format = binobf::BinaryFormat::COFF;
+    result.type = binobf::BinaryType::RelocatableObject;
+    result.architecture = binobf::Architecture::ARM64;
+    binobf::Section text{};
+    text.id = binobf::EntityId{1};
+    text.formatIndex = 1;
+    text.formatFlags = 0x60000020U;
+    text.name = ".text";
+    text.kind = binobf::SectionKind::Code;
+    text.logicalSize = 32;
+    text.alignment = 4;
+    text.readable = true;
+    text.executable = true;
+    text.contents.resize(32, std::byte{0});
+    binobf::Section pdata{};
+    pdata.id = binobf::EntityId{2};
+    pdata.formatIndex = 2;
+    pdata.formatFlags = 0x40000040U;
+    pdata.name = ".pdata";
+    pdata.kind = binobf::SectionKind::InitializedData;
+    pdata.logicalSize = 8;
+    pdata.alignment = 4;
+    pdata.readable = true;
+    pdata.contents.resize(8, std::byte{0});
+    if (!unknownRecord) {
+        const auto packed = UINT32_C(1) | (UINT32_C(7) << 2U) |
+                                                (UINT32_C(3) << 21U) | (UINT32_C(2) << 23U);
+        put_word(pdata.contents, 4, packed);
+    }
+    result.sections = {std::move(text), std::move(pdata)};
+    result.symbols.push_back(binobf::Symbol{
+            .id = binobf::EntityId{3},
+            .formatIndex = 0,
+            .formatType = 0x20,
+            .formatStorage = 2,
+            .formatSectionIndex = 1,
+            .auxiliaryData = {},
+            .name = "owned_function",
+            .section = binobf::EntityId{1},
+            .address = {4, binobf::AddressKind::RelativeVirtual},
+            .size = 28,
+            .kind = binobf::SymbolKind::Function,
+            .visibility = binobf::SymbolVisibility::External,
+            .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .tlsModel = binobf::TlsModel::None,
+            .lineage = {},
+    });
+    result.symbols.push_back(binobf::Symbol{
+            .id = binobf::EntityId{4},
+            .formatIndex = 1,
+            .formatType = 0,
+            .formatStorage = 3,
+            .formatSectionIndex = 1,
+            .auxiliaryData = {},
+            .name = ".text",
+            .section = binobf::EntityId{1},
+            .address = {},
+            .kind = binobf::SymbolKind::Section,
+            .visibility = binobf::SymbolVisibility::Local,
+            .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .tlsModel = binobf::TlsModel::None,
+            .lineage = {},
+    });
+    if (!unknownRecord) {
+        result.relocations.push_back(binobf::Relocation{
+                .id = binobf::EntityId{5},
+                .formatIndex = 0,
+                .formatTableIndex = 2,
+                .section = binobf::EntityId{2},
+                .offset = 0,
+                .kind = binobf::RelocationKind::ImageRelative,
+                .rawType = 0x0002,
+                .targetSymbol =
+                        sectionSymbol ? binobf::EntityId{4} : binobf::EntityId{3},
+                .addend = sectionSymbol ? 4 : 0,
+                .lineage = {},
+        });
+    }
+    return result;
+}
+
 } // namespace
 
 TEST_CASE(coff_arm64_all_defined_relocations_round_trip_addends_and_opcode_bits) {
@@ -207,6 +293,110 @@ TEST_CASE(coff_arm64_rejects_unaligned_and_truncated_instruction_fields) {
     truncated.pop_back();
     const auto parsed = binobf::parse_object(truncated, "truncated.obj");
     REQUIRE(!parsed.has_value());
+}
+
+TEST_CASE(coff_arm64_normalizes_packed_pdata_function_and_section_owners) {
+    for (const bool sectionSymbol : {false, true}) {
+        const auto parsed = round_trip(pdata_image(sectionSymbol));
+        REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+        const auto &unwind = parsed.unwindInfo.front();
+        REQUIRE_EQ(unwind.format, binobf::UnwindFormat::WindowsARM64);
+        REQUIRE_EQ(unwind.codeOffset, UINT64_C(4));
+        REQUIRE_EQ(unwind.codeSize, UINT64_C(28));
+        REQUIRE_EQ(unwind.encoded.size(), std::size_t{8});
+        REQUIRE_EQ(unwind.relocations.size(), std::size_t{1});
+        REQUIRE_EQ(unwind.rewriteState, binobf::UnwindRewriteState::Unchanged);
+    }
+}
+
+TEST_CASE(coff_arm64_preserves_unowned_pdata_as_unknown) {
+    const auto parsed = round_trip(pdata_image(false, true));
+    REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.unwindInfo.front().format, binobf::UnwindFormat::Unknown);
+    REQUIRE_EQ(parsed.unwindInfo.front().rewriteState,
+                          binobf::UnwindRewriteState::Opaque);
+    REQUIRE_EQ(parsed.unwindInfo.front().encoded.size(), std::size_t{8});
+}
+
+TEST_CASE(coff_arm64_refuses_nonzero_direct_function_addends) {
+    auto source = pdata_image(false);
+    source.relocations.front().addend = 4;
+    const auto parsed = round_trip(source);
+    REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.unwindInfo.front().format, binobf::UnwindFormat::Unknown);
+}
+
+TEST_CASE(coff_arm64_rejects_invalid_packed_register_fields) {
+    auto source = pdata_image(false);
+    const auto packed = UINT32_C(1) | (UINT32_C(7) << 2U) |
+                                            (UINT32_C(15) << 16U) | (UINT32_C(3) << 21U) |
+                                            (UINT32_C(2) << 23U);
+    put_word(source.sections[1].contents, 4, packed);
+    const auto parsed = round_trip(source);
+    REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.unwindInfo.front().format, binobf::UnwindFormat::Unknown);
+}
+
+TEST_CASE(coff_arm64_retains_owned_xdata_as_opaque) {
+    auto source = pdata_image(false, true);
+    binobf::Section xdata{};
+    xdata.id = binobf::EntityId{6};
+    xdata.formatIndex = 3;
+    xdata.formatFlags = 0x40000040U;
+    xdata.name = ".xdata";
+    xdata.kind = binobf::SectionKind::InitializedData;
+    xdata.logicalSize = 4;
+    xdata.alignment = 4;
+    xdata.readable = true;
+    xdata.contents = {std::byte{0xe4}, std::byte{0xe3}, std::byte{0xe3},
+                                        std::byte{0xe3}};
+    source.sections.push_back(std::move(xdata));
+    source.symbols.push_back(binobf::Symbol{
+            .id = binobf::EntityId{7},
+            .formatIndex = 2,
+            .formatType = 0,
+            .formatStorage = 3,
+            .formatSectionIndex = 3,
+            .auxiliaryData = {},
+            .name = ".xdata",
+            .section = binobf::EntityId{6},
+            .address = {},
+            .kind = binobf::SymbolKind::Section,
+            .visibility = binobf::SymbolVisibility::Local,
+            .defined = true,
+            .definition = binobf::SymbolDefinitionKind::SectionRelative,
+            .tlsModel = binobf::TlsModel::None,
+            .lineage = {},
+    });
+    source.relocations = {
+            binobf::Relocation{.id = binobf::EntityId{5},
+                                                  .formatIndex = 0,
+                                                  .formatTableIndex = 2,
+                                                  .section = binobf::EntityId{2},
+                                                  .offset = 0,
+                                                  .kind = binobf::RelocationKind::ImageRelative,
+                                                  .rawType = 0x0002,
+                                                  .targetSymbol = binobf::EntityId{3},
+                                                  .addend = 0,
+                                                  .lineage = {}},
+            binobf::Relocation{.id = binobf::EntityId{8},
+                                                  .formatIndex = 1,
+                                                  .formatTableIndex = 2,
+                                                  .section = binobf::EntityId{2},
+                                                  .offset = 4,
+                                                  .kind = binobf::RelocationKind::ImageRelative,
+                                                  .rawType = 0x0002,
+                                                  .targetSymbol = binobf::EntityId{7},
+                                                  .addend = 0,
+                                                  .lineage = {}},
+    };
+    const auto parsed = round_trip(source);
+    REQUIRE_EQ(parsed.unwindInfo.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.unwindInfo.front().format,
+                          binobf::UnwindFormat::WindowsARM64);
+    REQUIRE_EQ(parsed.unwindInfo.front().rewriteState,
+                          binobf::UnwindRewriteState::Opaque);
+    REQUIRE_EQ(parsed.unwindInfo.front().relocations.size(), std::size_t{2});
 }
 
 int main() {

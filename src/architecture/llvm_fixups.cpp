@@ -113,6 +113,9 @@ struct FixupShape {
         case llvm::COFF::IMAGE_REL_ARM64_ADDR32:
             return Result<FixupShape, Diagnostic>::success(
                 absolute(MachineFixupKind::Absolute32, 32U));
+        case llvm::COFF::IMAGE_REL_ARM64_ADDR32NB:
+            return Result<FixupShape, Diagnostic>::success(
+                absolute(MachineFixupKind::ImageRelative32, 32U));
         case llvm::COFF::IMAGE_REL_ARM64_BRANCH26: {
             if (offset > bytes.size() || bytes.size() - offset < 4U) {
                 break;

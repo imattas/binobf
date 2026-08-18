@@ -111,6 +111,7 @@ set(BINOBF_CORE_SOURCES
     src/architecture/arm64_abi.cpp
     src/architecture/arm64_fixups.cpp
     src/architecture/arm64_templates.cpp
+    src/architecture/arm64_unwind.cpp
     src/architecture/capstone_backend.cpp
     src/architecture/codegen_provider.cpp
     src/architecture/llvm_fixups.cpp
@@ -1298,6 +1299,17 @@ if(BINOBF_BUILD_TESTS)
         target_link_libraries(
             binobf_arm64_service_artifact_generator PRIVATE binobf::core)
         binobf_enable_warnings(binobf_arm64_service_artifact_generator)
+        add_test(
+            NAME arm64_unwind_semantics
+            COMMAND "${CMAKE_COMMAND}"
+                "-DCLANG=${CMAKE_C_COMPILER}"
+                "-DLD_LLD=${BINOBF_LD_LLD}"
+                "-DLLVM_READOBJ=${BINOBF_LLVM_READOBJ}"
+                "-DGENERATOR=$<TARGET_FILE:binobf_arm64_service_artifact_generator>"
+                "-DTARGET_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arm64/unwind_target.S"
+                "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/arm64-unwind-semantics"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunArm64UnwindSemantics.cmake"
+        )
         add_test(
             NAME arm64_abi_native_differential
             COMMAND "${CMAKE_COMMAND}"

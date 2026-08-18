@@ -1,6 +1,8 @@
 # CMake build trees and generated metadata
 /build/
 /out/
+bindings/rust/target/
+bindings/python/__pycache__/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

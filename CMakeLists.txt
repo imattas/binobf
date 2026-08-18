@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(binobf VERSION 0.1.2 LANGUAGES C CXX)
 
 option(BINOBF_BUILD_TESTS "Build the binobf test suite" ON)
+option(BINOBF_BUILD_C_SHARED "Build the shared library for the stable C ABI" ON)
 option(BINOBF_BUILD_FUZZERS "Build compiler-native libFuzzer targets" OFF)
 option(BINOBF_BUILD_BENCHMARKS "Build the developer performance benchmark" OFF)
 option(BINOBF_ENABLE_UNDEFINED_SANITIZER "Enable UndefinedBehaviorSanitizer" OFF)
@@ -170,6 +171,7 @@ set(BINOBF_CORE_SOURCES
 )
 add_library(binobf_core STATIC ${BINOBF_CORE_SOURCES})
 add_library(binobf::core ALIAS binobf_core)
+set_target_properties(binobf_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_definitions(binobf_core PRIVATE
     BINOBF_VERSION="${PROJECT_VERSION}"
     TOML_EXCEPTIONS=0
@@ -387,6 +389,17 @@ add_executable(binobf tools/binobf/main.cpp)
 target_link_libraries(binobf PRIVATE binobf::core)
 binobf_enable_warnings(binobf)
 
+if(BINOBF_BUILD_C_SHARED)
+    add_library(binobf_c SHARED src/c_api.cpp)
+    target_link_libraries(binobf_c PRIVATE binobf::core)
+    target_compile_definitions(binobf_c PRIVATE BINOBF_C_API_BUILD=1)
+    target_include_directories(binobf_c PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    binobf_enable_warnings(binobf_c)
+endif()
+
 if(BINOBF_BUILD_BENCHMARKS)
     add_executable(binobf_benchmarks tools/benchmark/main.cpp)
     set_target_properties(binobf_benchmarks PROPERTIES OUTPUT_NAME "binobf-benchmarks")
@@ -398,6 +411,13 @@ install(TARGETS binobf binobf_core capstone_static
     RUNTIME DESTINATION bin
     ARCHIVE DESTINATION lib
 )
+if(BINOBF_BUILD_C_SHARED)
+    install(TARGETS binobf_c
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+    )
+endif()
 install(TARGETS ${BINOBF_LLVM_INSTALL_LIBRARIES}
     ARCHIVE DESTINATION lib
 )
@@ -518,6 +538,20 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_c_api_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_c_api_tests)
     add_test(NAME c_api COMMAND binobf_c_api_tests)
+    if(BINOBF_BUILD_C_SHARED)
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        if(Python3_Interpreter_FOUND)
+            add_test(
+                NAME python_c_api
+                COMMAND ${CMAKE_COMMAND} -E env
+                    "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/bindings/python"
+                    "BINOBF_C_LIBRARY=$<TARGET_FILE:binobf_c>"
+                    "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/bindings/python/test_binobf.py"
+            )
+            set_tests_properties(python_c_api PROPERTIES DEPENDS c_api)
+        endif()
+    endif()
 
     add_executable(binobf_deterministic_rng_tests tests/unit/deterministic_rng_tests.cpp)
     target_link_libraries(binobf_deterministic_rng_tests PRIVATE binobf::core)

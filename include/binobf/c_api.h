@@ -8,6 +8,12 @@
 extern "C" {
 #endif
 
+#if defined(_WIN32) && defined(BINOBF_C_API_BUILD)
+#    define BINOBF_C_API __declspec(dllexport)
+#else
+#    define BINOBF_C_API
+#endif
+
 /* Stable C ABI revision for this header. */
 #define BINOBF_C_API_VERSION 1u
 
@@ -34,7 +40,7 @@ typedef struct binobf_detection {
 } binobf_detection;
 
 /* Returns the semantic binobf project version compiled into the library. */
-const char* binobf_version(void);
+BINOBF_C_API const char* binobf_version(void);
 
 /*
  * Detects a binary without taking ownership of input or output memory.
@@ -42,7 +48,7 @@ const char* binobf_version(void);
  * sizeof(their type). Error strings are copied into caller-owned buffers and
  * are always NUL-terminated when capacity is nonzero.
  */
-binobf_status binobf_detect(
+BINOBF_C_API binobf_status binobf_detect(
     const void* bytes,
     size_t size,
     const char* source_name,
@@ -52,5 +58,7 @@ binobf_status binobf_detect(
 #ifdef __cplusplus
 }
 #endif
+
+#undef BINOBF_C_API
 
 #endif

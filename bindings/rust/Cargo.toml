@@ -1,0 +1,10 @@
+[package]
+name = "binobf-sys"
+version = "0.1.2"
+edition = "2021"
+description = "Rust FFI bindings for the binobf stable C ABI"
+license = "MIT"
+build = "build.rs"
+
+[lib]
+path = "src/lib.rs"

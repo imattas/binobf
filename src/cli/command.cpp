@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <memory>
 #include <numeric>
@@ -64,7 +65,7 @@ void print_usage(std::ostream& stream) {
         << "  binobf transform [<binary>] [--config=<path>] [-o <output>]"
            " [--passes=<list|minimal|balanced|none>] [--seed=N] [--dry-run]"
            " [--allow-signature-invalidation] [--manifest=<path>|--no-manifest]\n"
-        << "      [--lineage=<path>]\n"
+        << "      [--lineage=<path>] [--jobs=N]\n"
         << "  binobf passes\n"
         << "  binobf vm lower <object> --function=<name>"
            " --abi=windows-x64|sysv-amd64 --args=N -o <program.bvm> [--seed=N]"
@@ -431,6 +432,7 @@ struct TransformOptions {
     std::optional<config::SelectionConfig> selection;
     std::string passDescription;
     std::uint64_t seed{0};
+    std::size_t jobs{1};
     bool dryRun{false};
     bool allowSignatureInvalidation{false};
     config::ManifestConfig manifest;
@@ -478,6 +480,7 @@ auto parse_transform_options(
     std::optional<std::vector<std::string>> cliPasses;
     std::optional<std::string> cliPassDescription;
     std::optional<std::uint64_t> cliSeed;
+    std::optional<std::size_t> cliJobs;
     std::vector<std::string> cliPreservedSymbols;
     std::optional<bool> cliManifestEnabled;
     std::optional<std::filesystem::path> cliManifestPath;
@@ -532,6 +535,21 @@ auto parse_transform_options(
                 return Result<TransformOptions, int>::failure(2);
             }
             cliSeed = seed;
+        } else if (argument.starts_with("--jobs=")) {
+            if (cliJobs.has_value()) {
+                errors << "transform accepts one --jobs option\n";
+                return Result<TransformOptions, int>::failure(2);
+            }
+            const auto value = argument.substr(7);
+            std::size_t jobs = 0;
+            const auto parsed = std::from_chars(
+                value.data(), value.data() + value.size(), jobs, 10);
+            if (value.empty() || parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()
+                || jobs == 0U || jobs > 64U) {
+                errors << "transform jobs must be an integer from 1 through 64\n";
+                return Result<TransformOptions, int>::failure(2);
+            }
+            cliJobs = jobs;
         } else if (argument == "--dry-run") {
             if (cliDryRun) {
                 errors << "transform accepts --dry-run once\n";
@@ -626,6 +644,7 @@ auto parse_transform_options(
         options.passDescription = *cliPassDescription;
     }
     if (cliSeed.has_value()) options.seed = *cliSeed;
+    if (cliJobs.has_value()) options.jobs = *cliJobs;
     if (cliDryRun) options.dryRun = true;
     if (cliAllowSignatureInvalidation) options.allowSignatureInvalidation = true;
     if (cliManifestEnabled.has_value()) {
@@ -708,6 +727,70 @@ auto configure_function_selection(
     auto selected = context.set_function_selection(std::move(policy));
     if (!selected.has_value()) return std::move(selected).error();
     return std::nullopt;
+}
+
+auto configure_pass_manager(PassManager& manager, const std::vector<std::string>& passes)
+    -> std::optional<Diagnostic>;
+auto archive_member_seed(std::uint64_t seed, const ArchiveMember& member) noexcept
+    -> std::uint64_t;
+
+struct ArchiveMemberResult {
+    std::vector<std::byte> contents;
+    std::vector<PassReport> reports;
+    bool changed{false};
+};
+
+auto transform_archive_member(const ArchiveMember& member, const TransformOptions& options)
+    -> Result<ArchiveMemberResult, Diagnostic> {
+    const auto object = parse_object(member.contents, member.name);
+    if (!object.has_value()) {
+        return Result<ArchiveMemberResult, Diagnostic>::failure(Diagnostic{
+            DiagnosticSeverity::Error,
+            "archive.member_invalid",
+            "object member failed to parse: " + member.name + ": " + object.error().code,
+        });
+    }
+    PassManager manager;
+    if (const auto managerError = configure_pass_manager(manager, options.passes)) {
+        return Result<ArchiveMemberResult, Diagnostic>::failure(*managerError);
+    }
+    const auto seed = archive_member_seed(options.seed, member);
+    TransformContext context{seed, options.dryRun};
+    for (const auto& symbol : options.preservedSymbols) context.preserve_symbol(symbol);
+    if (const auto selectionError = configure_function_selection(context, options.selection, seed)) {
+        return Result<ArchiveMemberResult, Diagnostic>::failure(*selectionError);
+    }
+    const auto transformed = manager.run(context, object.value());
+    if (!transformed.has_value()) {
+        return Result<ArchiveMemberResult, Diagnostic>::failure(Diagnostic{
+            DiagnosticSeverity::Error,
+            "archive.member_transform_failed",
+            "object member transformation failed: " + member.name + ": "
+                + transformed.error().code + ": " + transformed.error().message,
+        });
+    }
+    const auto written = write_object(transformed.value().image);
+    if (!written.has_value()) {
+        return Result<ArchiveMemberResult, Diagnostic>::failure(Diagnostic{
+            DiagnosticSeverity::Error,
+            "archive.member_write_failed",
+            "object member emission failed: " + member.name + ": " + written.error().code,
+        });
+    }
+    const auto verified = verify_object(written.value(), member.name);
+    if (!verified.has_value() || verified.value().image.format != member.format
+        || verified.value().image.architecture != member.architecture) {
+        return Result<ArchiveMemberResult, Diagnostic>::failure(Diagnostic{
+            DiagnosticSeverity::Error,
+            "archive.member_output_invalid",
+            "emitted object member failed structural verification: " + member.name,
+        });
+    }
+    return Result<ArchiveMemberResult, Diagnostic>::success(ArchiveMemberResult{
+        .contents = written.value(),
+        .reports = transformed.value().reports,
+        .changed = transformed.value().changed,
+    });
 }
 
 auto pass_status(PassStatus status) noexcept -> std::string_view {
@@ -938,7 +1021,36 @@ auto transform(
         std::size_t objectMembers = 0;
         std::size_t transformedMembers = 0;
         std::size_t preservedMembers = 0;
-        for (auto& member : parsed.value().members) {
+        std::vector<std::pair<std::size_t, std::future<Result<ArchiveMemberResult, Diagnostic>>>> pending;
+        const auto flush_pending = [&]() -> std::optional<Diagnostic> {
+            for (auto& [memberIndex, future] : pending) {
+                auto result = future.get();
+                if (!result.has_value()) return std::move(result).error();
+                if (result.value().changed) ++transformedMembers;
+                parsed.value().members[memberIndex].contents = std::move(result.value().contents);
+                for (const auto& report : result.value().reports) {
+                    const auto aggregate = std::find_if(
+                        aggregates.begin(), aggregates.end(),
+                        [&](const ArchivePassAggregate& candidate) {
+                            return candidate.name == report.name;
+                        });
+                    if (aggregate == aggregates.end()) continue;
+                    if (report.status == PassStatus::Applied) {
+                        aggregate->status = PassStatus::Applied;
+                    } else if (report.status == PassStatus::Unchanged
+                        && aggregate->status == PassStatus::Unsupported) {
+                        aggregate->status = PassStatus::Unchanged;
+                    }
+                    aggregate->statistics.examined += report.statistics.examined;
+                    aggregate->statistics.changed += report.statistics.changed;
+                    aggregate->statistics.skipped += report.statistics.skipped;
+                }
+            }
+            pending.clear();
+            return std::nullopt;
+        };
+        for (std::size_t memberIndex = 0; memberIndex < parsed.value().members.size(); ++memberIndex) {
+            auto& member = parsed.value().members[memberIndex];
             if (parsed.value().type == BinaryType::ImportLibrary
                 && (member.kind == ArchiveMemberKind::Object
                     || member.kind == ArchiveMemberKind::ImportObject)) {
@@ -955,79 +1067,21 @@ auto transform(
                 continue;
             }
             ++objectMembers;
-            const auto object = parse_object(member.contents, member.name);
-            if (!object.has_value()) {
-                print_diagnostic(errors, Diagnostic{
-                    DiagnosticSeverity::Error,
-                    "archive.member_invalid",
-                    "object member failed to parse: " + member.name + ": "
-                        + object.error().code,
-                }, DiagnosticFormat::Text);
-                return 3;
-            }
-            PassManager manager;
-            if (const auto managerError = configure_pass_manager(manager, options->passes)) {
-                print_diagnostic(errors, *managerError, DiagnosticFormat::Text);
-                return 3;
-            }
-            TransformContext context{
-                archive_member_seed(options->seed, member), options->dryRun};
-            for (const auto& symbol : options->preservedSymbols) context.preserve_symbol(symbol);
-            if (const auto selectionError = configure_function_selection(
-                    context, options->selection, archive_member_seed(options->seed, member))) {
-                print_diagnostic(errors, *selectionError, DiagnosticFormat::Text);
-                return 3;
-            }
-            const auto transformed = manager.run(context, object.value());
-            if (!transformed.has_value()) {
-                print_diagnostic(errors, Diagnostic{
-                    DiagnosticSeverity::Error,
-                    "archive.member_transform_failed",
-                    "object member transformation failed: " + member.name + ": "
-                        + transformed.error().code + ": " + transformed.error().message,
-                }, DiagnosticFormat::Text);
-                return 3;
-            }
-            const auto writtenMember = write_object(transformed.value().image);
-            if (!writtenMember.has_value()) {
-                print_diagnostic(errors, Diagnostic{
-                    DiagnosticSeverity::Error,
-                    "archive.member_write_failed",
-                    "object member emission failed: " + member.name + ": "
-                        + writtenMember.error().code,
-                }, DiagnosticFormat::Text);
-                return 3;
-            }
-            const auto verifiedMember = verify_object(writtenMember.value(), member.name);
-            if (!verifiedMember.has_value()
-                || verifiedMember.value().image.format != member.format
-                || verifiedMember.value().image.architecture != member.architecture) {
-                print_diagnostic(errors, Diagnostic{
-                    DiagnosticSeverity::Error,
-                    "archive.member_output_invalid",
-                    "emitted object member failed structural verification: " + member.name,
-                }, DiagnosticFormat::Text);
-                return 3;
-            }
-            if (transformed.value().changed) ++transformedMembers;
-            member.contents = writtenMember.value();
-            for (const auto& report : transformed.value().reports) {
-                const auto aggregate = std::find_if(
-                    aggregates.begin(), aggregates.end(),
-                    [&](const ArchivePassAggregate& candidate) {
-                        return candidate.name == report.name;
-                    });
-                if (aggregate == aggregates.end()) continue;
-                if (report.status == PassStatus::Applied) {
-                    aggregate->status = PassStatus::Applied;
-                } else if (report.status == PassStatus::Unchanged
-                    && aggregate->status == PassStatus::Unsupported) {
-                    aggregate->status = PassStatus::Unchanged;
+            if (pending.size() == options->jobs) {
+                if (const auto error = flush_pending()) {
+                    print_diagnostic(errors, *error, DiagnosticFormat::Text);
+                    return 3;
                 }
-                aggregate->statistics.examined += report.statistics.examined;
-                aggregate->statistics.changed += report.statistics.changed;
-                aggregate->statistics.skipped += report.statistics.skipped;
             }
+            pending.emplace_back(
+                memberIndex,
+                std::async(std::launch::async, [member, options]() {
+                    return transform_archive_member(member, *options);
+                }));
+        }
+        if (const auto error = flush_pending()) {
+            print_diagnostic(errors, *error, DiagnosticFormat::Text);
+            return 3;
         }
         const auto written = write_archive(parsed.value());
         if (!written.has_value()) {

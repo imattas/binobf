@@ -466,9 +466,10 @@ TEST_CASE(verify_and_transform_dispatch_archives_transactionally) {
 
     output.str({});
     errors.str({});
-    const std::array<std::string_view, 6> transformArguments{
+    const std::array<std::string_view, 7> transformArguments{
         "transform"sv, inputPath, "-o"sv, outputPath,
         "--passes=none"sv, "--seed=52"sv,
+        "--jobs=2"sv,
     };
     REQUIRE_EQ(binobf::cli::run_cli(transformArguments, output, errors), 0);
     REQUIRE_EQ(read_all(transformed.path()), read_all(input.path()));
@@ -480,6 +481,20 @@ TEST_CASE(verify_and_transform_dispatch_archives_transactionally) {
     REQUIRE_CONTAINS(output.str(), "preserved-members: 1");
     REQUIRE_CONTAINS(output.str(), "verification: reparsed");
     REQUIRE(errors.str().empty());
+}
+
+TEST_CASE(transform_rejects_out_of_range_archive_jobs) {
+    const TemporaryFile input{"binobf-cli-jobs-input.a", make_archive()};
+    const auto inputPath = input.path().string();
+    std::ostringstream output;
+    std::ostringstream errors;
+    const std::array<std::string_view, 3> arguments{
+        "transform"sv, inputPath, "--jobs=0"sv,
+    };
+
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 2);
+    REQUIRE(output.str().empty());
+    REQUIRE_CONTAINS(errors.str(), "transform jobs must be an integer from 1 through 64");
 }
 
 TEST_CASE(verify_reports_each_structural_check_without_overclaiming) {

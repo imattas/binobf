@@ -293,12 +293,12 @@ if(BINOBF_BUILD_FUZZERS)
             -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/arithmetic.c"
             -o "${BINOBF_FUZZ_ELF_SEED}"
         COMMAND "${CMAKE_C_COMPILER}" --target=x86_64-pc-windows-msvc -gcodeview
-            -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/linked_pe.S"
+            -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/linked_pe_fuzz.S"
             -o "${BINOBF_FUZZ_PE_OBJECT}"
         COMMAND "${CMAKE_C_COMPILER}" --target=x86_64-pc-windows-msvc
             -nostdlib -fuse-ld=lld "${BINOBF_FUZZ_PE_OBJECT}"
             "-Wl,/entry:binobf_linked_entry" "-Wl,/subsystem:console"
-            "-Wl,/export:binobf_linked_export" -lkernel32 -o "${BINOBF_FUZZ_PE_SEED}"
+            "-Wl,/export:binobf_linked_export" -o "${BINOBF_FUZZ_PE_SEED}"
         COMMAND "${CMAKE_C_COMPILER}" --target=x86_64-unknown-linux-gnu -g
             -c "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/linked_elf.S"
             -o "${BINOBF_FUZZ_ELF_OBJECT}"
@@ -322,7 +322,7 @@ if(BINOBF_BUILD_FUZZERS)
         DEPENDS
             binobf_fuzz_seed_generator
             tests/fixtures/arithmetic.c
-            tests/fixtures/linked_pe.S
+            tests/fixtures/linked_pe_fuzz.S
             tests/fixtures/linked_elf.S
             tests/fuzz/corpus/config/minimal.toml
             tests/fuzz/corpus/lineage/minimal.json

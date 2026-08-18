@@ -1,0 +1,9 @@
+version = 1
+
+[selection]
+include = ["binobf_transform_pattern", "binobf_transform_blocks"]
+exclude = ["binobf_transform_secondary"]
+sections = [".text"]
+visibility = ["external"]
+percentage = 100
+seed = 86421357

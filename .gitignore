@@ -1,0 +1,44 @@
+# CMake build trees and generated metadata
+/build/
+/out/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+
+# Compiler and linker outputs
+*.a
+*.dll
+*.dylib
+*.exe
+*.exp
+*.ilk
+*.lib
+*.o
+*.obj
+*.pdb
+*.so
+
+# IDE and editor state
+.vs/
+.vscode/
+*.suo
+*.user
+*.VC.db
+*.opendb
+
+# Sanitizer, profiler, and fuzzing artifacts
+*.plist
+*.profdata
+*.profraw
+crash-*
+leak-*
+oom-*
+slow-unit-*
+timeout-*
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db

@@ -1,0 +1,8 @@
+version = 1
+profile = "balanced"
+seed = 12012
+dry_run = true
+preserve_symbols = ["public_api"]
+
+[manifest]
+enabled = false

@@ -702,6 +702,40 @@ if(BINOBF_BUILD_TESTS)
         COMMAND binobf_arm64_object_analyzer_tests
             "${BINOBF_ARM64_COMPILER_CORPUS_DIR}"
     )
+    find_program(BINOBF_LLD_LINK lld-link REQUIRED)
+    set(BINOBF_ARM64_TRANSFORM_PATTERN_COFF
+        "${CMAKE_CURRENT_BINARY_DIR}/fixtures/arm64-transform-patterns.obj")
+    set(BINOBF_ARM64_TRANSFORM_PATTERN_ELF
+        "${CMAKE_CURRENT_BINARY_DIR}/fixtures/arm64-transform-patterns.o")
+    add_executable(
+        binobf_arm64_object_backend_integration_tests
+        tests/integration/arm64_object_backend_integration_tests.cpp
+    )
+    target_link_libraries(binobf_arm64_object_backend_integration_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_arm64_object_backend_integration_tests)
+    add_dependencies(
+        binobf_arm64_object_backend_integration_tests
+        arm64_compiler_corpus
+    )
+    add_test(
+        NAME arm64_object_backend
+        COMMAND binobf_arm64_object_backend_integration_tests
+            "${BINOBF_ARM64_COMPILER_CORPUS_DIR}"
+            "${BINOBF_ARM64_TRANSFORM_PATTERN_COFF}"
+            "${BINOBF_ARM64_TRANSFORM_PATTERN_ELF}"
+    )
+    add_test(
+        NAME arm64_object_link
+        COMMAND "${CMAKE_COMMAND}"
+            "-DINPUT_DIR=${BINOBF_ARM64_COMPILER_CORPUS_DIR}"
+            "-DOUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/arm64-object-link"
+            "-DREADOBJ=${BINOBF_LLVM_READOBJ}"
+            "-DOBJDUMP=${BINOBF_LLVM_OBJDUMP}"
+            "-DLLD_LINK=${BINOBF_LLD_LINK}"
+            "-DLD_LLD=${BINOBF_LD_LLD}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunArm64ObjectLink.cmake"
+    )
+    set_tests_properties(arm64_object_link PROPERTIES DEPENDS arm64_object_backend)
 
     add_executable(
         binobf_arm64_abi_unwind_tests
@@ -1264,6 +1298,10 @@ if(BINOBF_BUILD_TESTS)
         )
         target_link_libraries(binobf_arm64_transform_integration_tests PRIVATE binobf::core)
         binobf_enable_warnings(binobf_arm64_transform_integration_tests)
+        add_dependencies(
+            binobf_arm64_object_backend_integration_tests
+            binobf_fixture_arm64_transform_patterns
+        )
         add_dependencies(
             binobf_arm64_transform_integration_tests
             binobf_fixture_arm64_transform_patterns

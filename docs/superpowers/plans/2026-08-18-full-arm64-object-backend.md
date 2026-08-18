@@ -631,14 +631,14 @@ git commit -m "feat: run all object transforms on ARM64"
 - Consumes: the six-optimization, two-format corpus and seven passes.
 - Produces: standard-tool/linker acceptance for every original/transformed object with coverage counters.
 
-- [ ] **Step 1: Add RED corpus-coverage assertions**
+- [x] **Step 1: Add RED corpus-coverage assertions**
 
 Require all six modes and both formats, function/data sections, debug, unwind, PIC, calls, globals,
 loops, switches, FP/vector, COMDAT/groups, TLS, and section-symbol fixups. Each pass must apply to at
 least one COFF and ELF object; each object must transform or return an allowlisted per-function
 refusal.
 
-- [ ] **Step 2: Prove missing corpus/link gate**
+- [x] **Step 2: Prove missing corpus/link gate**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_object_backend_integration_tests
@@ -646,13 +646,13 @@ cmake --build build\m13-verify-debug --target binobf_arm64_object_backend_integr
 
 Expected: target missing or coverage below the matrix.
 
-- [ ] **Step 3: Complete fixtures and transform driver**
+- [x] **Step 3: Complete fixtures and transform driver**
 
 Use harmless pure functions with stable inputs and no OS calls. Load the manifest, parse/analyze
 every object, run each eligible pass with fixed seeds, write unique build-local outputs, reparse,
 verify, and record totals by format, optimization, and pass.
 
-- [ ] **Step 4: Link and inspect every artifact**
+- [x] **Step 4: Link and inspect every artifact**
 
 Compile `link_entry.S` separately for Windows ARM64 COFF and AArch64 ELF. COFF uses
 `lld-link /machine:arm64 /entry:entry /subsystem:console /nodefaultlib`; ELF uses
@@ -660,14 +660,14 @@ Compile `link_entry.S` separately for Windows ARM64 COFF and AArch64 ELF. COFF u
 `llvm-readobj --file-headers --sections --symbols --relocations --unwind` and `llvm-objdump -d` on
 all originals and outputs. Any command failure fails.
 
-- [ ] **Step 5: Run the complete compiler-object gate**
+- [x] **Step 5: Run the complete compiler-object gate**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_arm64_object_backend_integration_tests
 ctest --test-dir build\m13-verify-debug -C Debug -R "^arm64_object_backend$" --output-on-failure
 ```
 
-- [ ] **Step 6: Commit corpus/link evidence**
+- [x] **Step 6: Commit corpus/link evidence**
 
 ```powershell
 git add CMakeLists.txt cmake/RunArm64CompilerCorpus.cmake cmake/RunArm64ObjectLink.cmake tests/fixtures/arm64 tests/integration/arm64_object_backend_integration_tests.cpp

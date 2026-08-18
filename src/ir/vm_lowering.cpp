@@ -18,12 +18,13 @@ auto failure(std::string code, std::string message) -> Result<VmLoweringReport, 
         DiagnosticSeverity::Error, std::move(code), std::move(message)});
 }
 
-auto vm_width(IrWidth width) -> vm::VmWidth {
-    switch (width) {
-    case IrWidth::U8: return vm::VmWidth::U8;
-    case IrWidth::U16: return vm::VmWidth::U16;
-    case IrWidth::U32: return vm::VmWidth::U32;
-    case IrWidth::U64: return vm::VmWidth::U64;
+auto vm_width(const IrType& type) -> vm::VmWidth {
+    switch (type.bits) {
+    case 8U: return vm::VmWidth::U8;
+    case 16U: return vm::VmWidth::U16;
+    case 32U: return vm::VmWidth::U32;
+    case 64U: return vm::VmWidth::U64;
+    default: break;
     }
     return vm::VmWidth::U64;
 }
@@ -65,7 +66,7 @@ struct Patch {
 class LoweringBuilder final {
 public:
     explicit LoweringBuilder(const IrFunction& function)
-        : function_(function), nextRegister_(function.variableWidths.size()) {
+        : function_(function), nextRegister_(function.variableTypes.size()) {
         report_.program.version = vm::currentVmVersion;
         report_.program.localMemorySize = 0;
     }
@@ -79,7 +80,7 @@ public:
         });
         for (const auto* argument : arguments) {
             emit(vm::VmLoadSlot{
-                vm_width(argument->width),
+                vm_width(argument->type),
                 vm::VmRegister{argument->destination.index},
                 vm::VmSlot{argument->argumentIndex},
             }, function_.sourceFunction);
@@ -128,7 +129,7 @@ private:
         report_.lineage.push_back(VmLoweringLineage{index, source});
     }
 
-    auto temporary(IrWidth width, std::uint64_t bits, EntityId source)
+    auto temporary(const IrType& type, std::uint64_t bits, EntityId source)
         -> Result<vm::VmRegister, Diagnostic> {
         if (nextRegister_ >= std::numeric_limits<std::uint16_t>::max()) {
             return Result<vm::VmRegister, Diagnostic>::failure(Diagnostic{
@@ -138,7 +139,7 @@ private:
         }
         const auto result = vm::VmRegister{static_cast<std::uint16_t>(nextRegister_++)};
         emit(vm::VmLoadConstant{
-            result, vm::VmValue::from_bits(vm_width(width), bits)}, source);
+            result, vm::VmValue::from_bits(vm_width(type), bits)}, source);
         return Result<vm::VmRegister, Diagnostic>::success(result);
     }
 
@@ -149,7 +150,7 @@ private:
                 vm::VmRegister{variable->variable.index});
         }
         const auto& immediate = std::get<IrImmediateOperand>(operand);
-        return temporary(immediate.width, immediate.bits, source);
+        return temporary(immediate.type, immediate.bits, source);
     }
 
     auto lower_instruction(const IrInstruction& instruction)
@@ -157,7 +158,7 @@ private:
         if (const auto* move = std::get_if<IrMove>(&instruction)) {
             if (const auto* variable = std::get_if<IrVariableOperand>(&move->source)) {
                 emit(vm::VmMove{
-                    vm_width(move->width),
+                    vm_width(move->type),
                     vm::VmRegister{move->destination.index},
                     vm::VmRegister{variable->variable.index},
                 }, move->sourceInstruction);
@@ -165,7 +166,7 @@ private:
                 const auto& immediate = std::get<IrImmediateOperand>(move->source);
                 emit(vm::VmLoadConstant{
                     vm::VmRegister{move->destination.index},
-                    vm::VmValue::from_bits(vm_width(immediate.width), immediate.bits),
+                    vm::VmValue::from_bits(vm_width(immediate.type), immediate.bits),
                 }, move->sourceInstruction);
             }
         } else if (const auto* binary = std::get_if<IrBinaryOperation>(&instruction)) {
@@ -175,7 +176,7 @@ private:
             }
             emit(vm::VmBinaryOperation{
                 vm_binary(binary->opcode),
-                vm_width(binary->width),
+                vm_width(binary->type),
                 vm::VmRegister{binary->destination.index},
                 vm::VmRegister{binary->destination.index},
                 right.value(),
@@ -183,7 +184,7 @@ private:
         } else if (const auto* unary = std::get_if<IrUnaryOperation>(&instruction)) {
             emit(vm::VmUnaryOperation{
                 vm::VmUnaryOpcode::Not,
-                vm_width(unary->width),
+                vm_width(unary->type),
                 vm::VmRegister{unary->destination.index},
                 vm::VmRegister{unary->destination.index},
             }, unary->sourceInstruction);
@@ -193,7 +194,7 @@ private:
                 return Result<VmLoweringReport, Diagnostic>::failure(right.error());
             }
             emit(vm::VmCompare{
-                vm_width(compare->width), vm::VmRegister{compare->left.index}, right.value()},
+                vm_width(compare->type), vm::VmRegister{compare->left.index}, right.value()},
                 compare->sourceInstruction);
         } else if (const auto* test = std::get_if<IrTest>(&instruction)) {
             auto right = operand_register(test->right, test->sourceInstruction);
@@ -201,7 +202,7 @@ private:
                 return Result<VmLoweringReport, Diagnostic>::failure(right.error());
             }
             emit(vm::VmTest{
-                vm_width(test->width), vm::VmRegister{test->left.index}, right.value()},
+                vm_width(test->type), vm::VmRegister{test->left.index}, right.value()},
                 test->sourceInstruction);
         } else if (const auto* jump = std::get_if<IrJump>(&instruction)) {
             emit(vm::VmJump{0}, jump->sourceInstruction);
@@ -279,7 +280,7 @@ public:
             functionStarts_.emplace(
                 function->sourceFunction.value(),
                 static_cast<std::uint32_t>(report_.program.instructions.size()));
-            nextRegister_ = function->variableWidths.size();
+            nextRegister_ = function->variableTypes.size();
             maximumSlots = std::max(maximumSlots, function->arguments.size());
 
             std::vector<const IrArgumentBinding*> arguments;
@@ -290,7 +291,7 @@ public:
             });
             for (const auto* argument : arguments) {
                 emit(vm::VmLoadSlot{
-                    vm_width(argument->width),
+                    vm_width(argument->type),
                     vm::VmRegister{argument->destination.index},
                     vm::VmSlot{argument->argumentIndex},
                 }, function->sourceFunction);
@@ -380,7 +381,7 @@ private:
         const auto& immediate = std::get<IrImmediateOperand>(operand);
         const auto result = vm::VmRegister{static_cast<std::uint16_t>(nextRegister_++)};
         emit(vm::VmLoadConstant{
-            result, vm::VmValue::from_bits(vm_width(immediate.width), immediate.bits)}, source);
+            result, vm::VmValue::from_bits(vm_width(immediate.type), immediate.bits)}, source);
         return Result<vm::VmRegister, Diagnostic>::success(result);
     }
 
@@ -389,13 +390,13 @@ private:
         if (const auto* move = std::get_if<IrMove>(&instruction)) {
             if (const auto* variable = std::get_if<IrVariableOperand>(&move->source)) {
                 emit(vm::VmMove{
-                    vm_width(move->width), vm::VmRegister{move->destination.index},
+                    vm_width(move->type), vm::VmRegister{move->destination.index},
                     vm::VmRegister{variable->variable.index}}, move->sourceInstruction);
             } else {
                 const auto& immediate = std::get<IrImmediateOperand>(move->source);
                 emit(vm::VmLoadConstant{
                     vm::VmRegister{move->destination.index},
-                    vm::VmValue::from_bits(vm_width(immediate.width), immediate.bits)},
+                    vm::VmValue::from_bits(vm_width(immediate.type), immediate.bits)},
                     move->sourceInstruction);
             }
         } else if (const auto* binary = std::get_if<IrBinaryOperation>(&instruction)) {
@@ -404,26 +405,26 @@ private:
                 return Result<std::size_t, Diagnostic>::failure(right.error());
             }
             emit(vm::VmBinaryOperation{
-                vm_binary(binary->opcode), vm_width(binary->width),
+                vm_binary(binary->opcode), vm_width(binary->type),
                 vm::VmRegister{binary->destination.index},
                 vm::VmRegister{binary->destination.index}, right.value()},
                 binary->sourceInstruction);
         } else if (const auto* unary = std::get_if<IrUnaryOperation>(&instruction)) {
             emit(vm::VmUnaryOperation{
-                vm::VmUnaryOpcode::Not, vm_width(unary->width),
+                vm::VmUnaryOpcode::Not, vm_width(unary->type),
                 vm::VmRegister{unary->destination.index},
                 vm::VmRegister{unary->destination.index}}, unary->sourceInstruction);
         } else if (const auto* compare = std::get_if<IrCompare>(&instruction)) {
             const auto right = operand_register(compare->right, compare->sourceInstruction);
             if (!right.has_value()) return Result<std::size_t, Diagnostic>::failure(right.error());
             emit(vm::VmCompare{
-                vm_width(compare->width), vm::VmRegister{compare->left.index}, right.value()},
+                vm_width(compare->type), vm::VmRegister{compare->left.index}, right.value()},
                 compare->sourceInstruction);
         } else if (const auto* test = std::get_if<IrTest>(&instruction)) {
             const auto right = operand_register(test->right, test->sourceInstruction);
             if (!right.has_value()) return Result<std::size_t, Diagnostic>::failure(right.error());
             emit(vm::VmTest{
-                vm_width(test->width), vm::VmRegister{test->left.index}, right.value()},
+                vm_width(test->type), vm::VmRegister{test->left.index}, right.value()},
                 test->sourceInstruction);
         } else if (const auto* jump = std::get_if<IrJump>(&instruction)) {
             emit(vm::VmJump{0}, jump->sourceInstruction);
@@ -482,7 +483,7 @@ auto lower_to_vm(
     const IrFunction& function,
     const IrLimits& irLimits,
     const vm::VmLimits& vmLimits) -> Result<VmLoweringReport, Diagnostic> {
-    if (function.variableWidths.size() > std::numeric_limits<std::uint16_t>::max()) {
+    if (function.variableTypes.size() > std::numeric_limits<std::uint16_t>::max()) {
         return failure("ir.vm_register_overflow", "IR variable count exceeds the VM field");
     }
     if (function_contains_fallback(function)) {
@@ -511,7 +512,7 @@ auto lower_module_to_vm(
             return failure(
                 "ir.fallback_not_lowerable", "IR fallback cannot be lowered to the VM");
         }
-        if (function.variableWidths.size() > std::numeric_limits<std::uint16_t>::max()) {
+        if (function.variableTypes.size() > std::numeric_limits<std::uint16_t>::max()) {
             return failure("ir.vm_register_overflow", "IR variable count exceeds the VM field");
         }
     }

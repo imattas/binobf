@@ -416,7 +416,7 @@ git commit -m "feat: normalize LLVM MC fixups"
 - Consumes: existing integer IR and validation.
 - Produces: `IrType`, `IrValue`, storage/address types, memory/cast instructions, and checked width helpers.
 
-- [ ] **Step 1: Add failing type/value/storage validation cases**
+- [x] **Step 1: Add failing type/value/storage validation cases**
 
 Cover valid integer/pointer/f32/f64/vector types and reject invalid integer widths, vector lanes,
 pointer widths, alignments, address scales, address spaces, readonly stores, type-mismatched loads,
@@ -424,7 +424,7 @@ illegal casts, invalid atomics, symbol/addend overflow, and resource ceilings. R
 `ir.invalid_type`, `ir.invalid_alignment`, `ir.invalid_address`, `ir.readonly_store`,
 `ir.type_mismatch`, `ir.invalid_cast`, and `ir.memory_operation_limit`.
 
-- [ ] **Step 2: Add canonical public types**
+- [x] **Step 2: Add canonical public types**
 
 Add exact enums/records:
 
@@ -444,26 +444,26 @@ struct IrAddress { IrVariable base; std::optional<IrVariable> index; std::uint8_
 Define typed constant variants, `IrLoad`, `IrStore`, `IrAddressOf`, `IrPointerOffset`, and `IrCast`.
 Add them to `IrInstruction`.
 
-- [ ] **Step 3: Migrate function canonical tables**
+- [x] **Step 3: Migrate function canonical tables**
 
 Replace `variableWidths` with `variableTypes`, `returnWidth` with `returnType`, and width fields in
 argument/internal-call bindings with types. Keep `integer_type(IrWidth)` and
 `integer_width(const IrType&) -> Result<IrWidth, Diagnostic>` helpers.
 
-- [ ] **Step 4: Extend validation and dataflow**
+- [x] **Step 4: Extend validation and dataflow**
 
 Validate every new record before graph/dataflow validation. Add reads/writes for address bases,
 indices, loads, stores, casts, and address results. Enforce definite assignment and immutable
 variable type exactly as for current integer instructions.
 
-- [ ] **Step 5: Run native IR tests**
+- [x] **Step 5: Run native IR tests**
 
 ```powershell
 cmake --build build\m12-verify-debug --target binobf_native_ir_tests
 ctest --test-dir build\m12-verify-debug -R '^native_ir$' --output-on-failure
 ```
 
-- [ ] **Step 6: Commit typed memory IR**
+- [x] **Step 6: Commit typed memory IR**
 
 ```powershell
 git add include/binobf/ir/native.hpp src/ir/native.cpp tests/unit/native_ir_tests.cpp

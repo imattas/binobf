@@ -147,9 +147,9 @@ auto flatten_control_flow(
 
     FlatteningReport report;
     report.function = function;
-    report.function.variableWidths.push_back(IrWidth::U32);
+    report.function.variableTypes.push_back(integer_type(IrWidth::U32));
     report.dispatcherState = IrVariable{
-        static_cast<std::uint16_t>(report.function.variableWidths.size() - 1U)};
+        static_cast<std::uint16_t>(report.function.variableTypes.size() - 1U)};
     report.dispatcherEntry = dispatcherEntry;
     report.bogusBlock = *bogusId;
     report.statistics.originalBlocks = function.blocks.size();
@@ -169,13 +169,13 @@ auto flatten_control_flow(
         .sourceBlock = sourceEntry->sourceBlock,
         .instructions = {},
     };
-    for (std::size_t index = 0; index + 1U < report.function.variableWidths.size(); ++index) {
+    for (std::size_t index = 0; index + 1U < report.function.variableTypes.size(); ++index) {
         const auto variable = IrVariable{static_cast<std::uint16_t>(index)};
         if (argumentVariables.contains(variable.index)) continue;
         initializer.instructions.push_back(IrMove{
-            report.function.variableWidths[index],
+            report.function.variableTypes[index],
             variable,
-            IrImmediateOperand{report.function.variableWidths[index], 0},
+            IrImmediateOperand{report.function.variableTypes[index], 0},
             function.sourceFunction,
         });
     }

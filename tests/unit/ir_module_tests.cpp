@@ -16,8 +16,9 @@ auto helper_function() -> binobf::ir::IrFunction {
             IrArgumentBinding{0, IrVariable{0}, IrWidth::U32},
             IrArgumentBinding{1, IrVariable{1}, IrWidth::U32},
         },
-        .returnWidth = IrWidth::U32,
-        .variableWidths = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .returnType = IrWidth::U32,
+        .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .storageLocations = {},
         .entry = IrBlockId{0},
         .blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{20}, {
             IrMove{IrWidth::U32, IrVariable{2}, IrVariableOperand{IrVariable{0}},
@@ -38,8 +39,9 @@ auto wrapper_function() -> binobf::ir::IrFunction {
             IrArgumentBinding{0, IrVariable{0}, IrWidth::U32},
             IrArgumentBinding{1, IrVariable{1}, IrWidth::U32},
         },
-        .returnWidth = IrWidth::U32,
-        .variableWidths = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .returnType = IrWidth::U32,
+        .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .storageLocations = {},
         .entry = IrBlockId{0},
         .blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{21}, {
             IrInternalCall{
@@ -99,12 +101,12 @@ TEST_CASE(ir_module_validator_rejects_call_signature_mismatches) {
     auto wrongWidth = valid_module();
     auto& wrongCall = std::get<binobf::ir::IrInternalCall>(
         wrongWidth.functions[0].blocks[0].instructions[0]);
-    wrongCall.resultWidth = binobf::ir::IrWidth::U16;
-    wrongWidth.functions[0].variableWidths[2] = binobf::ir::IrWidth::U16;
-    wrongWidth.functions[0].returnWidth = binobf::ir::IrWidth::U16;
+    wrongCall.resultType = binobf::ir::IrWidth::U16;
+    wrongWidth.functions[0].variableTypes[2] = binobf::ir::IrWidth::U16;
+    wrongWidth.functions[0].returnType = binobf::ir::IrWidth::U16;
     auto& wrongReturn = std::get<binobf::ir::IrReturn>(
         wrongWidth.functions[0].blocks[0].instructions[1]);
-    wrongReturn.width = binobf::ir::IrWidth::U16;
+    wrongReturn.type = binobf::ir::IrWidth::U16;
     result = binobf::ir::validate_module(wrongWidth);
     REQUIRE(!result.has_value());
     REQUIRE_EQ(result.error().code, "ir.internal_call_signature_mismatch");

@@ -20,8 +20,9 @@ auto branching_function() -> binobf::ir::IrFunction {
             IrArgumentBinding{0, IrVariable{0}, IrWidth::U32},
             IrArgumentBinding{1, IrVariable{1}, IrWidth::U32},
         },
-        .returnWidth = IrWidth::U32,
-        .variableWidths = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .returnType = IrWidth::U32,
+        .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .storageLocations = {},
         .entry = IrBlockId{0},
         .blocks = {
             IrBlock{IrBlockId{0}, binobf::EntityId{20}, {
@@ -58,8 +59,9 @@ auto internal_call_module() -> binobf::ir::IrModule {
             IrArgumentBinding{0, IrVariable{0}, IrWidth::U32},
             IrArgumentBinding{1, IrVariable{1}, IrWidth::U32},
         },
-        .returnWidth = IrWidth::U32,
-        .variableWidths = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .returnType = IrWidth::U32,
+        .variableTypes = {IrWidth::U32, IrWidth::U32, IrWidth::U32},
+        .storageLocations = {},
         .entry = IrBlockId{0},
         .blocks = {IrBlock{IrBlockId{0}, binobf::EntityId{50}, {
             IrInternalCall{

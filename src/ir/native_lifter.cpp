@@ -140,9 +140,9 @@ struct LiftState {
         const auto key = static_cast<unsigned int>(reg);
         const auto found = variables.find(key);
         if (found != variables.end()) return found->second;
-        const auto index = static_cast<std::uint16_t>(report.function.variableWidths.size());
+        const auto index = static_cast<std::uint16_t>(report.function.variableTypes.size());
         const auto inserted = variables.emplace(key, IrVariable{index});
-        report.function.variableWidths.push_back(IrWidth::U32);
+        report.function.variableTypes.push_back(integer_type(IrWidth::U32));
         return inserted.first->second;
     }
 
@@ -449,7 +449,7 @@ auto lift_function(
     LiftState state;
     state.report.function.sourceFunction = function.id;
     state.report.function.name = function.name;
-    state.report.function.returnWidth = signature.returnWidth;
+    state.report.function.returnType = integer_type(signature.returnWidth);
 
     const auto nativeArgumentRegisters = argument_registers(signature.abi);
     for (std::size_t index = 0; index < signature.arguments.size(); ++index) {

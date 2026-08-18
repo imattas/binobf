@@ -171,19 +171,19 @@ auto split_function(
     wrapper.sourceFunction = function.sourceFunction;
     wrapper.name = function.name;
     wrapper.arguments = function.arguments;
-    wrapper.returnWidth = function.returnWidth;
+    wrapper.returnType = function.returnType;
     std::size_t wrapperVariableCount = 0;
     for (const auto& argument : wrapper.arguments) {
         wrapperVariableCount = std::max(
             wrapperVariableCount, static_cast<std::size_t>(argument.destination.index) + 1U);
     }
-    wrapper.variableWidths.assign(wrapperVariableCount, IrWidth::U32);
+    wrapper.variableTypes.assign(wrapperVariableCount, integer_type(IrWidth::U32));
     for (const auto& argument : wrapper.arguments) {
-        wrapper.variableWidths[argument.destination.index] = argument.width;
+        wrapper.variableTypes[argument.destination.index] = argument.type;
     }
     const auto resultVariable = IrVariable{
-        static_cast<std::uint16_t>(wrapper.variableWidths.size())};
-    wrapper.variableWidths.push_back(function.returnWidth);
+        static_cast<std::uint16_t>(wrapper.variableTypes.size())};
+    wrapper.variableTypes.push_back(function.returnType);
     wrapper.entry = function.entry;
 
     std::vector<const IrArgumentBinding*> orderedArguments;
@@ -202,12 +202,12 @@ auto split_function(
         .instructions = {
             IrInternalCall{
                 helperId,
-                function.returnWidth,
+                function.returnType,
                 resultVariable,
                 std::move(callArguments),
                 function.sourceFunction,
             },
-            IrReturn{function.returnWidth, resultVariable, function.sourceFunction},
+            IrReturn{function.returnType, resultVariable, function.sourceFunction},
         },
     });
 
@@ -276,12 +276,12 @@ auto outline_block(
         if (!liveIns.contains(variable)) variableOrder.push_back(variable);
     }
     std::map<std::uint16_t, IrVariable> remapping;
-    std::vector<IrWidth> helperWidths;
-    helperWidths.reserve(variableOrder.size());
+    std::vector<IrType> helperTypes;
+    helperTypes.reserve(variableOrder.size());
     for (std::size_t index = 0; index < variableOrder.size(); ++index) {
         remapping.emplace(
             variableOrder[index], IrVariable{static_cast<std::uint16_t>(index)});
-        helperWidths.push_back(function.variableWidths[variableOrder[index]]);
+        helperTypes.push_back(function.variableTypes[variableOrder[index]]);
     }
 
     const auto helperId = generated_function_id(function, seed);
@@ -289,15 +289,16 @@ auto outline_block(
         .sourceFunction = helperId,
         .name = helper_name(function, helperId, "outlined"),
         .arguments = {},
-        .returnWidth = function.returnWidth,
-        .variableWidths = std::move(helperWidths),
+        .returnType = function.returnType,
+        .variableTypes = std::move(helperTypes),
+        .storageLocations = {},
         .entry = selected->id,
         .blocks = {},
     };
     std::uint16_t argumentIndex = 0;
     for (const auto variable : liveIns) {
         helper.arguments.push_back(IrArgumentBinding{
-            argumentIndex++, remapping.at(variable), function.variableWidths[variable]});
+            argumentIndex++, remapping.at(variable), function.variableTypes[variable]});
     }
     IrBlock helperBlock{
         .id = selected->id,
@@ -322,7 +323,7 @@ auto outline_block(
     mainSelected->instructions = {
         IrInternalCall{
             helperId,
-            function.returnWidth,
+            function.returnType,
             originalReturn.value,
             std::move(callArguments),
             originalReturn.sourceInstruction,

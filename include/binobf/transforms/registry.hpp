@@ -16,6 +16,8 @@ struct PassRegistration {
 };
 
 [[nodiscard]] auto registered_passes() -> std::span<const PassRegistration>;
+[[nodiscard]] auto register_pass(PassRegistration registration)
+    -> Result<bool, Diagnostic>;
 [[nodiscard]] auto find_registered_pass(std::string_view name) noexcept
     -> const PassRegistration*;
 [[nodiscard]] auto make_registered_pass(std::string_view name)

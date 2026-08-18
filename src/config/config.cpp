@@ -1,4 +1,5 @@
 #include <binobf/config/config.hpp>
+#include <binobf/transforms/registry.hpp>
 #include <binobf/transforms/selection.hpp>
 
 #include <nlohmann/json.hpp>
@@ -23,7 +24,7 @@ namespace {
 
 using ParseResult = Result<ParsedConfig, Diagnostic>;
 
-constexpr std::array<std::string_view, 11> kSupportedPasses{
+constexpr std::array<std::string_view, 11> kBalancedPasses{
     "strip-debug",
     "cleanup-metadata",
     "strip-local-symbols",
@@ -431,8 +432,7 @@ auto checked_string_array(const toml::node* node,
 } // namespace
 
 auto is_supported_pass(std::string_view pass) noexcept -> bool {
-    return std::find(kSupportedPasses.begin(), kSupportedPasses.end(), pass) !=
-           kSupportedPasses.end();
+    return find_registered_pass(pass) != nullptr;
 }
 
 auto expand_profile(std::string_view profile) -> std::optional<std::vector<std::string>> {
@@ -446,8 +446,8 @@ auto expand_profile(std::string_view profile) -> std::optional<std::vector<std::
     }
     if (profile == "balanced") {
         std::vector<std::string> result;
-        result.reserve(kSupportedPasses.size());
-        for (const auto pass : kSupportedPasses) {
+        result.reserve(kBalancedPasses.size());
+        for (const auto pass : kBalancedPasses) {
             result.emplace_back(pass);
         }
         return result;

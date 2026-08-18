@@ -548,6 +548,16 @@ if(BINOBF_BUILD_TESTS)
     binobf_enable_warnings(binobf_coff_x86_extended_tests)
     add_test(NAME coff_x86_extended COMMAND binobf_coff_x86_extended_tests)
 
+    add_executable(binobf_coff_arm64_extended_tests tests/unit/coff_arm64_extended_tests.cpp)
+    target_link_libraries(binobf_coff_arm64_extended_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_coff_arm64_extended_tests)
+    add_test(NAME coff_arm64_extended COMMAND binobf_coff_arm64_extended_tests)
+
+    add_executable(binobf_elf64_arm64_extended_tests tests/unit/elf64_arm64_extended_tests.cpp)
+    target_link_libraries(binobf_elf64_arm64_extended_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_elf64_arm64_extended_tests)
+    add_test(NAME elf64_arm64_extended COMMAND binobf_elf64_arm64_extended_tests)
+
     add_executable(binobf_object_writer_tests tests/unit/object_writer_tests.cpp)
     target_link_libraries(binobf_object_writer_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_object_writer_tests)

@@ -1,4 +1,5 @@
 #include "../object_parser_internal.hpp"
+#include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
@@ -140,7 +141,7 @@ auto symbol_visibility(std::uint8_t storageClass) noexcept -> SymbolVisibility {
     return SymbolVisibility::Unknown;
 }
 
-auto relocation_kind(Architecture architecture, std::uint16_t rawType) noexcept
+auto relocation_kind(Architecture architecture, std::uint16_t rawType)
     -> RelocationKind {
     switch (architecture) {
     case Architecture::X86:
@@ -158,7 +159,11 @@ auto relocation_kind(Architecture architecture, std::uint16_t rawType) noexcept
     case Architecture::ARM64:
         if (rawType == 0x0001) return RelocationKind::Absolute;
         if (rawType == 0x0002) return RelocationKind::ImageRelative;
-        if (rawType >= 0x0003 && rawType <= 0x0008) return RelocationKind::PcRelative;
+        if (const auto semantics = binobf::detail::arm64_fixup_semantics(
+                BinaryFormat::COFF, rawType);
+            semantics.has_value() && semantics.value().pcRelative) {
+            return RelocationKind::PcRelative;
+        }
         break;
     case Architecture::Unknown: break;
     }
@@ -595,19 +600,31 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
                 return failure("coff.invalid", "COFF relocation symbol index is invalid");
             }
             std::int64_t addend = 0;
-            if (detection.architecture == Architecture::X86) {
-                const auto semantics = binobf::detail::x86_fixup_semantics(
-                    BinaryFormat::COFF, *rawType);
+            if (detection.architecture == Architecture::X86
+                || detection.architecture == Architecture::ARM64) {
+                const auto semantics = detection.architecture == Architecture::ARM64
+                    ? binobf::detail::arm64_fixup_semantics(BinaryFormat::COFF, *rawType)
+                    : binobf::detail::x86_fixup_semantics(BinaryFormat::COFF, *rawType);
                 if (semantics.has_value()) {
                     const auto byteCount = static_cast<std::size_t>(
-                        semantics.value().bitWidth / 8U);
+                        semantics.value().storageBytes != 0U
+                            ? semantics.value().storageBytes
+                            : semantics.value().bitWidth / 8U);
                     const auto& contents = image.sections[sectionIndex].contents;
                     if (*offset > contents.size() || byteCount > contents.size() - *offset) {
                         return failure("coff.invalid", "COFF relocation field is out of range");
                     }
-                    const auto decoded = binobf::detail::decode_x86_fixup(
-                        semantics.value(),
-                        std::span<const std::byte>{contents}.subspan(*offset, byteCount));
+                    if (semantics.value().fieldEncoding
+                            != ObjectFixupFieldEncoding::ScalarLittleEndian
+                        && (*offset % 4U) != 0U) {
+                        return failure(
+                            "coff.invalid", "COFF ARM64 instruction relocation is unaligned");
+                    }
+                    const auto field = std::span<const std::byte>{contents}.subspan(
+                        *offset, byteCount);
+                    const auto decoded = detection.architecture == Architecture::ARM64
+                        ? binobf::detail::decode_arm64_fixup(semantics.value(), field)
+                        : binobf::detail::decode_x86_fixup(semantics.value(), field);
                     if (!decoded.has_value()) {
                         return failure("coff.invalid", decoded.error().message);
                     }

@@ -1,4 +1,5 @@
 #include "../formats/object_writer_internal.hpp"
+#include "../architecture/arm64_fixups.hpp"
 
 #include <binobf/verify/object_ownership.hpp>
 
@@ -708,6 +709,30 @@ auto validate_object_model(const BinaryImage& image) -> std::optional<Diagnostic
         const auto targetSection = sectionsById.find(relocation.section.value());
         if (targetSection == sectionsById.end()) {
             return invalid("relocation references an unknown target section");
+        }
+        if (image.architecture == Architecture::ARM64) {
+            const auto semantics = binobf::detail::arm64_fixup_semantics(
+                image.format, relocation.rawType);
+            if (semantics.has_value()) {
+                const auto byteCount = static_cast<std::size_t>(
+                    semantics.value().storageBytes);
+                const auto& contents = targetSection->second->contents;
+                if (relocation.offset > contents.size()
+                    || byteCount > contents.size()
+                        - static_cast<std::size_t>(relocation.offset)) {
+                    return invalid("ARM64 relocation field is out of section bounds");
+                }
+                if (semantics.value().fieldEncoding
+                        != ObjectFixupFieldEncoding::ScalarLittleEndian
+                    && (relocation.offset % 4U) != 0U) {
+                    return invalid("ARM64 instruction relocation field is unaligned");
+                }
+                const auto encoded = binobf::detail::encode_arm64_fixup(
+                    semantics.value(), relocation.addend);
+                if (!encoded.has_value()) {
+                    return invalid(encoded.error().message);
+                }
+            }
         }
         const Symbol* targetSymbol = nullptr;
         if (relocation.targetSymbol.has_value()) {

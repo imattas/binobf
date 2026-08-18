@@ -1,4 +1,5 @@
 #include "../object_parser_internal.hpp"
+#include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
@@ -88,7 +89,7 @@ auto symbol_visibility(std::uint8_t info, std::uint8_t other) noexcept
     return SymbolVisibility::Unknown;
 }
 
-auto relocation_kind(Architecture architecture, std::uint64_t rawType) noexcept
+auto relocation_kind(Architecture architecture, std::uint64_t rawType)
     -> RelocationKind {
     switch (architecture) {
     case Architecture::X86:
@@ -107,8 +108,9 @@ auto relocation_kind(Architecture architecture, std::uint64_t rawType) noexcept
         if (rawType == 257 || rawType == 258 || rawType == 259) {
             return RelocationKind::Absolute;
         }
-        if (rawType == 260 || rawType == 261 || rawType == 262
-            || rawType == 282 || rawType == 283) {
+        if (const auto semantics = binobf::detail::arm64_fixup_semantics(
+                BinaryFormat::ELF, rawType);
+            semantics.has_value() && semantics.value().pcRelative) {
             return RelocationKind::PcRelative;
         }
         break;
@@ -195,20 +197,31 @@ auto span_u32(std::span<const std::byte> bytes, std::size_t offset)
     return value;
 }
 
-auto implicit_i386_addend(
+auto implicit_addend(
     std::span<const std::byte> contents,
     std::uint64_t offset,
-    std::uint64_t rawType) -> std::optional<std::int64_t> {
-    const auto semantics = binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
+    std::uint64_t rawType,
+    Architecture architecture) -> std::optional<std::int64_t> {
+    const auto semantics = architecture == Architecture::ARM64
+        ? binobf::detail::arm64_fixup_semantics(BinaryFormat::ELF, rawType)
+        : binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
     if (!semantics.has_value()) return std::nullopt;
     const auto hostOffset = to_size(offset);
     if (!hostOffset) return std::nullopt;
-    const auto byteCount = static_cast<std::size_t>(semantics.value().bitWidth / 8U);
+    const auto byteCount = static_cast<std::size_t>(
+        semantics.value().storageBytes != 0U ? semantics.value().storageBytes
+                                             : semantics.value().bitWidth / 8U);
     if (*hostOffset > contents.size() || byteCount > contents.size() - *hostOffset) {
         return std::nullopt;
     }
-    const auto decoded = binobf::detail::decode_x86_fixup(
-        semantics.value(), contents.subspan(*hostOffset, byteCount));
+    if (semantics.value().fieldEncoding != ObjectFixupFieldEncoding::ScalarLittleEndian
+        && (*hostOffset % 4U) != 0U) {
+        return std::nullopt;
+    }
+    const auto field = contents.subspan(*hostOffset, byteCount);
+    const auto decoded = architecture == Architecture::ARM64
+        ? binobf::detail::decode_arm64_fixup(semantics.value(), field)
+        : binobf::detail::decode_x86_fixup(semantics.value(), field);
     return decoded.has_value() ? std::optional{decoded.value()} : std::nullopt;
 }
 
@@ -227,6 +240,30 @@ auto tls_model_for_i386_relocation(std::uint64_t rawType) noexcept
     case 37: return TlsModel::LocalExec;
     default: return std::nullopt;
     }
+}
+
+auto tls_model_for_relocation(Architecture architecture, std::uint64_t rawType) noexcept
+    -> std::optional<TlsModel> {
+    if (architecture == Architecture::X86) {
+        return tls_model_for_i386_relocation(rawType);
+    }
+    if (architecture != Architecture::ARM64) return std::nullopt;
+    if ((rawType >= 0x200U && rawType <= 0x204U)
+        || (rawType >= 0x230U && rawType <= 0x239U) || rawType == 0x404U
+        || rawType == 0x407U) {
+        return TlsModel::GeneralDynamic;
+    }
+    if ((rawType >= 0x205U && rawType <= 0x21cU) || rawType == 0x405U) {
+        return TlsModel::LocalDynamic;
+    }
+    if (rawType >= 0x21dU && rawType <= 0x21fU) {
+        return TlsModel::InitialExec;
+    }
+    if ((rawType >= 0x220U && rawType <= 0x22fU)
+        || (rawType >= 0x23aU && rawType <= 0x23dU) || rawType == 0x406U) {
+        return TlsModel::LocalExec;
+    }
+    return std::nullopt;
 }
 
 auto find_section(BinaryImage& image, EntityId id) -> Section* {
@@ -800,13 +837,17 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             const auto rawType = is64Bit
                 ? (information & UINT64_C(0xffffffff))
                 : (information & UINT64_C(0xff));
-            if (!is64Bit && header.type == shtRel) {
-                const auto semantics = binobf::detail::x86_fixup_semantics(
-                    BinaryFormat::ELF, rawType);
+            if (header.type == shtRel
+                && (detection.architecture == Architecture::X86
+                    || detection.architecture == Architecture::ARM64)) {
+                const auto semantics = detection.architecture == Architecture::ARM64
+                    ? binobf::detail::arm64_fixup_semantics(BinaryFormat::ELF, rawType)
+                    : binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
                 if (semantics.has_value()) {
                     const auto targetContents = section_bytes(reader, headers[header.info]);
                     const auto implicit = targetContents
-                        ? implicit_i386_addend(*targetContents, offset, rawType)
+                        ? implicit_addend(
+                              *targetContents, offset, rawType, detection.architecture)
                         : std::nullopt;
                     if (!implicit) {
                         return failure("elf.invalid", "ELF REL implicit addend is out of range");
@@ -826,7 +867,8 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
             }
             if (targetSymbol.has_value()) {
                 const auto target = symbolsById.find(targetSymbol->value());
-                const auto model = tls_model_for_i386_relocation(rawType);
+                const auto model = tls_model_for_relocation(
+                    detection.architecture, rawType);
                 if (target != symbolsById.end() && target->second->kind == SymbolKind::Tls
                     && model.has_value()) {
                     if (target->second->tlsModel == TlsModel::Unknown

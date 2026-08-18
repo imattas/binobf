@@ -291,7 +291,7 @@ git commit -m "feat: emit verified ARM64 transform templates"
 - Consumes: ARM64 raw relocation tables and existing normalized object records.
 - Produces: complete ARM64 COFF/ELF models with known field ownership and byte-exact unknown records.
 
-- [ ] **Step 1: Add malformed and round-trip fixtures**
+- [x] **Step 1: Add malformed and round-trip fixtures**
 
 Generate minimal valid ARM64 COFF and ELF64 objects. Require defined COFF relocations, Task 2 ELF
 families, section symbols with addends, associative COMDAT/groups, TLS, common symbols, function
@@ -299,7 +299,7 @@ sizes, and debug relocations to survive parse/write/reparse. Add failures for tr
 cumulative limits, invalid `r_info`, missing tables, bad section indexes, invalid group signatures,
 addend overflow, and overlapping tables.
 
-- [ ] **Step 2: Run parser tests and prove missing ownership**
+- [x] **Step 2: Run parser tests and prove missing ownership**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_coff_arm64_extended_tests binobf_elf64_arm64_extended_tests
@@ -307,20 +307,20 @@ cmake --build build\m13-verify-debug --target binobf_coff_arm64_extended_tests b
 
 Expected: source/targets are missing, then ARM64 field ownership is incomplete.
 
-- [ ] **Step 3: Normalize complete format metadata**
+- [x] **Step 3: Normalize complete format metadata**
 
 Use Task 2 semantics to populate kind, width, signedness, addend ownership, and association identity.
 Preserve raw type/entry bytes. Recognize COFF `.pdata/.xdata`, ELF `.eh_frame`, TLS, groups, and
 AArch64 mapping symbols without treating mapping symbols as functions. Unknown types remain
 architecture-specific. Apply the 4,000,000 relocation ceiling and checked table arithmetic.
 
-- [ ] **Step 4: Validate and reconstruct deterministically**
+- [x] **Step 4: Validate and reconstruct deterministically**
 
 Known ARM64 instruction relocations must be four-byte aligned, within the section, and compatible
 with their field encoding. Validate group identity without requiring adjacency where the ABI allows
 independent members. Preserve section order, alignment, symbol indexes, addends, and associations.
 
-- [ ] **Step 5: Run parser/writer and LLVM inspection gates**
+- [x] **Step 5: Run parser/writer and LLVM inspection gates**
 
 ```powershell
 cmake --build build\m13-verify-debug --target binobf_coff_arm64_extended_tests binobf_elf64_arm64_extended_tests binobf_object_writer_tests
@@ -330,7 +330,7 @@ ctest --test-dir build\m13-verify-debug -C Debug -R "^(coff_arm64_extended|elf64
 Require `llvm-readobj --file-headers --sections --symbols --relocations` to accept representative
 original and reconstructed files.
 
-- [ ] **Step 6: Commit ARM64 object metadata**
+- [x] **Step 6: Commit ARM64 object metadata**
 
 ```powershell
 git add CMakeLists.txt src/formats src/verify/object_model_validator.cpp tests/unit/coff_arm64_extended_tests.cpp tests/unit/elf64_arm64_extended_tests.cpp tests/unit/object_writer_tests.cpp

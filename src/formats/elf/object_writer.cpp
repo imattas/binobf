@@ -1,4 +1,5 @@
 #include "../object_writer_internal.hpp"
+#include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
@@ -424,7 +425,8 @@ auto write_elf_object(const BinaryImage& image)
             : static_cast<std::uint64_t>(encoded.bytes.size());
     }
 
-    if (!is64Bit) {
+    if (image.architecture == Architecture::X86
+        || image.architecture == Architecture::ARM64) {
         for (const auto& relocationSection : encodedSections) {
             if (relocationSection.source->formatType != shtRel) continue;
             const auto relocations = relocationsByTable.find(
@@ -440,13 +442,19 @@ auto write_elf_object(const BinaryImage& image)
             }
             auto targetBytes = std::span<std::byte>{target->bytes};
             for (const auto* relocation : relocations->second) {
-                const auto semantics = binobf::detail::x86_fixup_semantics(
-                    BinaryFormat::ELF, relocation->rawType);
+                const auto semantics = image.architecture == Architecture::ARM64
+                    ? binobf::detail::arm64_fixup_semantics(
+                          BinaryFormat::ELF, relocation->rawType)
+                    : binobf::detail::x86_fixup_semantics(
+                          BinaryFormat::ELF, relocation->rawType);
                 if (!semantics.has_value()) {
                     continue;
                 }
-                const auto encoded = binobf::detail::encode_x86_fixup(
-                    semantics.value(), relocation->addend);
+                const auto encoded = image.architecture == Architecture::ARM64
+                    ? binobf::detail::encode_arm64_fixup(
+                          semantics.value(), relocation->addend)
+                    : binobf::detail::encode_x86_fixup(
+                          semantics.value(), relocation->addend);
                 if (!encoded.has_value()) {
                     return failure(encoded.error().code, encoded.error().message);
                 }
@@ -456,9 +464,21 @@ auto write_elf_object(const BinaryImage& image)
                         - static_cast<std::size_t>(relocation->offset)) {
                     return failure("object.size_limit", "ELF REL implicit addend is out of range");
                 }
-                std::copy(
-                    encoded.value().fieldBytes.begin(), encoded.value().fieldBytes.end(),
-                    targetBytes.data() + static_cast<std::size_t>(relocation->offset));
+                if (encoded.value().writeMask.size() != byteCount) {
+                    return failure(
+                        "object.model_invalid", "ELF relocation mask has an invalid size");
+                }
+                const auto destination = static_cast<std::size_t>(relocation->offset);
+                for (std::size_t index = 0; index < byteCount; ++index) {
+                    const auto mask = std::to_integer<std::uint8_t>(
+                        encoded.value().writeMask[index]);
+                    const auto oldByte = std::to_integer<std::uint8_t>(
+                        targetBytes[destination + index]);
+                    const auto newByte = std::to_integer<std::uint8_t>(
+                        encoded.value().fieldBytes[index]);
+                    targetBytes[destination + index] = static_cast<std::byte>(
+                        (oldByte & static_cast<std::uint8_t>(~mask)) | (newByte & mask));
+                }
             }
         }
     }

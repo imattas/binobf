@@ -129,6 +129,26 @@ TEST_CASE(object_writer_does_not_mutate_input_during_emission) {
     REQUIRE_EQ(image.sections.size(), std::size_t{5});
 }
 
+TEST_CASE(object_writer_validates_known_arm64_instruction_fields) {
+    auto image = make_valid_elf_image();
+    image.architecture = binobf::Architecture::ARM64;
+    image.sections.front().logicalSize = 4;
+    image.sections.front().alignment = 4;
+    image.sections.front().contents = {
+        std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0x14}};
+    image.symbols.front().size = 4;
+    image.relocations.front().rawType = 0x11a;
+    image.relocations.front().addend = 2;
+    require_error(image, "object.model_invalid");
+
+    image.relocations.front().addend = 4;
+    image.relocations.front().offset = 2;
+    require_error(image, "object.model_invalid");
+
+    image.relocations.front().offset = 4;
+    require_error(image, "object.model_invalid");
+}
+
 TEST_CASE(coff_long_section_names_round_trip_without_symbols) {
     binobf::BinaryImage image;
     image.format = binobf::BinaryFormat::COFF;

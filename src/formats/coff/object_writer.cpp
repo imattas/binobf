@@ -1,4 +1,5 @@
 #include "../object_writer_internal.hpp"
+#include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
 
 #include <algorithm>
@@ -369,15 +370,22 @@ auto write_coff_object(const BinaryImage& image)
                 section.contents.begin(), section.contents.end(),
                 output.data() + encoded.rawOffset);
         }
-        if (image.architecture == Architecture::X86) {
+        if (image.architecture == Architecture::X86
+            || image.architecture == Architecture::ARM64) {
             for (const auto* relocation : encoded.relocations) {
-                const auto semantics = binobf::detail::x86_fixup_semantics(
-                    BinaryFormat::COFF, relocation->rawType);
+                const auto semantics = image.architecture == Architecture::ARM64
+                    ? binobf::detail::arm64_fixup_semantics(
+                          BinaryFormat::COFF, relocation->rawType)
+                    : binobf::detail::x86_fixup_semantics(
+                          BinaryFormat::COFF, relocation->rawType);
                 if (!semantics.has_value()) {
                     continue;
                 }
-                const auto fixup = binobf::detail::encode_x86_fixup(
-                    semantics.value(), relocation->addend);
+                const auto fixup = image.architecture == Architecture::ARM64
+                    ? binobf::detail::encode_arm64_fixup(
+                          semantics.value(), relocation->addend)
+                    : binobf::detail::encode_x86_fixup(
+                          semantics.value(), relocation->addend);
                 if (!fixup.has_value()) {
                     return failure(fixup.error().code, fixup.error().message);
                 }
@@ -387,10 +395,22 @@ auto write_coff_object(const BinaryImage& image)
                         - static_cast<std::size_t>(relocation->offset)) {
                     return failure("object.size_limit", "COFF relocation field is out of range");
                 }
-                std::copy(
-                    fixup.value().fieldBytes.begin(), fixup.value().fieldBytes.end(),
-                    output.data() + static_cast<std::size_t>(encoded.rawOffset)
-                        + static_cast<std::size_t>(relocation->offset));
+                if (fixup.value().writeMask.size() != byteCount) {
+                    return failure(
+                        "object.model_invalid", "COFF relocation mask has an invalid size");
+                }
+                const auto destination = static_cast<std::size_t>(encoded.rawOffset)
+                    + static_cast<std::size_t>(relocation->offset);
+                for (std::size_t index = 0; index < byteCount; ++index) {
+                    const auto mask = std::to_integer<std::uint8_t>(
+                        fixup.value().writeMask[index]);
+                    const auto oldByte = std::to_integer<std::uint8_t>(
+                        output[destination + index]);
+                    const auto newByte = std::to_integer<std::uint8_t>(
+                        fixup.value().fieldBytes[index]);
+                    output[destination + index] = static_cast<std::byte>(
+                        (oldByte & static_cast<std::uint8_t>(~mask)) | (newByte & mask));
+                }
             }
         }
         for (const auto& safeSeh : image.coffSafeSehEntries) {

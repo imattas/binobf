@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(binobf VERSION 0.1.0 LANGUAGES C CXX)
+project(binobf VERSION 0.1.1 LANGUAGES C CXX)
 
 option(BINOBF_BUILD_TESTS "Build the binobf test suite" ON)
 option(BINOBF_BUILD_FUZZERS "Build compiler-native libFuzzer targets" OFF)

@@ -1764,14 +1764,14 @@ auto vm_lower(
             return 3;
         }
     }
-    output << "function: " << options->function << '\n'
-           << "abi: " << options->abiName << '\n'
-           << "arguments: " << options->argumentCount << " x u32\n"
-           << "seed: " << options->seed << '\n'
-           << "cfg-transform: " << cfgName << '\n'
-           << "dry-run: " << (options->dryRun ? "true" : "false") << '\n'
-           << "bytecode: " << (options->dryRun ? "not written (dry-run)"
-                                                : options->output.string()) << '\n';
+    output << colorize("function:", "1;32") << ' ' << options->function << '\n'
+           << colorize("abi:", "1;36") << ' ' << options->abiName << '\n'
+           << colorize("arguments:", "1;36") << ' ' << options->argumentCount << " x u32\n"
+           << colorize("seed:", "1;36") << ' ' << options->seed << '\n'
+           << colorize("cfg-transform:", "1;36") << ' ' << cfgName << '\n'
+           << colorize("dry-run:", "1;33") << ' ' << (options->dryRun ? "true" : "false") << '\n'
+           << colorize("bytecode:", "1;32") << ' '
+           << (options->dryRun ? "not written (dry-run)" : options->output.string()) << '\n';
     return 0;
 }
 
@@ -2012,24 +2012,24 @@ auto vm_protect(
             return 3;
         }
     }
-    output << "function: " << report->functionName << '\n'
-           << "abi: " << options->abiName << '\n'
-           << "arguments: " << report->argumentCount << " x u32\n"
-           << "seed: " << report->seed << '\n'
-           << "section: " << report->sectionName << '\n'
-           << "original-address: " << report->originalAddress << '\n'
-           << "protected-address: " << report->protectedAddress << '\n'
-           << "wrapper-offset: " << report->wrapperOffset << '\n'
-           << "wrapper-size: " << report->wrapperSize << '\n'
-           << "bytecode-offset: " << report->bytecodeOffset << '\n'
-           << "bytecode-size: " << report->bytecodeSize << '\n'
-           << "runtime-symbol: " << report->runtimeSymbol << '\n'
-           << "runtime-relocation-offset: " << report->runtimeRelocationOffset << '\n'
-           << "dry-run: " << (options->dryRun ? "true" : "false") << '\n'
+    output << colorize("function:", "1;32") << ' ' << report->functionName << '\n'
+           << colorize("abi:", "1;36") << ' ' << options->abiName << '\n'
+           << colorize("arguments:", "1;36") << ' ' << report->argumentCount << " x u32\n"
+           << colorize("seed:", "1;36") << ' ' << report->seed << '\n'
+           << colorize("section:", "1;36") << ' ' << report->sectionName << '\n'
+           << colorize("original-address:", "1;36") << ' ' << report->originalAddress << '\n'
+           << colorize("protected-address:", "1;36") << ' ' << report->protectedAddress << '\n'
+           << colorize("wrapper-offset:", "1;36") << ' ' << report->wrapperOffset << '\n'
+           << colorize("wrapper-size:", "1;36") << ' ' << report->wrapperSize << '\n'
+           << colorize("bytecode-offset:", "1;36") << ' ' << report->bytecodeOffset << '\n'
+           << colorize("bytecode-size:", "1;36") << ' ' << report->bytecodeSize << '\n'
+           << colorize("runtime-symbol:", "1;36") << ' ' << report->runtimeSymbol << '\n'
+           << colorize("runtime-relocation-offset:", "1;36") << ' ' << report->runtimeRelocationOffset << '\n'
+           << colorize("dry-run:", "1;33") << ' ' << (options->dryRun ? "true" : "false") << '\n'
            << (protectedMember.empty() ? "" : "protected-member: " + protectedMember + '\n')
-           << "protected-object: " << (options->dryRun ? "not written (dry-run)"
-                                                        : options->output.string()) << '\n'
-           << "verification: reparsed\n";
+           << colorize("protected-object:", "1;32") << ' '
+           << (options->dryRun ? "not written (dry-run)" : options->output.string()) << '\n'
+           << colorize("verification:", "1;32") << " reparsed\n";
     return 0;
 }
 

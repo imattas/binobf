@@ -102,8 +102,10 @@ TEST_CASE(macho_object_writer_rejects_32_bit_x86) {
     image.architecture = binobf::Architecture::X86;
     image.sections.push_back(binobf::Section{
         .id = binobf::EntityId{1}, .formatIndex = 1, .name = "__text",
-        .kind = binobf::SectionKind::Code, .logicalSize = 1,
+        .kind = binobf::SectionKind::Code, .address = binobf::BinaryAddress{0},
+        .logicalSize = 1, .alignment = 1,
         .readable = true, .executable = true, .contents = {std::byte{0xc3}},
+        .lineage = {},
     });
     const auto written = binobf::write_object(image);
     REQUIRE(!written.has_value());

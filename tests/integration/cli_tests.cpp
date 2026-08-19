@@ -379,6 +379,22 @@ TEST_CASE(version_command_reports_build_version) {
     REQUIRE(errors.str().empty());
 }
 
+TEST_CASE(cli_color_mode_is_explicit_and_redirect_safe) {
+    std::ostringstream output;
+    std::ostringstream errors;
+    const std::array<std::string_view, 2> always{"version"sv, "--color=always"sv};
+    REQUIRE_EQ(binobf::cli::run_cli(always, output, errors), 0);
+    REQUIRE_CONTAINS(output.str(), "\x1b[");
+    REQUIRE(errors.str().empty());
+
+    output.str({});
+    errors.str({});
+    const std::array<std::string_view, 2> never{"version"sv, "--color=never"sv};
+    REQUIRE_EQ(binobf::cli::run_cli(never, output, errors), 0);
+    REQUIRE(output.str().find("\x1b[") == std::string::npos);
+    REQUIRE(errors.str().empty());
+}
+
 TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
     std::ostringstream output;
     std::ostringstream errors;
@@ -386,10 +402,10 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
     REQUIRE_EQ(binobf::cli::run_cli(formats, output, errors), 0);
     REQUIRE_EQ(
         output.str(),
-        "PE detection=supported parsing=n/a emission=supported linked-parsing=supported verification=supported baseline-transformation=supported strip-debug machine-code-transformation=planned vm-lowering=n/a vm-protection=n/a\n"
+        "PE detection=supported parsing=n/a emission=supported linked-parsing=supported verification=supported baseline-transformation=supported strip-debug machine-code-transformation=planned vm-lowering=restricted exported x86-64 functions vm-protection=n/a\n"
         "COFF detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
         "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported including linked machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
-        "Mach-O detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=planned machine-code-transformation=restricted x86-64 object backend vm-lowering=restricted vm-protection=restricted\n"
+        "Mach-O detection=supported parsing=supported emission=supported linked-parsing=restricted thin 64-bit images verification=supported baseline-transformation=planned machine-code-transformation=restricted x86-64 object backend vm-lowering=restricted vm-protection=restricted\n"
         "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=restricted per qualified object member vm-protection=restricted per x86-64 object member\n");
     REQUIRE(errors.str().empty());
 
@@ -1038,6 +1054,46 @@ TEST_CASE(vm_protect_command_rejects_abi_mismatch_and_output_conflicts) {
         "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, inputPath};
     REQUIRE_EQ(binobf::cli::run_cli(conflict, output, errors), 3);
     REQUIRE_CONTAINS(errors.str(), "io.output_matches_input");
+}
+
+TEST_CASE(vm_lower_dry_run_does_not_create_output) {
+    const TemporaryFile input{
+        "binobf-cli-vm-lower-dry-run-input.obj", make_coff_vm_protection_object()};
+    const TemporaryOutput outputFile{"binobf-cli-vm-lower-dry-run-output.bvm"};
+    std::error_code ignored;
+    std::filesystem::remove(outputFile.path(), ignored);
+    const auto inputPath = input.path().string();
+    const auto outputPath = outputFile.path().string();
+    const std::array<std::string_view, 10> arguments{
+        "vm"sv, "lower"sv, inputPath, "--function=cli_vm_add"sv,
+        "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, outputPath,
+        "--seed=16016"sv, "--dry-run"sv};
+    std::ostringstream output;
+    std::ostringstream errors;
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE(!std::filesystem::exists(outputFile.path()));
+    REQUIRE_CONTAINS(output.str(), "dry-run: true");
+    REQUIRE(errors.str().empty());
+}
+
+TEST_CASE(vm_protect_dry_run_does_not_create_output) {
+    const TemporaryFile input{
+        "binobf-cli-vm-protect-dry-run-input.obj", make_coff_vm_protection_object()};
+    const TemporaryOutput outputFile{"binobf-cli-vm-protect-dry-run-output.obj"};
+    std::error_code ignored;
+    std::filesystem::remove(outputFile.path(), ignored);
+    const auto inputPath = input.path().string();
+    const auto outputPath = outputFile.path().string();
+    const std::array<std::string_view, 10> arguments{
+        "vm"sv, "protect"sv, inputPath, "--function=cli_vm_add"sv,
+        "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, outputPath,
+        "--seed=16016"sv, "--dry-run"sv};
+    std::ostringstream output;
+    std::ostringstream errors;
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE(!std::filesystem::exists(outputFile.path()));
+    REQUIRE_CONTAINS(output.str(), "dry-run: true");
+    REQUIRE(errors.str().empty());
 }
 
 TEST_CASE(vm_protect_command_updates_the_matching_archive_member) {

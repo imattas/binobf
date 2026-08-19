@@ -56,6 +56,19 @@ enum class DiagnosticFormat : std::uint8_t {
 
 thread_local std::optional<DiagnosticFormat> transformDiagnosticFormat;
 
+enum class CliColorMode : std::uint8_t {
+    Auto,
+    Always,
+    Never,
+};
+
+thread_local CliColorMode cliColorMode{CliColorMode::Auto};
+
+auto colorize(std::string_view value, std::string_view code) -> std::string {
+    if (cliColorMode != CliColorMode::Always) return std::string{value};
+    return "\x1b[" + std::string{code} + "m" + std::string{value} + "\x1b[0m";
+}
+
 struct TransformDiagnosticScope {
     std::optional<DiagnosticFormat> previous;
 
@@ -84,13 +97,14 @@ void print_usage(std::ostream& stream) {
         << "  binobf passes\n"
         << "  binobf vm lower <object> --function=<name>"
            " --abi=windows-x64|sysv-amd64 --args=N -o <program.bvm> [--seed=N]"
-           " [--cfg=flatten|--outline-block=N|--split-function]\n"
+           " [--cfg=flatten|--outline-block=N|--split-function] [--dry-run]\n"
         << "  binobf vm protect <object> --function=<name>"
-           " --abi=windows-x64|sysv-amd64 --args=N -o <object> [--seed=N]\n"
+           " --abi=windows-x64|sysv-amd64 --args=N -o <object> [--seed=N] [--dry-run]\n"
         << "  binobf vm disassemble <program.bvm>\n"
         << "  binobf formats\n"
         << "  binobf architectures\n"
         << "  binobf version\n"
+        << "  Global options: --color=auto|always|never, --no-color\n"
         << "  binobf help\n";
 }
 
@@ -1449,6 +1463,7 @@ struct VmLowerOptions {
     bool hasAbi{false};
     bool hasArgumentCount{false};
     bool hasSeed{false};
+    bool dryRun{false};
     AdvancedCfg advancedCfg{AdvancedCfg::None};
     std::optional<ir::IrBlockId> outlineBlock;
 };
@@ -1550,14 +1565,20 @@ auto parse_vm_lower_options(
             }
             options.advancedCfg = VmLowerOptions::AdvancedCfg::Outline;
             options.outlineBlock = ir::IrBlockId{parsedValue};
+        } else if (argument == "--dry-run") {
+            if (options.dryRun) {
+                errors << "vm lower accepts --dry-run once\n";
+                return std::nullopt;
+            }
+            options.dryRun = true;
         } else {
             errors << "unknown vm lower option: " << argument << '\n';
             return std::nullopt;
         }
     }
-    if (!options.hasOutput || !options.hasFunction || !options.hasAbi
+    if ((!options.hasOutput && !options.dryRun) || !options.hasFunction || !options.hasAbi
         || !options.hasArgumentCount) {
-        errors << "vm lower requires --function, --abi, --args, and -o\n";
+        errors << "vm lower requires --function, --abi, --args, and -o (unless --dry-run)\n";
         return std::nullopt;
     }
     return options;
@@ -1572,7 +1593,7 @@ auto vm_lower(
         print_usage(errors);
         return 2;
     }
-    if (paths_conflict(options->input, options->output)) {
+    if (options->hasOutput && paths_conflict(options->input, options->output)) {
         print_diagnostic(errors, Diagnostic{
             DiagnosticSeverity::Error,
             "io.output_matches_input",
@@ -1737,16 +1758,20 @@ auto vm_lower(
         print_diagnostic(errors, assembled.error(), DiagnosticFormat::Text);
         return 3;
     }
-    if (const auto writeError = write_output_transactionally(options->output, assembled.value())) {
-        print_diagnostic(errors, *writeError, DiagnosticFormat::Text);
-        return 3;
+    if (!options->dryRun) {
+        if (const auto writeError = write_output_transactionally(options->output, assembled.value())) {
+            print_diagnostic(errors, *writeError, DiagnosticFormat::Text);
+            return 3;
+        }
     }
     output << "function: " << options->function << '\n'
            << "abi: " << options->abiName << '\n'
            << "arguments: " << options->argumentCount << " x u32\n"
            << "seed: " << options->seed << '\n'
            << "cfg-transform: " << cfgName << '\n'
-           << "bytecode: " << options->output.string() << '\n';
+           << "dry-run: " << (options->dryRun ? "true" : "false") << '\n'
+           << "bytecode: " << (options->dryRun ? "not written (dry-run)"
+                                                : options->output.string()) << '\n';
     return 0;
 }
 
@@ -1763,6 +1788,7 @@ struct VmProtectOptions {
     bool hasAbi{false};
     bool hasArgumentCount{false};
     bool hasSeed{false};
+    bool dryRun{false};
 };
 
 auto parse_vm_protect_options(
@@ -1837,14 +1863,20 @@ auto parse_vm_protect_options(
                 return std::nullopt;
             }
             options.hasSeed = true;
+        } else if (argument == "--dry-run") {
+            if (options.dryRun) {
+                errors << "vm protect accepts --dry-run once\n";
+                return std::nullopt;
+            }
+            options.dryRun = true;
         } else {
             errors << "unknown vm protect option: " << argument << '\n';
             return std::nullopt;
         }
     }
-    if (!options.hasOutput || !options.hasFunction || !options.hasAbi
+    if ((!options.hasOutput && !options.dryRun) || !options.hasFunction || !options.hasAbi
         || !options.hasArgumentCount) {
-        errors << "vm protect requires --function, --abi, --args, and -o\n";
+        errors << "vm protect requires --function, --abi, --args, and -o (unless --dry-run)\n";
         return std::nullopt;
     }
     return options;
@@ -1859,7 +1891,7 @@ auto vm_protect(
         print_usage(errors);
         return 2;
     }
-    if (paths_conflict(options->input, options->output)) {
+    if (options->hasOutput && paths_conflict(options->input, options->output)) {
         print_diagnostic(errors, Diagnostic{
             DiagnosticSeverity::Error,
             "io.output_matches_input",
@@ -1974,9 +2006,11 @@ auto vm_protect(
         report = protectedResult.value().report;
         writtenBytes = written.value();
     }
-    if (const auto writeError = write_output_transactionally(options->output, writtenBytes)) {
-        print_diagnostic(errors, *writeError, DiagnosticFormat::Text);
-        return 3;
+    if (!options->dryRun) {
+        if (const auto writeError = write_output_transactionally(options->output, writtenBytes)) {
+            print_diagnostic(errors, *writeError, DiagnosticFormat::Text);
+            return 3;
+        }
     }
     output << "function: " << report->functionName << '\n'
            << "abi: " << options->abiName << '\n'
@@ -1991,8 +2025,10 @@ auto vm_protect(
            << "bytecode-size: " << report->bytecodeSize << '\n'
            << "runtime-symbol: " << report->runtimeSymbol << '\n'
            << "runtime-relocation-offset: " << report->runtimeRelocationOffset << '\n'
+           << "dry-run: " << (options->dryRun ? "true" : "false") << '\n'
            << (protectedMember.empty() ? "" : "protected-member: " + protectedMember + '\n')
-           << "protected-object: " << options->output.string() << '\n'
+           << "protected-object: " << (options->dryRun ? "not written (dry-run)"
+                                                        : options->output.string()) << '\n'
            << "verification: reparsed\n";
     return 0;
 }
@@ -2109,7 +2145,7 @@ auto lineage_command(
 
 } // namespace
 
-auto run_cli(
+auto run_cli_impl(
     std::span<const std::string_view> arguments,
     std::ostream& output,
     std::ostream& errors) -> int {
@@ -2128,7 +2164,7 @@ auto run_cli(
             print_usage(errors);
             return 2;
         }
-        output << "binobf " << evidence::tool_version() << '\n';
+        output << colorize("binobf", "1;36") << ' ' << evidence::tool_version() << '\n';
         return 0;
     }
     if (command == "formats") {
@@ -2196,6 +2232,40 @@ auto run_cli(
     errors << "unknown command: " << command << '\n';
     print_usage(errors);
     return 2;
+}
+
+auto run_cli(
+    std::span<const std::string_view> arguments,
+    std::ostream& output,
+    std::ostream& errors) -> int {
+    std::vector<std::string_view> filtered;
+    filtered.reserve(arguments.size());
+    const auto previousColorMode = cliColorMode;
+    for (const auto argument : arguments) {
+        if (argument == "--no-color") {
+            cliColorMode = CliColorMode::Never;
+            continue;
+        }
+        if (argument.starts_with("--color=")) {
+            const auto value = argument.substr(std::string_view{"--color="}.size());
+            if (value == "always") {
+                cliColorMode = CliColorMode::Always;
+            } else if (value == "never") {
+                cliColorMode = CliColorMode::Never;
+            } else if (value == "auto") {
+                cliColorMode = CliColorMode::Auto;
+            } else {
+                errors << "--color must be auto, always, or never\n";
+                cliColorMode = previousColorMode;
+                return 2;
+            }
+            continue;
+        }
+        filtered.push_back(argument);
+    }
+    const auto result = run_cli_impl(filtered, output, errors);
+    cliColorMode = previousColorMode;
+    return result;
 }
 
 } // namespace binobf::cli

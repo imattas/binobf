@@ -89,6 +89,7 @@ build\debug\binobf.exe inspect path\to\input.o --diagnostics=json
 build\debug\binobf.exe formats
 build\debug\binobf.exe architectures
 build\debug\binobf.exe vm lower path\to\input.obj --function=my_function --abi=windows-x64 --args=2 -o path\to\my_function.bvm --seed=123456
+build\debug\binobf.exe vm lower path\to\input.obj --function=my_function --abi=windows-x64 --args=2 --dry-run --color=always
 build\debug\binobf.exe vm protect path\to\input.obj --function=my_function --abi=windows-x64 --args=2 -o path\to\protected.obj --seed=123456
 build\debug\binobf.exe vm protect path\to\input.o --function=my_function --abi=sysv-amd64 --args=2 -o path\to\protected.o --seed=123456
 build\debug\binobf.exe vm lower path\to\input.obj --function=my_function --abi=windows-x64 --args=2 -o path\to\flattened.bvm --seed=123456 --cfg=flatten
@@ -125,6 +126,8 @@ The public native IR and VM APIs provide explicit widths, virtual variables/regi
 Advanced standalone lowering is opt-in through one of `--cfg=flatten`, `--outline-block=N`, or `--split-function`. Flattening uses seeded, unique dispatcher states and a valid program-local fixed bogus edge; it never consults timing, debuggers, the environment, or external state. Outlining accepts only a safe non-entry single-return block and remaps its live-ins into a helper. Splitting keeps an entry wrapper and moves the body to an internal helper. Internal calls are acyclic in native IR, bounded at validation time, and executed with fresh VM register/slot frames. The CLI labels these transformations high-risk and rejects ambiguous option combinations. `vm disassemble` is inspection-only.
 
 `vm protect` appends a conventional ABI adapter and `BVM1` bytecode to the selected code section, redirects its symbol, and emits an ordinary linker relocation to `binobf_vm_execute_embedded_u32`. Link the resulting object with the installed `binobf_core` static library. COFF uses Windows x64; ELF and x86-64 Mach-O use System V AMD64-compatible adapters. Fixed relocation-free internal callers, unwind-described functions, and other unsafe cases are rejected before output.
+
+`vm lower` and `vm protect` accept `--dry-run`; they perform parsing, analysis, lowering, assembly, verification, and protection planning without creating or replacing the output. CLI presentation is plain and redirect-safe by default; use `--color=always` for ANSI-highlighted status output or `--color=never`/`--no-color` to force plain output.
 
 ## Configuration and evidence
 

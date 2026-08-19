@@ -7,6 +7,7 @@ auto to_string(BinaryFormat format) noexcept -> std::string_view {
     case BinaryFormat::PE: return "PE";
     case BinaryFormat::COFF: return "COFF";
     case BinaryFormat::ELF: return "ELF";
+    case BinaryFormat::MachO: return "Mach-O";
     case BinaryFormat::Archive: return "archive";
     case BinaryFormat::Unknown: return "unknown";
     }

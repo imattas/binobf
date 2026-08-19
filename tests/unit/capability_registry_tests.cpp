@@ -7,7 +7,7 @@
 
 TEST_CASE(builtin_capability_registry_contains_each_public_matrix_axis) {
     const auto& registry = binobf::builtin_capability_registry();
-    REQUIRE_EQ(registry.records().size(), 48U);
+    REQUIRE_EQ(registry.records().size(), 57U);
 
     const auto* peDetection = registry.find(binobf::CapabilityKey{
         .capability = binobf::Capability::Detection,

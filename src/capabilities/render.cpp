@@ -15,6 +15,7 @@ constexpr std::array kFormats{
     BinaryFormat::PE,
     BinaryFormat::COFF,
     BinaryFormat::ELF,
+    BinaryFormat::MachO,
     BinaryFormat::Archive,
 };
 
@@ -192,8 +193,8 @@ auto render_pass_capabilities_text() -> std::string {
 auto render_feature_matrix_markdown(const CapabilityRegistry& registry)
     -> std::string {
     std::ostringstream output;
-    output << "| Capability | PE | COFF object | ELF | Archive |\n"
-           << "|---|---:|---:|---:|---:|\n";
+    output << "| Capability | PE | COFF object | ELF | Mach-O | Archive |\n"
+           << "|---|---:|---:|---:|---:|---:|\n";
     for (std::size_t row = 0; row < kMarkdownFormatCapabilities.size(); ++row) {
         output << "| " << kMarkdownFormatLabels[row];
         for (const auto format : kFormats) {

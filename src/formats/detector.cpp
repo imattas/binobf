@@ -312,6 +312,46 @@ auto detect_coff(std::span<const std::byte> bytes) -> Result<DetectionResult, Di
     });
 }
 
+auto macho_architecture(std::uint32_t cpuType) noexcept -> Architecture {
+    switch (cpuType) {
+    case 7U: return Architecture::X86;
+    case 0x01000007U: return Architecture::X86_64;
+    case 0x0100000cU: return Architecture::ARM64;
+    default: return Architecture::Unknown;
+    }
+}
+
+auto detect_macho(std::span<const std::byte> bytes) -> Result<DetectionResult, Diagnostic> {
+    if (bytes.size() < 32U) {
+        return error("format.truncated", "Mach-O 64-bit header is truncated");
+    }
+    constexpr std::array magic64{
+        std::byte{0xcf}, std::byte{0xfa}, std::byte{0xed}, std::byte{0xfe}};
+    if (!starts_with(bytes, magic64)) {
+        return error("format.unsupported", "only little-endian 64-bit Mach-O is supported");
+    }
+    const auto cpuType = read_u32(bytes, 4).value();
+    const auto fileType = read_u32(bytes, 12).value();
+    const auto commandCount = static_cast<std::size_t>(read_u32(bytes, 16).value());
+    const auto commandBytes = static_cast<std::size_t>(read_u32(bytes, 20).value());
+    if (fileType != 1U) {
+        return error("format.unsupported", "only Mach-O relocatable objects are supported");
+    }
+    if (commandCount > 4096U || commandBytes > bytes.size() - 32U) {
+        return error("format.invalid", "Mach-O load-command table is inconsistent");
+    }
+    const auto architecture = macho_architecture(cpuType);
+    if (architecture == Architecture::Unknown) {
+        return error("format.unsupported", "Mach-O CPU type is unsupported");
+    }
+    return Result<DetectionResult, Diagnostic>::success(DetectionResult{
+        .format = BinaryFormat::MachO,
+        .type = BinaryType::RelocatableObject,
+        .architecture = architecture,
+        .entryPoint = 0,
+    });
+}
+
 } // namespace
 
 auto detect_binary(std::span<const std::byte> bytes, std::string_view sourceName)
@@ -334,6 +374,12 @@ auto detect_binary(std::span<const std::byte> bytes, std::string_view sourceName
     };
     if (starts_with(bytes, elfMagic)) {
         return detect_elf(bytes);
+    }
+
+    if (bytes.size() >= 4 && bytes[0] == std::byte{0xcf}
+        && bytes[1] == std::byte{0xfa} && bytes[2] == std::byte{0xed}
+        && bytes[3] == std::byte{0xfe}) {
+        return detect_macho(bytes);
     }
 
     if (bytes.size() >= 2 && bytes[0] == std::byte{'M'} && bytes[1] == std::byte{'Z'}) {

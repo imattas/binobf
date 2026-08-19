@@ -102,6 +102,19 @@ TEST_CASE(x86_64_supports_relocation_free_nop_equivalents) {
     REQUIRE(!emitted.value().writesFlags);
 }
 
+TEST_CASE(x86_64_supports_macho_relocation_free_nop_equivalents) {
+    auto fixed = backend_x64();
+    binobf::MachineTransformRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::MachO;
+    request.kind = binobf::MachineTransformKind::InstructionEquivalent;
+    request.source = source_instruction();
+    request.exactSize = 5;
+    const auto emitted = fixed->emit_transform(request);
+    REQUIRE(emitted.has_value());
+    REQUIRE_EQ(emitted.value().emission.bytes.size(), std::size_t{5});
+}
+
 TEST_CASE(x86_64_supports_zero_extending_constant_materialization) {
     auto fixed = backend_x64();
     binobf::MachineTransformRequest request{};

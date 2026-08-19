@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(binobf VERSION 0.1.5 LANGUAGES C CXX)
+project(binobf VERSION 0.2.0 LANGUAGES C CXX)
 
 option(BINOBF_BUILD_TESTS "Build the binobf test suite" ON)
 option(BINOBF_BUILD_C_SHARED "Build the shared library for the stable C ABI" ON)
@@ -140,6 +140,8 @@ set(BINOBF_CORE_SOURCES
     src/formats/detector.cpp
     src/formats/elf/object_parser.cpp
     src/formats/elf/object_writer.cpp
+    src/formats/macho/object_parser.cpp
+    src/formats/macho/object_writer.cpp
     src/formats/elf/linked_parser.cpp
     src/formats/linked_image.cpp
     src/formats/linked_writer.cpp
@@ -625,6 +627,11 @@ if(BINOBF_BUILD_TESTS)
     target_link_libraries(binobf_elf_object_parser_tests PRIVATE binobf::core)
     binobf_enable_warnings(binobf_elf_object_parser_tests)
     add_test(NAME elf_object_parser COMMAND binobf_elf_object_parser_tests)
+
+    add_executable(binobf_macho_object_tests tests/unit/macho_object_tests.cpp)
+    target_link_libraries(binobf_macho_object_tests PRIVATE binobf::core)
+    binobf_enable_warnings(binobf_macho_object_tests)
+    add_test(NAME macho_object COMMAND binobf_macho_object_tests)
 
     add_executable(binobf_elf32_extended_tests tests/unit/elf32_extended_tests.cpp)
     target_link_libraries(binobf_elf32_extended_tests PRIVATE binobf::core)

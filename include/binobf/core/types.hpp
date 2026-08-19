@@ -11,6 +11,7 @@ enum class BinaryFormat : std::uint8_t {
     PE,
     COFF,
     ELF,
+    MachO,
     Archive,
     Unknown,
 };

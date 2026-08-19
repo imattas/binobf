@@ -84,6 +84,10 @@ constexpr std::array rows{
     row(BinaryFormat::ELF, 40, MachineFixupKind::TlsGot32, 0, false, false, false),
     row(BinaryFormat::ELF, 41, MachineFixupKind::TlsGot32, 32, true, false, true),
     row(BinaryFormat::ELF, 43, MachineFixupKind::GotRelative32, 32, false, false, true),
+
+    row(BinaryFormat::MachO, 0, MachineFixupKind::Absolute64, 64, false, false, true),
+    row(BinaryFormat::MachO, 1, MachineFixupKind::PcRelative32, 32, true, true, true),
+    row(BinaryFormat::MachO, 2, MachineFixupKind::PcRelative32, 32, true, true, true),
 };
 
 constexpr auto key_less(const FixupRow& left, const FixupRow& right) noexcept -> bool {

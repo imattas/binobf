@@ -30,6 +30,9 @@ auto parse_object(std::span<const std::byte> bytes, std::string_view sourceName)
     if (detection.value().format == BinaryFormat::COFF) {
         return formats::detail::parse_coff_object(bytes, detection.value());
     }
+    if (detection.value().format == BinaryFormat::MachO) {
+        return formats::detail::parse_macho_object(bytes, detection.value());
+    }
     return formats::detail::failure(
         "object.unsupported_format",
         "object format parser is not available");

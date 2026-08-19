@@ -86,6 +86,18 @@ auto make_coff(std::uint16_t machine, std::uint16_t sectionCount = 1)
     return bytes;
 }
 
+auto make_macho(std::uint32_t cpuType, std::uint32_t fileType = 1)
+    -> std::vector<std::byte> {
+    std::vector<std::byte> bytes(32);
+    bytes[0] = std::byte{0xcf};
+    bytes[1] = std::byte{0xfa};
+    bytes[2] = std::byte{0xed};
+    bytes[3] = std::byte{0xfe};
+    put_u32(bytes, 4, cpuType);
+    put_u32(bytes, 12, fileType);
+    return bytes;
+}
+
 void require_detection(
     const std::vector<std::byte>& bytes,
     std::string_view sourceName,
@@ -150,6 +162,16 @@ TEST_CASE(coff_object_headers_require_complete_section_tables) {
     auto truncated = make_coff(0x8664, 2);
     truncated.resize(99);
     require_error_code(truncated, "broken.obj", "format.truncated");
+}
+
+TEST_CASE(macho_object_headers_map_supported_cpu_types) {
+    require_detection(
+        make_macho(0x01000007U), "fixture.macho.o", binobf::BinaryFormat::MachO,
+        binobf::BinaryType::RelocatableObject, binobf::Architecture::X86_64);
+    require_detection(
+        make_macho(0x0100000cU), "fixture.macho.o", binobf::BinaryFormat::MachO,
+        binobf::BinaryType::RelocatableObject, binobf::Architecture::ARM64);
+    require_error_code(make_macho(2), "unknown.macho.o", "format.unsupported");
 }
 
 TEST_CASE(archive_magic_is_exact_and_architecture_neutral) {

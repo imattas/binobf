@@ -109,6 +109,9 @@ auto emit_bytes(
     assemblyRequest.triple = request.format == BinaryFormat::COFF
         ? (request.architecture == Architecture::X86_64
                 ? "x86_64-pc-windows-msvc" : "i686-pc-windows-msvc")
+        : request.format == BinaryFormat::MachO
+        ? (request.architecture == Architecture::X86_64
+                ? "x86_64-apple-darwin" : "i386-apple-darwin")
         : (request.architecture == Architecture::X86_64
                 ? "x86_64-unknown-linux-gnu" : "i386-unknown-linux-gnu");
     assemblyRequest.syntax = MachineSyntax::Intel;
@@ -146,9 +149,10 @@ auto emit_x86_transform(
         return failure<MachineTransformEmission>(
             "architecture.request_mismatch", "x86 template request has the wrong architecture");
     }
-    if (request.format != BinaryFormat::COFF && request.format != BinaryFormat::ELF) {
+    if (request.format != BinaryFormat::COFF && request.format != BinaryFormat::ELF &&
+        request.format != BinaryFormat::MachO) {
         return failure<MachineTransformEmission>(
-            "architecture.unsupported_format", "x86 templates require COFF or ELF");
+            "architecture.unsupported_format", "x86 templates require COFF, ELF, or Mach-O");
     }
     if (request.kind == MachineTransformKind::DeadCodeFill) {
         if (request.exactSize == 0U || request.exactSize > 15U) {

@@ -251,16 +251,18 @@ void repair_coff_section_symbol(BinaryImage& image, const Section& section) {
 auto protect_function(const BinaryImage& image, const VmProtectionOptions& options)
     -> Result<VmProtectionResult, Diagnostic> {
     if (image.type != BinaryType::RelocatableObject ||
-        (image.format != BinaryFormat::COFF && image.format != BinaryFormat::ELF)) {
+        (image.format != BinaryFormat::COFF && image.format != BinaryFormat::ELF &&
+         image.format != BinaryFormat::MachO)) {
         return failure("vm.protection_format",
-                       "VM protection requires a relocatable COFF or ELF object");
+                       "VM protection requires a relocatable COFF, ELF, or Mach-O object");
     }
     if (image.architecture != Architecture::X86_64) {
         return failure("vm.protection_architecture",
                        "VM protection currently requires x86-64 object code");
     }
     if ((image.format == BinaryFormat::COFF && options.abi != ir::NativeAbi::WindowsX64) ||
-        (image.format == BinaryFormat::ELF && options.abi != ir::NativeAbi::SystemVAMD64)) {
+        ((image.format == BinaryFormat::ELF || image.format == BinaryFormat::MachO) &&
+         options.abi != ir::NativeAbi::SystemVAMD64)) {
         return failure("vm.protection_abi_format",
                        "the selected ABI does not match the object format");
     }
@@ -497,7 +499,7 @@ auto protect_function(const BinaryImage& image, const VmProtectionOptions& optio
                    .section = selectedSectionId,
                    .offset = runtimeRelocationOffset,
                    .kind = RelocationKind::PcRelative,
-                   .rawType = 4,
+                   .rawType = output.format == BinaryFormat::MachO ? 2U : 4U,
                    .targetSymbol = runtimeSymbol->id,
                    .addend = output.format == BinaryFormat::ELF ? INT64_C(-4) : INT64_C(0),
                    .lineage = {}});

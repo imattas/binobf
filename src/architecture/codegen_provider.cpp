@@ -66,6 +66,10 @@ void initialize_llvm_mc_targets() {
         return triple.find("linux") != std::string_view::npos ||
                triple.find("elf") != std::string_view::npos ||
                triple.find("none") != std::string_view::npos;
+    case BinaryFormat::MachO:
+        return triple.find("darwin") != std::string_view::npos ||
+               triple.find("macos") != std::string_view::npos ||
+               triple.find("apple") != std::string_view::npos;
     case BinaryFormat::PE:
     case BinaryFormat::Archive:
     case BinaryFormat::Unknown:
@@ -112,10 +116,11 @@ public:
         if (request.assembly.empty()) {
             return failure("codegen.empty_input", "assembly input must not be empty");
         }
-        if (request.format != BinaryFormat::COFF && request.format != BinaryFormat::ELF) {
+        if (request.format != BinaryFormat::COFF && request.format != BinaryFormat::ELF
+            && request.format != BinaryFormat::MachO) {
             return failure(
                 "codegen.unsupported_format",
-                "LLVM MC emission supports only COFF and ELF object formats");
+                "LLVM MC emission supports only COFF, ELF, and Mach-O object formats");
         }
         if (request.triple.empty() ||
             !triple_matches_architecture(request.triple, architecture_) ||

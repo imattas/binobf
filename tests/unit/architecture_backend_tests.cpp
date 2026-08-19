@@ -86,6 +86,8 @@ TEST_CASE(backends_own_fixed_codegen_providers_and_verify_deterministic_emission
                MachineSyntax::Intel, "nop\nret\n"},
         Golden{Architecture::X86_64, BinaryFormat::ELF, "x86_64-unknown-linux-gnu",
                MachineSyntax::Intel, "nop\nret\n"},
+        Golden{Architecture::X86_64, BinaryFormat::MachO, "x86_64-apple-darwin",
+               MachineSyntax::Intel, "nop\nret\n"},
         Golden{Architecture::ARM64, BinaryFormat::ELF, "aarch64-unknown-linux-gnu",
                MachineSyntax::GNU, "nop\nret\n"},
     };

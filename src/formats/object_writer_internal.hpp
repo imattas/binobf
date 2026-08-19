@@ -19,4 +19,7 @@ namespace binobf::formats::detail {
 [[nodiscard]] auto write_coff_object(const BinaryImage& image)
     -> Result<std::vector<std::byte>, Diagnostic>;
 
+[[nodiscard]] auto write_macho_object(const BinaryImage& image)
+    -> Result<std::vector<std::byte>, Diagnostic>;
+
 } // namespace binobf::formats::detail

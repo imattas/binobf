@@ -168,4 +168,8 @@ inline auto failure(std::string code, std::string message)
     std::span<const std::byte> bytes,
     const DetectionResult& detection) -> Result<BinaryImage, Diagnostic>;
 
+[[nodiscard]] auto parse_macho_object(
+    std::span<const std::byte> bytes,
+    const DetectionResult& detection) -> Result<BinaryImage, Diagnostic>;
+
 } // namespace binobf::formats::detail

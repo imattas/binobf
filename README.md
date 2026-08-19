@@ -1,8 +1,8 @@
 # binobf
 
-`binobf` is a native-code software-protection framework designed like a compiler. It will transform supported object files and linked binaries only when it can understand, reconstruct, and verify the affected structures. ARM64 COFF and ELF object analysis, code generation, relocations, unwind ownership, fixed-width transformations, corpus/linker validation, and bounded native evidence are supported.
+`binobf` is a native-code software-protection framework designed like a compiler. It will transform supported object files and linked binaries only when it can understand, reconstruct, and verify the affected structures. ARM64 COFF and ELF object analysis, x86-64 Mach-O relocatable parsing/emission, code generation, relocations, unwind ownership, fixed-width transformations, corpus/linker validation, and bounded native evidence are supported.
 
-The project is in active development. The current implementation provides a typed core library, structured diagnostics with remediation and lineage, deterministic seeded randomness, safe container/header detection, normalized ELF/COFF relocatable-object parsing, canonical object reconstruction, conservative PE/ELF linked-image parsing and address-stable rewriting, GNU/COFF archive parsing and reconstruction, transactional object-member transformation, public structural verification, compile-transform-run differential testing, a supported i386 object-analysis/code-generation backend, conservative x86-64 machine-code analysis, a bounded architecture-neutral VM core, fail-closed lowering of a deliberately small x86-64 arithmetic/control-flow subset into versioned VM bytecode, deterministic standalone VM control-flow flattening, outlining, and function splitting, restricted selected-function bytecode embedding for x86-64 COFF/ELF objects, and opt-in generated-property, mutation, fuzz, sanitizer, and benchmark tooling. General native lifting and post-link code-layout rewriting remain under development.
+The project is in active development. The current implementation provides a typed core library, structured diagnostics with remediation and lineage, deterministic seeded randomness, safe container/header detection, normalized ELF/COFF/Mach-O relocatable-object parsing, canonical object reconstruction, conservative PE/ELF linked-image parsing and address-stable rewriting, GNU/COFF archive parsing and reconstruction, transactional object-member transformation, public structural verification, compile-transform-run differential testing, a supported i386 object-analysis/code-generation backend, conservative x86-64 machine-code analysis, a bounded architecture-neutral VM core, fail-closed lowering of a deliberately small x86-64 arithmetic/control-flow subset into versioned VM bytecode, deterministic standalone VM control-flow flattening, outlining, and function splitting, restricted selected-function bytecode embedding for x86-64 COFF/ELF/Mach-O objects, and opt-in generated-property, mutation, fuzz, sanitizer, and benchmark tooling. General native lifting and post-link code-layout rewriting remain under development.
 
 ## Safety boundary
 
@@ -11,17 +11,17 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 ## Current feature matrix
 
 <!-- binobf:feature-matrix:start -->
-| Capability | PE | COFF object | ELF | Archive |
-|---|---:|---:|---:|---:|
-| Header/container detection | supported | supported | supported | supported |
-| Relocatable-object parsing | n/a | supported | supported | supported members |
-| Linked-image detailed parsing | supported | n/a | supported | n/a |
-| Structural verification | supported | supported | supported | supported |
-| Exact linked/object emission | supported | supported | supported | supported |
-| Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported per object member |
-| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | supported per object member |
-| Selected x86-64 function VM lowering | n/a | restricted | restricted | unsupported |
-| Embedded selected-function VM protection | n/a | restricted | restricted | unsupported |
+| Capability | PE | COFF object | ELF | Mach-O | Archive |
+|---|---:|---:|---:|---:|---:|
+| Header/container detection | supported | supported | supported | supported | supported |
+| Relocatable-object parsing | n/a | supported | supported | supported | supported members |
+| Linked-image detailed parsing | supported | n/a | supported | n/a | n/a |
+| Structural verification | supported | supported | supported | supported | supported |
+| Exact linked/object emission | supported | supported | supported | supported | supported |
+| Baseline metadata transformations | supported strip-debug | supported | supported including linked | planned | supported per object member |
+| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | restricted x86-64 object backend | supported per object member |
+| Selected x86-64 function VM lowering | n/a | restricted | restricted | restricted | unsupported |
+| Embedded selected-function VM protection | n/a | restricted | restricted | restricted | unsupported |
 
 | Architecture | Detection | Decoder | Object analysis | Code generation |
 |---|---:|---:|---:|---:|
@@ -124,7 +124,7 @@ The public native IR and VM APIs provide explicit widths, virtual variables/regi
 
 Advanced standalone lowering is opt-in through one of `--cfg=flatten`, `--outline-block=N`, or `--split-function`. Flattening uses seeded, unique dispatcher states and a valid program-local fixed bogus edge; it never consults timing, debuggers, the environment, or external state. Outlining accepts only a safe non-entry single-return block and remaps its live-ins into a helper. Splitting keeps an entry wrapper and moves the body to an internal helper. Internal calls are acyclic in native IR, bounded at validation time, and executed with fresh VM register/slot frames. The CLI labels these transformations high-risk and rejects ambiguous option combinations. `vm disassemble` is inspection-only.
 
-`vm protect` appends a conventional ABI adapter and `BVM1` bytecode to the selected code section, redirects its symbol, and emits an ordinary linker relocation to `binobf_vm_execute_embedded_u32`. Link the resulting object with the installed `binobf_core` static library. COFF uses Windows x64 and ELF uses System V AMD64. Fixed relocation-free internal callers, unwind-described functions, and other unsafe cases are rejected before output.
+`vm protect` appends a conventional ABI adapter and `BVM1` bytecode to the selected code section, redirects its symbol, and emits an ordinary linker relocation to `binobf_vm_execute_embedded_u32`. Link the resulting object with the installed `binobf_core` static library. COFF uses Windows x64; ELF and x86-64 Mach-O use System V AMD64-compatible adapters. Fixed relocation-free internal callers, unwind-described functions, and other unsafe cases are rejected before output.
 
 ## Configuration and evidence
 

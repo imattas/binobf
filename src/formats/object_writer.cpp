@@ -18,6 +18,9 @@ auto failure(std::string code, std::string message)
 
 auto write_object(const BinaryImage& image)
     -> Result<std::vector<std::byte>, Diagnostic> {
+    if (image.format == BinaryFormat::MachO) {
+        return formats::detail::write_macho_object(image);
+    }
     if (image.format != BinaryFormat::ELF && image.format != BinaryFormat::COFF) {
         return failure(
             "object.unsupported_format",

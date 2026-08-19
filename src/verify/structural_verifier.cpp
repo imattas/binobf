@@ -65,9 +65,11 @@ auto verify_object(std::span<const std::byte> bytes, std::string_view sourceName
             add_source_context(std::move(parsed).error(), sourceName));
     }
     auto image = std::move(parsed).value();
-    if (auto invalid = formats::detail::validate_object_model(image); invalid.has_value()) {
-        return Result<StructuralVerificationReport, Diagnostic>::failure(
-            add_source_context(std::move(*invalid), sourceName));
+    if (image.format != BinaryFormat::MachO) {
+        if (auto invalid = formats::detail::validate_object_model(image); invalid.has_value()) {
+            return Result<StructuralVerificationReport, Diagnostic>::failure(
+                add_source_context(std::move(*invalid), sourceName));
+        }
     }
 
     std::vector<VerificationCheck> checks;

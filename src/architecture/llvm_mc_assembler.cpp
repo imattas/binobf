@@ -455,7 +455,10 @@ void capture_diagnostic(const llvm::SMDiagnostic& diagnostic, void* context) {
                     llvm::toString(nameOrError.takeError()));
         }
         const auto name = *nameOrError;
-        if (name == request.sectionName) {
+        const bool matchesRequestedSection = name == request.sectionName
+            || (request.format == BinaryFormat::MachO
+                && request.sectionName == ".text" && name == "__text");
+        if (matchesRequestedSection) {
             ++matchingSections;
             auto contentsOrError = section.getContents();
             if (!contentsOrError) {

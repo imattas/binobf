@@ -42,6 +42,7 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
     using BinaryFormat::Archive;
     using BinaryFormat::COFF;
     using BinaryFormat::ELF;
+    using BinaryFormat::MachO;
     using BinaryFormat::PE;
     using enum Capability;
     using enum SupportLevel;
@@ -50,46 +51,55 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         format_record(Detection, PE, Supported, {}, {"format_detector"}),
         format_record(Detection, COFF, Supported, {}, {"format_detector"}),
         format_record(Detection, ELF, Supported, {}, {"format_detector"}),
+        format_record(Detection, MachO, Supported, {}, {"format_detector"}),
         format_record(Detection, Archive, Supported, {}, {"format_detector"}),
 
         format_record(RelocatableObjectParsing, PE, NotApplicable),
         format_record(RelocatableObjectParsing, COFF, Supported, {}, {"coff_object_parser"}),
         format_record(RelocatableObjectParsing, ELF, Supported, {}, {"elf_object_parser"}),
+        format_record(RelocatableObjectParsing, MachO, Supported, {}, {"macho_object_parser"}),
         format_record(RelocatableObjectParsing, Archive, Supported, "members", {"archive"}),
 
         format_record(LinkedImageParsing, PE, Supported, {}, {"linked_image"}),
         format_record(LinkedImageParsing, COFF, NotApplicable),
         format_record(LinkedImageParsing, ELF, Supported, {}, {"linked_image"}),
+        format_record(LinkedImageParsing, MachO, NotApplicable),
         format_record(LinkedImageParsing, Archive, NotApplicable),
 
         format_record(StructuralVerification, PE, Supported, {}, {"structural_verifier"}),
         format_record(StructuralVerification, COFF, Supported, {}, {"structural_verifier"}),
         format_record(StructuralVerification, ELF, Supported, {}, {"structural_verifier"}),
+        format_record(StructuralVerification, MachO, Supported, {}, {"structural_verifier"}),
         format_record(StructuralVerification, Archive, Supported, {}, {"archive"}),
 
         format_record(Emission, PE, Supported, {}, {"linked_image"}),
         format_record(Emission, COFF, Supported, {}, {"object_writer"}),
         format_record(Emission, ELF, Supported, {}, {"object_writer"}),
+        format_record(Emission, MachO, Supported, {}, {"macho_object_writer"}),
         format_record(Emission, Archive, Supported, {}, {"archive"}),
 
         format_record(BaselineMetadataTransformation, PE, Supported, "strip-debug", {"baseline_transforms"}),
         format_record(BaselineMetadataTransformation, COFF, Supported, {}, {"baseline_transforms"}),
         format_record(BaselineMetadataTransformation, ELF, Supported, "including linked", {"baseline_transforms"}),
+        format_record(BaselineMetadataTransformation, MachO, Planned),
         format_record(BaselineMetadataTransformation, Archive, Supported, "per object member", {"baseline_transforms"}),
 
         format_record(MachineCodeTransformation, PE, Planned),
         format_record(MachineCodeTransformation, COFF, Supported, {}, {"instruction_transforms"}),
         format_record(MachineCodeTransformation, ELF, Supported, {}, {"instruction_transforms"}),
+        format_record(MachineCodeTransformation, MachO, Restricted, "x86-64 object backend"),
         format_record(MachineCodeTransformation, Archive, Supported, "per object member", {"instruction_transforms"}),
 
         format_record(VmLowering, PE, NotApplicable),
         format_record(VmLowering, COFF, Restricted),
         format_record(VmLowering, ELF, Restricted),
+        format_record(VmLowering, MachO, Restricted),
         format_record(VmLowering, Archive, Unsupported),
 
         format_record(VmProtection, PE, NotApplicable),
         format_record(VmProtection, COFF, Restricted),
         format_record(VmProtection, ELF, Restricted),
+        format_record(VmProtection, MachO, Restricted),
         format_record(VmProtection, Archive, Unsupported),
 
         architecture_record(Detection, X86, Supported, {}, {"format_detector"}),

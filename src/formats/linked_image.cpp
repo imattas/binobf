@@ -36,6 +36,8 @@ auto parse_linked_image(
         parsed = formats::detail::parse_pe_linked(bytes, detection.value(), limits);
     } else if (detection.value().format == BinaryFormat::ELF) {
         parsed = formats::detail::parse_elf_linked(bytes, detection.value(), limits);
+    } else if (detection.value().format == BinaryFormat::MachO) {
+        parsed = formats::detail::parse_macho_linked(bytes, detection.value(), limits);
     }
     if (parsed.has_value()) parsed.value().sourceName = std::string{sourceName};
     return parsed;

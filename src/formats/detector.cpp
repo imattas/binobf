@@ -333,8 +333,14 @@ auto detect_macho(std::span<const std::byte> bytes) -> Result<DetectionResult, D
     const auto fileType = read_u32(bytes, 12).value();
     const auto commandCount = static_cast<std::size_t>(read_u32(bytes, 16).value());
     const auto commandBytes = static_cast<std::size_t>(read_u32(bytes, 20).value());
-    if (fileType != 1U) {
-        return error("format.unsupported", "only Mach-O relocatable objects are supported");
+    BinaryType type = BinaryType::Unknown;
+    switch (fileType) {
+    case 1U: type = BinaryType::RelocatableObject; break;
+    case 2U: type = BinaryType::Executable; break;
+    case 6U: type = BinaryType::SharedLibrary; break;
+    case 8U: type = BinaryType::SharedLibrary; break;
+    default:
+        return error("format.unsupported", "Mach-O file type is unsupported");
     }
     if (commandCount > 4096U || commandBytes > bytes.size() - 32U) {
         return error("format.invalid", "Mach-O load-command table is inconsistent");
@@ -345,7 +351,7 @@ auto detect_macho(std::span<const std::byte> bytes) -> Result<DetectionResult, D
     }
     return Result<DetectionResult, Diagnostic>::success(DetectionResult{
         .format = BinaryFormat::MachO,
-        .type = BinaryType::RelocatableObject,
+        .type = type,
         .architecture = architecture,
         .entryPoint = 0,
     });

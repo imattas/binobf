@@ -145,6 +145,7 @@ set(BINOBF_CORE_SOURCES
     src/formats/elf/object_writer.cpp
     src/formats/macho/object_parser.cpp
     src/formats/macho/object_writer.cpp
+    src/formats/macho/linked_parser.cpp
     src/formats/elf/linked_parser.cpp
     src/formats/linked_image.cpp
     src/formats/linked_writer.cpp

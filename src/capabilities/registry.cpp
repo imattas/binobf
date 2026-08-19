@@ -63,7 +63,7 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         format_record(LinkedImageParsing, PE, Supported, {}, {"linked_image"}),
         format_record(LinkedImageParsing, COFF, NotApplicable),
         format_record(LinkedImageParsing, ELF, Supported, {}, {"linked_image"}),
-        format_record(LinkedImageParsing, MachO, NotApplicable),
+        format_record(LinkedImageParsing, MachO, Restricted, "thin 64-bit images", {"linked_image"}),
         format_record(LinkedImageParsing, Archive, NotApplicable),
 
         format_record(StructuralVerification, PE, Supported, {}, {"structural_verifier"}),

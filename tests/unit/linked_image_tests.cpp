@@ -353,6 +353,53 @@ auto sectionless_elf64_pie() -> std::vector<std::byte> {
     return bytes;
 }
 
+auto minimal_macho64() -> std::vector<std::byte> {
+    constexpr std::size_t segmentOffset = 32;
+    constexpr std::size_t symtabOffset = segmentOffset + 152;
+    constexpr std::size_t mainOffset = symtabOffset + 24;
+    std::vector<std::byte> bytes(0x400);
+    put_u32(bytes, 0, 0xfeedfacfU);
+    put_u32(bytes, 4, 0x01000007U);
+    put_u32(bytes, 8, 3);
+    put_u32(bytes, 12, 2);
+    put_u32(bytes, 16, 3);
+    put_u32(bytes, 20, 200);
+    put_u32(bytes, segmentOffset, 0x19U);
+    put_u32(bytes, segmentOffset + 4, 152);
+    put_name(bytes, segmentOffset + 8, "__TEXT");
+    put_u64(bytes, segmentOffset + 24, UINT64_C(0x100000000));
+    put_u64(bytes, segmentOffset + 32, 0x1000);
+    put_u64(bytes, segmentOffset + 40, 0);
+    put_u64(bytes, segmentOffset + 48, 0x300);
+    put_u32(bytes, segmentOffset + 56, 7);
+    put_u32(bytes, segmentOffset + 60, 5);
+    put_u32(bytes, segmentOffset + 64, 1);
+    const auto sectionOffset = segmentOffset + 72;
+    put_name(bytes, sectionOffset, "__text");
+    put_name(bytes, sectionOffset + 16, "__TEXT");
+    put_u64(bytes, sectionOffset + 32, UINT64_C(0x100000200));
+    put_u64(bytes, sectionOffset + 40, 1);
+    put_u32(bytes, sectionOffset + 48, 0x200);
+    put_u32(bytes, sectionOffset + 52, 0);
+    put_u32(bytes, sectionOffset + 64, 0x80000400U);
+    put_u32(bytes, symtabOffset, 2);
+    put_u32(bytes, symtabOffset + 4, 24);
+    put_u32(bytes, symtabOffset + 8, 0x300);
+    put_u32(bytes, symtabOffset + 12, 1);
+    put_u32(bytes, symtabOffset + 16, 0x310);
+    put_u32(bytes, symtabOffset + 20, 16);
+    put_u32(bytes, mainOffset, 0x80000028U);
+    put_u32(bytes, mainOffset + 4, 24);
+    put_u64(bytes, mainOffset + 8, 0x200);
+    bytes[0x200] = std::byte{0xc3};
+    put_u32(bytes, 0x300, 1);
+    bytes[0x304] = std::byte{0x0f};
+    bytes[0x305] = std::byte{1};
+    put_u64(bytes, 0x308, UINT64_C(0x100000200));
+    put_name(bytes, 0x311, "_main");
+    return bytes;
+}
+
 } // namespace
 
 TEST_CASE(linked_parser_normalizes_minimal_pe64) {
@@ -378,6 +425,21 @@ TEST_CASE(linked_parser_normalizes_minimal_elf64) {
     REQUIRE_EQ(parsed.value().image.sections.size(), std::size_t{2});
     REQUIRE_EQ(parsed.value().image.sections.front().name, ".text");
     REQUIRE_EQ(parsed.value().image.entryPoint->value, UINT64_C(0x400100));
+}
+
+TEST_CASE(linked_parser_normalizes_minimal_macho64) {
+    const auto bytes = minimal_macho64();
+    const auto parsed = binobf::parse_linked_image(bytes, "fixture.macho");
+    REQUIRE(parsed.has_value());
+    REQUIRE_EQ(parsed.value().image.format, binobf::BinaryFormat::MachO);
+    REQUIRE_EQ(parsed.value().image.type, binobf::BinaryType::Executable);
+    REQUIRE_EQ(parsed.value().image.architecture, binobf::Architecture::X86_64);
+    REQUIRE_EQ(parsed.value().image.sections.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.value().image.functions.size(), std::size_t{1});
+    REQUIRE_EQ(parsed.value().image.functions.front().name, "_main");
+    REQUIRE_EQ(parsed.value().image.entryPoint->value, UINT64_C(0x100000200));
+    const auto verified = binobf::verify_linked_image(bytes, "fixture.macho");
+    REQUIRE(verified.has_value());
 }
 
 TEST_CASE(pe_linked_parser_normalizes_directories_and_dynamic_metadata) {

@@ -9,6 +9,7 @@ Milestone 1 safely detects and classifies these headers:
 | PE | executable, DLL, `.sys` driver | x86, x86-64, ARM64 |
 | COFF | relocatable object | x86, x86-64, ARM64 |
 | ELF | relocatable, executable, shared object | x86, x86-64, ARM64 |
+| Mach-O | 64-bit little-endian relocatable, executable, shared object | x86-64, ARM64 objects; x86-64 linked images |
 | `ar` archive | GNU/BSD static archive, COFF `.lib`, PE import library | member-dependent |
 
 Detection validates fixed headers, declared offsets, and COFF/PE section-table extent. `parse_object` supports little-endian ELF32/ELF64 relocatable objects, ELF extended section numbering, `SHN_XINDEX`, standard COFF objects, and COFF bigobj objects. `parse_archive` supports bounded `ar` members, GNU/COFF long names, BSD extended names, GNU and Microsoft linker indexes, ELF/COFF object members, and COFF import records. `parse_linked_image` supports PE32/PE32+ executables, DLLs, and `.sys` files plus ELF32/ELF64 executables, PIEs, and shared objects. Writers reconstruct objects and archives; linked rewriting preserves exact bytes unless an explicit address-stable metadata pass is selected.
@@ -25,7 +26,7 @@ ELF emission rebuilds section-name and symbol string tables, symbol tables, REL/
 
 PE parsing validates the DOS/NT/optional headers, file/section alignment, non-overlapping section mappings, entry point, data-directory ranges, imports and thunks, exports, base-relocation blocks, raw resource tree, x86-64 runtime-function entries, TLS/load-configuration extents, debug records, certificate table, and checksum state. Unknown optional directory payloads remain visible and byte-preserved. ARM64/x86 exception-directory bytes are range-validated but their unwind semantics remain explicitly unsupported.
 
-ELF linked parsing validates program and section mappings, load alignment, entry point, static/dynamic symbol tables, imports/exports, REL/RELA tables, dynamic tags, interpreter, PIE flags, GOT/PLT relocation relationships, notes, and unwind/debug section ranges. Program-header dynamic/interpreter/note metadata remains available even when section headers are absent. General `.eh_frame` semantic decoding remains unsupported.
+ELF linked parsing validates program and section mappings, load alignment, entry point, static/dynamic symbol tables, imports/exports, REL/RELA tables, dynamic tags, interpreter, PIE flags, GOT/PLT relocation relationships, notes, and unwind/debug section ranges. Program-header dynamic/interpreter/note metadata remains available even when section headers are absent. General `.eh_frame` semantic decoding remains unsupported. Thin 64-bit little-endian Mach-O linked parsing normalizes segments, sections, entry points, load dylibs, symbol tables, and exported code symbols for analysis and VM lowering; linked Mach-O rewriting remains restricted.
 
 Linked `--passes=none` is byte-identical. Linked `strip-debug` never moves a loaded range. PE debug directory/data are cleared and the checksum is rebuilt; signed input requires `--allow-signature-invalidation`, which clears and reports the certificate. Non-allocated ELF debug sections and their dependent relocation sections become empty `SHT_NOBITS` entries without index changes. Other post-link code/layout passes are rejected. `inspect` reports shallow header facts; `analyze` reports normalized format facts; `verify` selects the appropriate object, archive, or linked structural verifier.
 
@@ -46,5 +47,3 @@ After an eligible object changes, reconstruction preserves ordinary member order
 ## Remaining adapters
 
 Exact-size x86-64 object instruction/CFG rewrites, whole-function layout variation, archive member transformation/reconstruction, restricted standalone VM lowering and selected-function VM embedding, and conservative linked PE/ELF debug rewriting are supported on verified parse/write-or-rewrite/parse foundations. Post-link code relocation, size-changing general code generation, and full architecture-specific unwind decoding remain planned. Thin archives are unsupported. Linked `.sys` transformations remain metadata-only by default and no signing-bypass behavior is provided.
-
-Mach-O is unsupported in v1, but format-neutral core types and adapter boundaries reserve a clean future integration path.

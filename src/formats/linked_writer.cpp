@@ -251,13 +251,34 @@ auto rewrite_elf(
     return std::nullopt;
 }
 
+auto rewrite_macho(
+    const LinkedImage& image,
+    const LinkedRewriteOptions& options,
+    LinkedRewriteReport& report) -> std::optional<Diagnostic> {
+    // The current linked Mach-O parser intentionally exposes only structural
+    // metadata.  A rewrite therefore has no bytes to mutate yet, but it is
+    // still useful to run the same verify/reparse/contract checks as PE/ELF.
+    // Refuse a future strip request if the parser ever starts reporting debug
+    // records without a corresponding Mach-O rewrite implementation.
+    if (options.stripDebug && !image.image.debugInfo.empty()) {
+        return Diagnostic{
+            DiagnosticSeverity::Error,
+            "linked.macho_debug_unsupported",
+            "Mach-O debug rewriting is not supported for the parsed image",
+        };
+    }
+    (void)report;
+    return std::nullopt;
+}
+
 } // namespace
 
 auto rewrite_linked_image(
     const LinkedImage& image,
     const LinkedRewriteOptions& options) -> Result<LinkedRewriteReport, Diagnostic> {
-    if (image.image.format != BinaryFormat::PE && image.image.format != BinaryFormat::ELF) {
-        return failure("linked.unsupported_format", "linked rewrite supports only PE and ELF");
+    if (image.image.format != BinaryFormat::PE && image.image.format != BinaryFormat::ELF
+        && image.image.format != BinaryFormat::MachO) {
+        return failure("linked.unsupported_format", "linked rewrite supports PE, ELF, and Mach-O");
     }
     LinkedRewriteReport report{
         .image = {},
@@ -268,8 +289,10 @@ auto rewrite_linked_image(
     std::optional<Diagnostic> error;
     if (image.image.format == BinaryFormat::PE) {
         error = rewrite_pe(image, options, report);
-    } else {
+    } else if (image.image.format == BinaryFormat::ELF) {
         error = rewrite_elf(image, options, report);
+    } else {
+        error = rewrite_macho(image, options, report);
     }
     if (error.has_value()) {
         return Result<LinkedRewriteReport, Diagnostic>::failure(std::move(*error));

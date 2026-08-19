@@ -501,7 +501,8 @@ TEST_CASE(elf_linked_parser_uses_program_metadata_without_section_headers) {
 TEST_CASE(linked_baseline_rewrite_is_byte_identical) {
     for (const auto& parsed : {
              binobf::parse_linked_image(rich_pe64(), "fixture.exe"),
-             binobf::parse_linked_image(rich_elf64(false), "fixture.so")}) {
+             binobf::parse_linked_image(rich_elf64(false), "fixture.so"),
+             binobf::parse_linked_image(minimal_macho64(), "fixture.macho")}) {
         REQUIRE(parsed.has_value());
         const auto rewritten = binobf::rewrite_linked_image(parsed.value());
         REQUIRE(rewritten.has_value());

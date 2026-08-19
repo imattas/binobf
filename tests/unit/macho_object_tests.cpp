@@ -95,6 +95,21 @@ TEST_CASE(macho_object_writer_and_parser_round_trip_x86_64_code_and_symbol) {
     REQUIRE(verified.has_value());
 }
 
+TEST_CASE(macho_object_writer_rejects_32_bit_x86) {
+    binobf::BinaryImage image{};
+    image.format = binobf::BinaryFormat::MachO;
+    image.type = binobf::BinaryType::RelocatableObject;
+    image.architecture = binobf::Architecture::X86;
+    image.sections.push_back(binobf::Section{
+        .id = binobf::EntityId{1}, .formatIndex = 1, .name = "__text",
+        .kind = binobf::SectionKind::Code, .logicalSize = 1,
+        .readable = true, .executable = true, .contents = {std::byte{0xc3}},
+    });
+    const auto written = binobf::write_object(image);
+    REQUIRE(!written.has_value());
+    REQUIRE_EQ(written.error().code, "macho.architecture");
+}
+
 int main() {
     return binobf::test::run_all();
 }

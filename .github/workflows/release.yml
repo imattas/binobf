@@ -105,7 +105,7 @@ jobs:
           $archive = "binobf-${{ matrix.platform }}.zip"
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           "$hash  $archive" | Set-Content -NoNewline "$archive.sha256"
-          @{ schema_version = 1; tag = "${{ github.ref_name }}"; commit = "${{ github.sha }}"; platform = "${{ matrix.platform }}"; archive = $archive; sha256 = $hash } | ConvertTo-Json -Compress | Set-Content "binobf-${{ matrix.platform }}.manifest.json"
+          @{ schema_version = 1; tag = "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"; commit = "${{ github.sha }}"; platform = "${{ matrix.platform }}"; archive = $archive; sha256 = $hash } | ConvertTo-Json -Compress | Set-Content "binobf-${{ matrix.platform }}.manifest.json"
 
       - name: Create Linux integrity files
         if: runner.os == 'Linux'
@@ -114,7 +114,7 @@ jobs:
           archive="binobf-${{ matrix.platform }}.tar.gz"
           hash="$(sha256sum "$archive" | cut -d ' ' -f 1)"
           printf '%s  %s\n' "$hash" "$archive" > "$archive.sha256"
-          printf '{"schema_version":1,"tag":"%s","commit":"%s","platform":"%s","archive":"%s","sha256":"%s"}\n' "${{ github.ref_name }}" "${{ github.sha }}" "${{ matrix.platform }}" "$archive" "$hash" > "binobf-${{ matrix.platform }}.manifest.json"
+          printf '{"schema_version":1,"tag":"%s","commit":"%s","platform":"%s","archive":"%s","sha256":"%s"}\n' "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}" "${{ github.sha }}" "${{ matrix.platform }}" "$archive" "$hash" > "binobf-${{ matrix.platform }}.manifest.json"
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0

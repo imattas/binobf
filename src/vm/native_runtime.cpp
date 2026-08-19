@@ -36,8 +36,8 @@ binobf_vm_execute_embedded_u32(const std::uint8_t* bytecode, std::size_t bytecod
             set_error("vm.native_arguments: embedded argument pointer is null");
             return 0;
         }
-        if (argumentCount > 4) {
-            set_error("vm.native_arguments: embedded argument count exceeds four");
+        if (argumentCount > 8) {
+            set_error("vm.native_arguments: embedded argument count exceeds eight");
             return 0;
         }
 

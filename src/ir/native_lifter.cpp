@@ -960,7 +960,7 @@ auto lift_function(
             "native ABI does not match the image architecture");
     }
     const auto maxArguments = image.architecture == Architecture::X86
-        ? limits.maxArguments : std::size_t{4};
+        ? limits.maxArguments : std::size_t{8};
     if (signature.arguments.size() > maxArguments) {
         return failed("ir.unsupported_signature", "native signature has too many arguments");
     }

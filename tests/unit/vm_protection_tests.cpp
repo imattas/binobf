@@ -159,6 +159,19 @@ TEST_CASE(vm_protection_synthesizes_elf_runtime_symbol_and_rela_table) {
     REQUIRE(binobf::parse_object(written.value(), "protected.o").has_value());
 }
 
+TEST_CASE(vm_protection_accepts_eight_u32_arguments) {
+    const auto result = binobf::vm::protect_function(
+        make_function_object(binobf::BinaryFormat::COFF),
+        binobf::vm::VmProtectionOptions{.function = "selected_add",
+                                        .abi = binobf::ir::NativeAbi::WindowsX64,
+                                        .argumentCount = 8,
+                                        .seed = 16016});
+    if (!result.has_value()) throw std::runtime_error(result.error().code + ": " + result.error().message);
+    REQUIRE_EQ(result.value().report.argumentCount, std::size_t{8});
+    REQUIRE(result.value().report.wrapperSize > 0);
+    REQUIRE(binobf::write_object(result.value().image).has_value());
+}
+
 TEST_CASE(vm_protection_embeds_a_systemv_adapter_and_macho_branch_relocation) {
     const auto result = binobf::vm::protect_function(
         make_function_object(binobf::BinaryFormat::MachO),

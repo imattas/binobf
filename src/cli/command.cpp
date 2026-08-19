@@ -1762,8 +1762,8 @@ auto parse_vm_protect_options(
             const auto parsed = std::from_chars(
                 value.data(), value.data() + value.size(), parsedValue, 10);
             if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()
-                || parsedValue > 4) {
-                errors << "vm protect argument count must be an integer from 0 through 4\n";
+                || parsedValue > 8) {
+                errors << "vm protect argument count must be an integer from 0 through 8\n";
                 return std::nullopt;
             }
             options.argumentCount = parsedValue;

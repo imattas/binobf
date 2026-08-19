@@ -5,6 +5,7 @@
 #include <binobf/vm/bytecode.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -66,37 +67,63 @@ auto build_adapter(ir::NativeAbi abi, std::uint32_t bytecodeSize, std::uint32_t 
     -> NativeAdapter {
     NativeAdapter adapter;
     auto& bytes = adapter.bytes;
-    if (abi == ir::NativeAbi::WindowsX64) {
-        const std::uint8_t prefix[] = {
-            0x48, 0x83, 0xec, 0x38, 0x89, 0x4c, 0x24, 0x20, 0x89, 0x54, 0x24, 0x24, 0x44,
-            0x89, 0x44, 0x24, 0x28, 0x44, 0x89, 0x4c, 0x24, 0x2c, 0x48, 0x8d, 0x0d,
-        };
-        for (const auto value : prefix)
-            append_byte(bytes, value);
+    const auto count = static_cast<std::size_t>(argumentCount);
+    const auto windows = abi == ir::NativeAbi::WindowsX64;
+    const auto reserve = windows ? (count > 4U ? 72U : 56U) : (count > 4U ? 40U : 24U);
+    append_byte(bytes, 0x48);
+    append_byte(bytes, 0x83);
+    append_byte(bytes, 0xec);
+    append_byte(bytes, static_cast<std::uint8_t>(reserve));
+
+    const auto store_register = [&](std::uint8_t registerCode, std::size_t offset) {
+        append_byte(bytes, registerCode >= 8U ? 0x44U : 0x40U);
+        append_byte(bytes, 0x89U);
+        append_byte(bytes, static_cast<std::uint8_t>(0x44U | ((registerCode & 7U) << 3U)));
+        append_byte(bytes, 0x24U);
+        append_byte(bytes, static_cast<std::uint8_t>(offset));
+    };
+    const auto store_r11 = [&](std::size_t offset) { store_register(11U, offset); };
+    const auto load_r11 = [&](std::size_t offset) {
+        append_byte(bytes, 0x44U);
+        append_byte(bytes, 0x8bU);
+        append_byte(bytes, 0x5cU);
+        append_byte(bytes, 0x24U);
+        append_byte(bytes, static_cast<std::uint8_t>(offset));
+    };
+    if (windows) {
+        constexpr std::array<std::uint8_t, 4> registers{1U, 2U, 8U, 9U};
+        for (std::size_t index = 0; index < std::min(count, std::size_t{4}); ++index)
+            store_register(registers[index], 32U + index * 4U);
+        for (std::size_t index = 4; index < count; ++index) {
+            load_r11(reserve + 40U + (index - 4U) * 8U);
+            store_r11(32U + index * 4U);
+        }
+        const std::uint8_t argumentsAddress[] = {0x4c, 0x8d, 0x44, 0x24, 0x20};
+        for (const auto value : argumentsAddress) append_byte(bytes, value);
         adapter.bytecodeDisplacement = bytes.size();
         append_u32(bytes, 0);
         append_byte(bytes, 0xba);
         append_u32(bytes, bytecodeSize);
-        const std::uint8_t argumentsAddress[] = {0x4c, 0x8d, 0x44, 0x24, 0x20};
-        for (const auto value : argumentsAddress)
-            append_byte(bytes, value);
         append_byte(bytes, 0x41);
         append_byte(bytes, 0xb9);
         append_u32(bytes, argumentCount);
     } else {
-        const std::uint8_t prefix[] = {
-            0x48, 0x83, 0xec, 0x18, 0x89, 0x3c, 0x24, 0x89, 0x74, 0x24, 0x04,
-            0x89, 0x54, 0x24, 0x08, 0x89, 0x4c, 0x24, 0x0c, 0x48, 0x8d, 0x3d,
-        };
-        for (const auto value : prefix)
-            append_byte(bytes, value);
+        constexpr std::array<std::uint8_t, 4> registers{7U, 6U, 2U, 1U};
+        for (std::size_t index = 0; index < std::min(count, std::size_t{4}); ++index)
+            store_register(registers[index], index * 4U);
+        for (std::size_t index = 4; index < count; ++index) {
+            load_r11(reserve + 8U + (index - 4U) * 8U);
+            store_r11(index * 4U);
+        }
+        const std::uint8_t argumentsAddress[] = {0x48, 0x8d, 0x14, 0x24};
+        for (const auto value : argumentsAddress) append_byte(bytes, value);
+        append_byte(bytes, 0x48);
+        append_byte(bytes, 0x8d);
+        append_byte(bytes, 0x3d);
         adapter.bytecodeDisplacement = bytes.size();
         append_u32(bytes, 0);
         append_byte(bytes, 0xbe);
         append_u32(bytes, bytecodeSize);
-        const std::uint8_t argumentsAddress[] = {0x48, 0x8d, 0x14, 0x24};
-        for (const auto value : argumentsAddress)
-            append_byte(bytes, value);
         append_byte(bytes, 0xb9);
         append_u32(bytes, argumentCount);
     }
@@ -105,7 +132,7 @@ auto build_adapter(ir::NativeAbi abi, std::uint32_t bytecodeSize, std::uint32_t 
     append_u32(bytes, 0);
     const std::uint8_t suffix[] = {
         0x48, 0x83,
-        0xc4, abi == ir::NativeAbi::WindowsX64 ? std::uint8_t{0x38} : std::uint8_t{0x18},
+        0xc4, static_cast<std::uint8_t>(reserve),
         0xc3,
     };
     for (const auto value : suffix)
@@ -269,9 +296,9 @@ auto protect_function(const BinaryImage& image, const VmProtectionOptions& optio
     if (options.function.empty()) {
         return failure("vm.protection_function", "selected function name is empty");
     }
-    if (options.argumentCount > 4) {
+    if (options.argumentCount > 8) {
         return failure("vm.protection_arguments",
-                       "VM protection accepts zero through four u32 arguments");
+                       "VM protection accepts zero through eight u32 arguments");
     }
 
     const auto analyzed = analyze_object(image);

@@ -90,7 +90,7 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         format_record(MachineCodeTransformation, MachO, Restricted, "x86-64 object backend"),
         format_record(MachineCodeTransformation, Archive, Supported, "per object member", {"instruction_transforms"}),
 
-        format_record(VmLowering, PE, NotApplicable),
+        format_record(VmLowering, PE, Restricted, "exported x86-64 functions", {"linked_vm_lowering"}),
         format_record(VmLowering, COFF, Restricted),
         format_record(VmLowering, ELF, Restricted),
         format_record(VmLowering, MachO, Restricted),

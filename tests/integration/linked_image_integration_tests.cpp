@@ -95,6 +95,13 @@ TEST_CASE(real_linked_images_parse_verify_and_round_trip_exactly) {
         [](const auto& imported) {
             return imported.library == "KERNEL32.dll" && imported.name == "ExitProcess";
         }));
+    REQUIRE(std::any_of(
+        peExecutable.image.functions.begin(), peExecutable.image.functions.end(),
+        [](const auto& function) {
+            return function.name == "binobf_linked_export"
+                && function.discovery == binobf::FunctionDiscovery::Export
+                && function.externallyVisible;
+        }));
 }
 
 TEST_CASE(real_linked_debug_stripping_preserves_loader_contracts) {
@@ -180,6 +187,29 @@ TEST_CASE(linked_cli_analyzes_verifies_and_transforms_real_images) {
     REQUIRE(errors.str().empty());
     REQUIRE(binobf::parse_linked_image(
         read_file(transformed), transformed.filename().string()).value().image.debugInfo.empty());
+}
+
+TEST_CASE(linked_cli_lowers_exported_pe_functions) {
+    const auto outputPath = outputDirectory / "linked-pe-cli-lowered.bvm";
+    std::error_code ignored;
+    std::filesystem::remove(outputPath, ignored);
+    std::ostringstream output;
+    std::ostringstream errors;
+    const auto inputText = fixtures[0].string();
+    const auto outputText = outputPath.string();
+    const std::array arguments{
+        std::string_view{"vm"}, std::string_view{"lower"}, std::string_view{inputText},
+        std::string_view{"--function=binobf_linked_export"},
+        std::string_view{"--abi=windows-x64"}, std::string_view{"--args=0"},
+        std::string_view{"-o"}, std::string_view{outputText}, std::string_view{"--seed=1"}};
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE(std::filesystem::exists(outputPath));
+    const auto bytes = read_file(outputPath);
+    REQUIRE(bytes.size() >= 4U);
+    REQUIRE_EQ(bytes[0], std::byte{'B'});
+    REQUIRE_EQ(bytes[1], std::byte{'V'});
+    REQUIRE_CONTAINS(output.str(), "function: binobf_linked_export");
+    REQUIRE(errors.str().empty());
 }
 
 int main(int argc, char** argv) {

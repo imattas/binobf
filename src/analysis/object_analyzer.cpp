@@ -239,6 +239,42 @@ void trim_inferred_alignment_padding(
     });
 }
 
+void trim_exported_return_tail(
+    AnalysisReport& report,
+    Function& function,
+    std::uint64_t functionOffset) {
+    if (function.discovery != FunctionDiscovery::Export || function.instructions.empty()) return;
+    std::size_t returnIndex = function.instructions.size();
+    for (std::size_t index = 0; index < function.instructions.size(); ++index) {
+        const auto* instruction = find_instruction(report.image, function.instructions[index]);
+        if (instruction == nullptr) return;
+        if (instruction->kind == InstructionKind::DirectBranch
+            || instruction->kind == InstructionKind::ConditionalBranch
+            || instruction->kind == InstructionKind::IndirectBranch) {
+            return;
+        }
+        if (instruction->kind == InstructionKind::Return
+            || instruction->kind == InstructionKind::Trap) {
+            returnIndex = index;
+            break;
+        }
+    }
+    if (returnIndex == function.instructions.size() || returnIndex + 1U == function.instructions.size()) {
+        return;
+    }
+    const auto* terminator = find_instruction(report.image, function.instructions[returnIndex]);
+    if (terminator == nullptr) return;
+    const auto removed = function.instructions.size() - returnIndex - 1U;
+    function.size = terminator->sectionOffset + terminator->encoding.size() - functionOffset;
+    function.instructions.resize(returnIndex + 1U);
+    report.image.instructions.resize(report.image.instructions.size() - removed);
+    report.diagnostics.push_back(Diagnostic{
+        DiagnosticSeverity::Info,
+        "analysis.trimmed_export_tail",
+        "excluded unreachable tail from inferred exported function " + function.name,
+    });
+}
+
 void add_unique_successor(BasicBlock& block, EntityId successor) {
     if (std::find(block.successors.begin(), block.successors.end(), successor)
         == block.successors.end()) {
@@ -824,6 +860,7 @@ auto analyze_object(const BinaryImage& input) -> Result<AnalysisReport, Diagnost
         }
         if (candidate.declaredSize == 0) {
             trim_inferred_alignment_padding(report, function, candidate.offset);
+            trim_exported_return_tail(report, function, candidate.offset);
         }
         attach_relocation_references(report.image, function);
         recover_cfg(report, function, nextId, blockIdsByLocation);

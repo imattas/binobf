@@ -747,18 +747,44 @@ auto parse_pe_linked(
         }
     }
     // PE export names are the only stable function identities available in a
-    // stripped linked image. Attach them to exception-derived functions so
-    // downstream analysis and VM lowering can select exported entry points.
+    // stripped linked image. Attach them to exception-derived functions, or
+    // recover an exported code entry when no exception directory is present,
+    // so downstream analysis and VM lowering can select exported entry points.
     for (const auto& exported : result.image.exports) {
-        const auto function = std::find_if(
+        auto function = std::find_if(
             result.image.functions.begin(), result.image.functions.end(),
             [&](const Function& candidate) {
                 return candidate.address.value == exported.address.value;
             });
-        if (function != result.image.functions.end() && !exported.name.empty()) {
-            function->name = exported.name;
+        if (function != result.image.functions.end()) {
+            if (!exported.name.empty()) function->name = exported.name;
             function->externallyVisible = true;
+            continue;
         }
+        if (exported.address.value < result.imageBase) continue;
+        const auto target = section_for_rva(
+            result, exported.address.value - result.imageBase);
+        if (!target.has_value()) continue;
+        const auto section = std::find_if(
+            result.image.sections.begin(), result.image.sections.end(),
+            [&](const Section& candidate) { return candidate.id == target->first; });
+        if (section == result.image.sections.end() || !section->executable) continue;
+        result.image.functions.push_back(Function{
+            .id = ids.allocate(),
+            .name = exported.name.empty()
+                ? "export_" + std::to_string(exported.ordinal.value_or(0U)) : exported.name,
+            .section = target->first,
+            .symbol = std::nullopt,
+            .address = exported.address,
+            .size = 0,
+            .discovery = FunctionDiscovery::Export,
+            .instructions = {},
+            .basicBlocks = {},
+            .entryBlock = std::nullopt,
+            .externallyVisible = true,
+            .complete = false,
+            .lineage = {},
+        });
     }
     return Result<LinkedImage, Diagnostic>::success(std::move(result));
 }

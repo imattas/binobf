@@ -20,6 +20,7 @@ constexpr std::array kBuiltinEvidence{
     AcceptanceEvidence{"instruction_decoder", "instruction_decoder", true},
     AcceptanceEvidence{"instruction_transforms", "instruction_transform_integration", true},
     AcceptanceEvidence{"linked_image", "linked_image_integration", true},
+    AcceptanceEvidence{"linked_vm_lowering", "linked_image_integration", true},
     AcceptanceEvidence{"macho_object_parser", "macho_object", true},
     AcceptanceEvidence{"macho_object_writer", "macho_object", true},
     AcceptanceEvidence{"object_analyzer", "object_analyzer", true},

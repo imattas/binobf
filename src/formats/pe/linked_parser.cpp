@@ -746,6 +746,20 @@ auto parse_pe_linked(
             return Result<LinkedImage, Diagnostic>::failure(std::move(*error));
         }
     }
+    // PE export names are the only stable function identities available in a
+    // stripped linked image. Attach them to exception-derived functions so
+    // downstream analysis and VM lowering can select exported entry points.
+    for (const auto& exported : result.image.exports) {
+        const auto function = std::find_if(
+            result.image.functions.begin(), result.image.functions.end(),
+            [&](const Function& candidate) {
+                return candidate.address.value == exported.address.value;
+            });
+        if (function != result.image.functions.end() && !exported.name.empty()) {
+            function->name = exported.name;
+            function->externallyVisible = true;
+        }
+    }
     return Result<LinkedImage, Diagnostic>::success(std::move(result));
 }
 

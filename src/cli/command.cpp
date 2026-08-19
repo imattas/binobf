@@ -1504,8 +1504,8 @@ auto parse_vm_lower_options(
             const auto parsed = std::from_chars(
                 value.data(), value.data() + value.size(), parsedValue, 10);
             if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size()
-                || parsedValue > 4) {
-                errors << "vm lower argument count must be an integer from 0 through 4\n";
+                || parsedValue > 8) {
+                errors << "vm lower argument count must be an integer from 0 through 8\n";
                 return std::nullopt;
             }
             options.argumentCount = parsedValue;

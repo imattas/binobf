@@ -1075,7 +1075,7 @@ TEST_CASE(vm_lower_command_accepts_qualified_archive_members) {
     const auto outputPath = loweredOutput.path().string();
     const std::array<std::string_view, 9> arguments{
         "vm"sv, "lower"sv, inputPath, "--function=vm-function.obj::cli_vm_add"sv,
-        "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, outputPath,
+        "--abi=windows-x64"sv, "--args=8"sv, "-o"sv, outputPath,
         "--seed=16016"sv};
     std::ostringstream output;
     std::ostringstream errors;

@@ -109,6 +109,30 @@ TEST_CASE(x86_64_adapters_support_windows_sysv_and_macho) {
     REQUIRE(plan.value().emission.bytes.size() > 0);
 }
 
+TEST_CASE(x86_64_unwind_emits_macho_dwarf64_and_preserves_windows_records) {
+    auto fixed = backend_x64();
+    binobf::UnwindRequest request{};
+    request.architecture = binobf::Architecture::X86_64;
+    request.format = binobf::BinaryFormat::MachO;
+    request.codeStart = binobf::BinaryAddress{0x1000U};
+    request.codeSize = 32;
+    request.codeSymbol = "selected";
+    request.actions.push_back(binobf::UnwindAction{
+        .kind = binobf::UnwindActionKind::DefineCanonicalFrameAddress,
+        .registerName = "rsp",
+        .offset = 8,
+        .codeOffset = 0,
+    });
+    const auto macho = fixed->build_unwind(request);
+    REQUIRE(macho.has_value());
+    REQUIRE_EQ(macho.value().encoding, binobf::UnwindEncoding::DwarfCfi64);
+    REQUIRE_EQ(macho.value().fixups.size(), std::size_t{1});
+    request.format = binobf::BinaryFormat::COFF;
+    const auto coff = fixed->build_unwind(request);
+    REQUIRE(coff.has_value());
+    REQUIRE_EQ(coff.value().encoding, binobf::UnwindEncoding::WindowsX64);
+}
+
 TEST_CASE(x86_adapter_spills_register_sources_before_parallel_moves) {
     auto fixed = backend();
     auto value = request(

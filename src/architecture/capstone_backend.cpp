@@ -8,6 +8,7 @@
 #include "x86_64_fixups.hpp"
 #include "x86_abi.hpp"
 #include "x86_64_abi.hpp"
+#include "x86_64_unwind.hpp"
 #include "x86_templates.hpp"
 #include "x86_unwind.hpp"
 
@@ -36,6 +37,7 @@ constexpr std::array<std::string_view, 1> kX8664CodegenEvidence{"x86_64_codegen"
 constexpr std::array<std::string_view, 1> kX86AbiEvidence{"x86_abi_adapter"};
 constexpr std::array<std::string_view, 1> kX8664AbiEvidence{"x86_64_abi_adapter"};
 constexpr std::array<std::string_view, 1> kX86UnwindEvidence{"x86_unwind"};
+constexpr std::array<std::string_view, 1> kX8664UnwindEvidence{"x86_64_unwind"};
 constexpr std::array<std::string_view, 1> kArm64AnalysisEvidence{"arm64_object_backend"};
 constexpr std::array<std::string_view, 1> kArm64CodegenEvidence{"arm64_codegen"};
 constexpr std::array<std::string_view, 1> kArm64AbiEvidence{"arm64_abi_adapter"};
@@ -272,11 +274,14 @@ public:
                           : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::BuildUnwind,
-                  architecture == Architecture::X86 ? SupportLevel::Supported
+                  architecture == Architecture::X86 || architecture == Architecture::X86_64
+                      ? SupportLevel::Supported
                       : architecture == Architecture::ARM64 ? SupportLevel::Supported
                                                             : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86UnwindEvidence}
+                      : architecture == Architecture::X86_64
+                          ? std::span<const std::string_view>{kX8664UnwindEvidence}
                       : architecture == Architecture::ARM64
                           ? std::span<const std::string_view>{kArm64UnwindEvidence}
                           : std::span<const std::string_view>{}},
@@ -527,14 +532,19 @@ public:
                 "architecture.request_mismatch",
                 "unwind request architecture does not match the fixed backend");
         }
-        if (architecture_ != Architecture::X86 && architecture_ != Architecture::ARM64) {
+        if (architecture_ != Architecture::X86 && architecture_ != Architecture::X86_64 &&
+            architecture_ != Architecture::ARM64) {
             return service_failure<UnwindPlan>(
                 "architecture.service_unsupported",
                 "the fixed backend does not implement unwind generation");
         }
-        return architecture_ == Architecture::X86
-            ? detail::build_x86_unwind_plan(request)
-            : detail::build_arm64_unwind_plan(request);
+        if (architecture_ == Architecture::X86) {
+            return detail::build_x86_unwind_plan(request);
+        }
+        if (architecture_ == Architecture::X86_64) {
+            return detail::build_x86_64_unwind_plan(request);
+        }
+        return detail::build_arm64_unwind_plan(request);
     }
 
     auto decode(const DecodeRequest& request) const

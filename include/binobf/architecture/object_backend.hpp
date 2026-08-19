@@ -38,6 +38,7 @@ enum class UnwindDisposition : std::uint8_t {
 enum class UnwindEncoding : std::uint8_t {
     None,
     WindowsI386,
+    WindowsX64,
     DwarfCfi32,
     WindowsARM64,
     DwarfCfi64,

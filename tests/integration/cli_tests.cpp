@@ -258,6 +258,14 @@ auto make_archive() -> std::vector<std::byte> {
     return bytes;
 }
 
+auto make_vm_archive() -> std::vector<std::byte> {
+    std::vector<std::byte> bytes;
+    append_text(bytes, "!<arch>\n");
+    append_archive_member(bytes, "vm-function.obj/", make_coff_vm_protection_object());
+    append_archive_member(bytes, "note.txt/", {std::byte{'o'}, std::byte{'k'}});
+    return bytes;
+}
+
 auto make_parallel_archive() -> std::vector<std::byte> {
     std::vector<std::byte> bytes;
     append_text(bytes, "!<arch>\n");
@@ -382,7 +390,7 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
         "COFF detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
         "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported including linked machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
         "Mach-O detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=planned machine-code-transformation=restricted x86-64 object backend vm-lowering=restricted vm-protection=restricted\n"
-        "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=unsupported vm-protection=unsupported\n");
+        "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=unsupported vm-protection=restricted per x86-64 object member\n");
     REQUIRE(errors.str().empty());
 
     output.str({});
@@ -1030,6 +1038,34 @@ TEST_CASE(vm_protect_command_rejects_abi_mismatch_and_output_conflicts) {
         "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, inputPath};
     REQUIRE_EQ(binobf::cli::run_cli(conflict, output, errors), 3);
     REQUIRE_CONTAINS(errors.str(), "io.output_matches_input");
+}
+
+TEST_CASE(vm_protect_command_updates_the_matching_archive_member) {
+    const TemporaryFile input{"binobf-cli-vm-protect-input.lib", make_vm_archive()};
+    const TemporaryOutput protectedOutput{"binobf-cli-vm-protect-output.lib"};
+    const auto inputPath = input.path().string();
+    const auto outputPath = protectedOutput.path().string();
+    const std::array<std::string_view, 9> arguments{
+        "vm"sv, "protect"sv, inputPath, "--function=cli_vm_add"sv,
+        "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, outputPath,
+        "--seed=16016"sv};
+    std::ostringstream output;
+    std::ostringstream errors;
+
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE_CONTAINS(output.str(), "protected-member: vm-function.obj");
+    REQUIRE(errors.str().empty());
+    const auto parsed = binobf::parse_archive(
+        read_all(protectedOutput.path()), "protected.lib");
+    REQUIRE(parsed.has_value());
+    const auto member = std::find_if(
+        parsed.value().members.begin(), parsed.value().members.end(),
+        [](const auto& candidate) { return candidate.name == "vm-function.obj"; });
+    REQUIRE(member != parsed.value().members.end());
+    const auto object = binobf::parse_object(member->contents, member->name);
+    REQUIRE(object.has_value());
+    REQUIRE(std::any_of(object.value().symbols.begin(), object.value().symbols.end(),
+        [](const auto& symbol) { return symbol.name == "binobf_vm_execute_embedded_u32"; }));
 }
 
 int main() {

@@ -100,7 +100,7 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         format_record(VmProtection, COFF, Restricted),
         format_record(VmProtection, ELF, Restricted),
         format_record(VmProtection, MachO, Restricted),
-        format_record(VmProtection, Archive, Unsupported),
+        format_record(VmProtection, Archive, Restricted, "per x86-64 object member", {"archive_vm_protection"}),
 
         architecture_record(Detection, X86, Supported, {}, {"format_detector"}),
         architecture_record(Detection, X86_64, Supported, {}, {"format_detector"}),

@@ -165,7 +165,7 @@ auto build_x86_64_unwind_plan(const UnwindRequest& request)
     const auto fdeLengthOffset = encoded.size();
     append_u32(encoded, 0U);
     const auto fdeStart = encoded.size();
-    append_u32(encoded, static_cast<std::uint32_t>(fdeStart - 4U));
+    append_u32(encoded, static_cast<std::uint32_t>(fdeStart));
     const auto initialLocationOffset = encoded.size();
     append_u32(encoded, 0U);
     append_u32(encoded, static_cast<std::uint32_t>(request.codeSize));

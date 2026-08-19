@@ -11,6 +11,7 @@ namespace {
 
 constexpr std::array kBuiltinEvidence{
     AcceptanceEvidence{"archive", "archive_integration", true},
+    AcceptanceEvidence{"archive_vm_protection", "cli", true},
     AcceptanceEvidence{"baseline_transforms", "baseline_transforms", true},
     AcceptanceEvidence{"coff_object_parser", "object_parser_integration", true},
     AcceptanceEvidence{"elf_object_parser", "object_parser_integration", true},

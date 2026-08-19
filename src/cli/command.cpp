@@ -1816,49 +1816,107 @@ auto vm_protect(
         print_diagnostic(errors, input.error(), DiagnosticFormat::Text);
         return 3;
     }
-    const auto parsed = parse_object(input.value(), options->input.filename().string());
-    if (!parsed.has_value()) {
-        print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
-        return 3;
-    }
-    const auto protectedResult = vm::protect_function(parsed.value(), vm::VmProtectionOptions{
+    const auto protectionOptions = vm::VmProtectionOptions{
         .function = options->function,
         .abi = options->abi,
         .argumentCount = options->argumentCount,
         .seed = options->seed,
-    });
-    if (!protectedResult.has_value()) {
-        print_diagnostic(errors, protectedResult.error(), DiagnosticFormat::Text);
-        return 3;
+    };
+    std::optional<vm::VmProtectionReport> report;
+    std::string protectedMember;
+    std::vector<std::byte> writtenBytes;
+    if (const auto detection = detect_binary(input.value(), options->input.filename().string());
+        detection.has_value() && is_archive_format(detection.value().format)) {
+        auto archive = parse_archive(input.value(), options->input.filename().string());
+        if (!archive.has_value()) {
+            print_diagnostic(errors, archive.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        std::optional<Diagnostic> firstFailure;
+        for (auto& member : archive.value().members) {
+            if (member.kind != ArchiveMemberKind::Object) continue;
+            const auto parsed = parse_object(member.contents, member.name);
+            if (!parsed.has_value()) {
+                print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
+                return 3;
+            }
+            const auto protectedResult = vm::protect_function(parsed.value(), protectionOptions);
+            if (!protectedResult.has_value()) {
+                if (!firstFailure.has_value() || protectedResult.error().code != "vm.protection_function_not_found") {
+                    firstFailure = protectedResult.error();
+                }
+                if (protectedResult.error().code != "vm.protection_function_not_found") break;
+                continue;
+            }
+            const auto memberBytes = write_object(protectedResult.value().image);
+            if (!memberBytes.has_value()) {
+                print_diagnostic(errors, memberBytes.error(), DiagnosticFormat::Text);
+                return 3;
+            }
+            member.contents = memberBytes.value();
+            report = protectedResult.value().report;
+            protectedMember = member.name;
+            break;
+        }
+        if (!report.has_value()) {
+            print_diagnostic(errors, firstFailure.value_or(Diagnostic{
+                DiagnosticSeverity::Error, "vm.protection_function_not_found",
+                "selected function was not found in any archive object"}), DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto archiveBytes = write_archive(archive.value());
+        if (!archiveBytes.has_value()) {
+            print_diagnostic(errors, archiveBytes.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto verified = verify_archive(archiveBytes.value(), options->output.filename().string());
+        if (!verified.has_value()) {
+            print_diagnostic(errors, verified.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        writtenBytes = archiveBytes.value();
+    } else {
+        const auto parsed = parse_object(input.value(), options->input.filename().string());
+        if (!parsed.has_value()) {
+            print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto protectedResult = vm::protect_function(parsed.value(), protectionOptions);
+        if (!protectedResult.has_value()) {
+            print_diagnostic(errors, protectedResult.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto written = write_object(protectedResult.value().image);
+        if (!written.has_value()) {
+            print_diagnostic(errors, written.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto verified = verify_object(written.value(), options->output.filename().string());
+        if (!verified.has_value()) {
+            print_diagnostic(errors, verified.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        report = protectedResult.value().report;
+        writtenBytes = written.value();
     }
-    const auto written = write_object(protectedResult.value().image);
-    if (!written.has_value()) {
-        print_diagnostic(errors, written.error(), DiagnosticFormat::Text);
-        return 3;
-    }
-    const auto verified = verify_object(written.value(), options->output.filename().string());
-    if (!verified.has_value()) {
-        print_diagnostic(errors, verified.error(), DiagnosticFormat::Text);
-        return 3;
-    }
-    if (const auto writeError = write_output_transactionally(options->output, written.value())) {
+    if (const auto writeError = write_output_transactionally(options->output, writtenBytes)) {
         print_diagnostic(errors, *writeError, DiagnosticFormat::Text);
         return 3;
     }
-    const auto& report = protectedResult.value().report;
-    output << "function: " << report.functionName << '\n'
+    output << "function: " << report->functionName << '\n'
            << "abi: " << options->abiName << '\n'
-           << "arguments: " << report.argumentCount << " x u32\n"
-           << "seed: " << report.seed << '\n'
-           << "section: " << report.sectionName << '\n'
-           << "original-address: " << report.originalAddress << '\n'
-           << "protected-address: " << report.protectedAddress << '\n'
-           << "wrapper-offset: " << report.wrapperOffset << '\n'
-           << "wrapper-size: " << report.wrapperSize << '\n'
-           << "bytecode-offset: " << report.bytecodeOffset << '\n'
-           << "bytecode-size: " << report.bytecodeSize << '\n'
-           << "runtime-symbol: " << report.runtimeSymbol << '\n'
-           << "runtime-relocation-offset: " << report.runtimeRelocationOffset << '\n'
+           << "arguments: " << report->argumentCount << " x u32\n"
+           << "seed: " << report->seed << '\n'
+           << "section: " << report->sectionName << '\n'
+           << "original-address: " << report->originalAddress << '\n'
+           << "protected-address: " << report->protectedAddress << '\n'
+           << "wrapper-offset: " << report->wrapperOffset << '\n'
+           << "wrapper-size: " << report->wrapperSize << '\n'
+           << "bytecode-offset: " << report->bytecodeOffset << '\n'
+           << "bytecode-size: " << report->bytecodeSize << '\n'
+           << "runtime-symbol: " << report->runtimeSymbol << '\n'
+           << "runtime-relocation-offset: " << report->runtimeRelocationOffset << '\n'
+           << (protectedMember.empty() ? "" : "protected-member: " + protectedMember + '\n')
            << "protected-object: " << options->output.string() << '\n'
            << "verification: reparsed\n";
     return 0;

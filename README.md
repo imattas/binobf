@@ -20,7 +20,7 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 | Exact linked/object emission | supported | supported | supported | supported | supported |
 | Baseline metadata transformations | supported strip-debug | supported | supported including linked | planned | supported per object member |
 | x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | restricted x86-64 object backend | supported per object member |
-| Selected x86-64 function VM lowering | n/a | restricted | restricted | restricted | restricted per object member |
+| Selected x86-64 function VM lowering | n/a | restricted | restricted | restricted | restricted per qualified object member |
 | Embedded selected-function VM protection | n/a | restricted | restricted | restricted | restricted per x86-64 object member |
 
 | Architecture | Detection | Decoder | Object analysis | Code generation |

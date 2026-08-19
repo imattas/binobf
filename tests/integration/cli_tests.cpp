@@ -390,7 +390,7 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
         "COFF detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
         "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported including linked machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
         "Mach-O detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=planned machine-code-transformation=restricted x86-64 object backend vm-lowering=restricted vm-protection=restricted\n"
-        "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=unsupported vm-protection=restricted per x86-64 object member\n");
+        "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=restricted per qualified object member vm-protection=restricted per x86-64 object member\n");
     REQUIRE(errors.str().empty());
 
     output.str({});

@@ -94,7 +94,7 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         format_record(VmLowering, COFF, Restricted),
         format_record(VmLowering, ELF, Restricted),
         format_record(VmLowering, MachO, Restricted),
-        format_record(VmLowering, Archive, Unsupported),
+        format_record(VmLowering, Archive, Restricted, "per qualified object member", {"archive_vm_lowering"}),
 
         format_record(VmProtection, PE, NotApplicable),
         format_record(VmProtection, COFF, Restricted),

@@ -28,7 +28,7 @@ constexpr std::string_view expectedMarkdown =
     "| Architecture | Detection | Decoder | Object analysis | Code generation |\n"
     "|---|---:|---:|---:|---:|\n"
     "| x86 | supported | supported | supported | supported |\n"
-    "| x86-64 | supported | supported | supported | restricted object backend |\n"
+    "| x86-64 | supported | supported | supported | supported |\n"
     "| ARM64 | supported | supported | supported | supported |\n";
 
 constexpr std::string_view expectedPassText =
@@ -60,7 +60,7 @@ TEST_CASE(capability_renderers_report_registry_and_pass_truth) {
     REQUIRE_EQ(binobf::render_pass_capabilities_text(), expectedPassText);
     REQUIRE_CONTAINS(
         binobf::render_feature_matrix_markdown(registry),
-        "| x86-64 | supported | supported | supported | restricted object backend |");
+        "| x86-64 | supported | supported | supported | supported |");
 }
 
 TEST_CASE(markdown_renderer_is_complete_and_deterministic) {

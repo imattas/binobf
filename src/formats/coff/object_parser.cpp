@@ -1,6 +1,7 @@
 #include "../object_parser_internal.hpp"
 #include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
+#include "../../architecture/x86_64_fixups.hpp"
 
 #include <algorithm>
 #include <array>
@@ -842,10 +843,13 @@ auto parse_coff_object(std::span<const std::byte> bytes, const DetectionResult& 
             }
             std::int64_t addend = 0;
             if (detection.architecture == Architecture::X86
+                || detection.architecture == Architecture::X86_64
                 || detection.architecture == Architecture::ARM64) {
                 const auto semantics = detection.architecture == Architecture::ARM64
                     ? binobf::detail::arm64_fixup_semantics(BinaryFormat::COFF, *rawType)
-                    : binobf::detail::x86_fixup_semantics(BinaryFormat::COFF, *rawType);
+                    : detection.architecture == Architecture::X86_64
+                        ? binobf::detail::x86_64_fixup_semantics(BinaryFormat::COFF, *rawType)
+                        : binobf::detail::x86_fixup_semantics(BinaryFormat::COFF, *rawType);
                 if (semantics.has_value()) {
                     const auto byteCount = static_cast<std::size_t>(
                         semantics.value().storageBytes != 0U

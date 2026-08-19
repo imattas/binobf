@@ -381,6 +381,7 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
         "PE detection=supported parsing=n/a emission=supported linked-parsing=supported verification=supported baseline-transformation=supported strip-debug machine-code-transformation=planned vm-lowering=n/a vm-protection=n/a\n"
         "COFF detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
         "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported including linked machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
+        "Mach-O detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=planned machine-code-transformation=restricted x86-64 object backend vm-lowering=restricted vm-protection=restricted\n"
         "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=unsupported vm-protection=unsupported\n");
     REQUIRE(errors.str().empty());
 
@@ -391,7 +392,7 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
     REQUIRE_EQ(
         output.str(),
         "x86 detection=supported decoder=supported object-analysis=supported codegen=supported\n"
-        "x86-64 detection=supported decoder=supported object-analysis=supported codegen=restricted object backend\n"
+        "x86-64 detection=supported decoder=supported object-analysis=supported codegen=supported\n"
         "arm64 detection=supported decoder=supported object-analysis=supported codegen=supported\n");
     REQUIRE(errors.str().empty());
 }

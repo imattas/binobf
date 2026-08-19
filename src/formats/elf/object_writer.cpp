@@ -1,6 +1,7 @@
 #include "../object_writer_internal.hpp"
 #include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
+#include "../../architecture/x86_64_fixups.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -445,16 +446,22 @@ auto write_elf_object(const BinaryImage& image)
                 const auto semantics = image.architecture == Architecture::ARM64
                     ? binobf::detail::arm64_fixup_semantics(
                           BinaryFormat::ELF, relocation->rawType)
-                    : binobf::detail::x86_fixup_semantics(
-                          BinaryFormat::ELF, relocation->rawType);
+                    : image.architecture == Architecture::X86_64
+                        ? binobf::detail::x86_64_fixup_semantics(
+                              BinaryFormat::ELF, relocation->rawType)
+                        : binobf::detail::x86_fixup_semantics(
+                              BinaryFormat::ELF, relocation->rawType);
                 if (!semantics.has_value()) {
                     continue;
                 }
                 const auto encoded = image.architecture == Architecture::ARM64
                     ? binobf::detail::encode_arm64_fixup(
                           semantics.value(), relocation->addend)
-                    : binobf::detail::encode_x86_fixup(
-                          semantics.value(), relocation->addend);
+                    : image.architecture == Architecture::X86_64
+                        ? binobf::detail::encode_x86_64_fixup(
+                              semantics.value(), relocation->addend)
+                        : binobf::detail::encode_x86_fixup(
+                              semantics.value(), relocation->addend);
                 if (!encoded.has_value()) {
                     return failure(encoded.error().code, encoded.error().message);
                 }

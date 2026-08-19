@@ -1,6 +1,7 @@
 #include "../object_parser_internal.hpp"
 #include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
+#include "../../architecture/x86_64_fixups.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -204,7 +205,9 @@ auto implicit_addend(
     Architecture architecture) -> std::optional<std::int64_t> {
     const auto semantics = architecture == Architecture::ARM64
         ? binobf::detail::arm64_fixup_semantics(BinaryFormat::ELF, rawType)
-        : binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
+        : architecture == Architecture::X86_64
+            ? binobf::detail::x86_64_fixup_semantics(BinaryFormat::ELF, rawType)
+            : binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
     if (!semantics.has_value()) return std::nullopt;
     const auto hostOffset = to_size(offset);
     if (!hostOffset) return std::nullopt;
@@ -872,10 +875,13 @@ auto parse_elf_object(std::span<const std::byte> bytes, const DetectionResult& d
                 : (information & UINT64_C(0xff));
             if (header.type == shtRel
                 && (detection.architecture == Architecture::X86
+                    || detection.architecture == Architecture::X86_64
                     || detection.architecture == Architecture::ARM64)) {
                 const auto semantics = detection.architecture == Architecture::ARM64
                     ? binobf::detail::arm64_fixup_semantics(BinaryFormat::ELF, rawType)
-                    : binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
+                    : detection.architecture == Architecture::X86_64
+                        ? binobf::detail::x86_64_fixup_semantics(BinaryFormat::ELF, rawType)
+                        : binobf::detail::x86_fixup_semantics(BinaryFormat::ELF, rawType);
                 if (semantics.has_value()) {
                     const auto targetContents = section_bytes(reader, headers[header.info]);
                     const auto implicit = targetContents

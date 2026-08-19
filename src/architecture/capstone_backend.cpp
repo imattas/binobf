@@ -5,6 +5,7 @@
 #include "arm64_templates.hpp"
 #include "arm64_unwind.hpp"
 #include "x86_fixups.hpp"
+#include "x86_64_fixups.hpp"
 #include "x86_abi.hpp"
 #include "x86_templates.hpp"
 #include "x86_unwind.hpp"
@@ -30,6 +31,7 @@ constexpr std::array<std::string_view, 1> kDecodeEvidence{"instruction_decoder"}
 constexpr std::array<std::string_view, 1> kAnalysisEvidence{"object_analyzer"};
 constexpr std::array<std::string_view, 1> kX86AnalysisEvidence{"x86_object_backend"};
 constexpr std::array<std::string_view, 1> kX86CodegenEvidence{"x86_codegen"};
+constexpr std::array<std::string_view, 1> kX8664CodegenEvidence{"x86_64_codegen"};
 constexpr std::array<std::string_view, 1> kX86AbiEvidence{"x86_abi_adapter"};
 constexpr std::array<std::string_view, 1> kX86UnwindEvidence{"x86_unwind"};
 constexpr std::array<std::string_view, 1> kArm64AnalysisEvidence{"arm64_object_backend"};
@@ -208,7 +210,7 @@ auto analysis_support(Architecture architecture) -> SupportLevel {
 
 auto codegen_support(Architecture architecture) -> SupportLevel {
     if (architecture == Architecture::X86) return SupportLevel::Supported;
-    return architecture == Architecture::X86_64 ? SupportLevel::Restricted
+    return architecture == Architecture::X86_64 ? SupportLevel::Supported
         : architecture == Architecture::ARM64 ? SupportLevel::Supported
                                               : SupportLevel::Planned;
 }
@@ -236,16 +238,20 @@ public:
                   BackendService::EmitCode, codegen_support(architecture),
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86CodegenEvidence}
+                      : architecture == Architecture::X86_64
+                          ? std::span<const std::string_view>{kX8664CodegenEvidence}
                       : architecture == Architecture::ARM64
                           ? std::span<const std::string_view>{kArm64CodegenEvidence}
                           : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::EncodeFixups,
-                  architecture == Architecture::X86
-                      || architecture == Architecture::ARM64 ? SupportLevel::Supported
-                                                              : SupportLevel::Unsupported,
+                  architecture == Architecture::X86 || architecture == Architecture::X86_64
+                      || architecture == Architecture::ARM64
+                      ? SupportLevel::Supported : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86CodegenEvidence}
+                      : architecture == Architecture::X86_64
+                          ? std::span<const std::string_view>{kX8664CodegenEvidence}
                       : architecture == Architecture::ARM64
                           ? std::span<const std::string_view>{kArm64CodegenEvidence}
                           : std::span<const std::string_view>{}},
@@ -322,9 +328,13 @@ public:
         bool decodedReadsEquivalentSource = false;
         bool decodedHasUnexpectedEquivalentEffect = false;
         const auto flagsRegister = architecture_ == Architecture::ARM64
-            ? std::string_view{"nzcv"} : std::string_view{"eflags"};
+            ? std::string_view{"nzcv"}
+            : architecture_ == Architecture::X86_64 ? std::string_view{"rflags"}
+                                                     : std::string_view{"eflags"};
         const auto stackRegister = architecture_ == Architecture::ARM64
-            ? std::string_view{"sp"} : std::string_view{"esp"};
+            ? std::string_view{"sp"}
+            : architecture_ == Architecture::X86_64 ? std::string_view{"rsp"}
+                                                     : std::string_view{"esp"};
         std::string_view expectedDestination = request.condition;
         std::string_view expectedSource;
         if (architecture_ == Architecture::ARM64
@@ -426,6 +436,9 @@ public:
         if (architecture_ == Architecture::X86) {
             return detail::x86_fixup_semantics(format, rawType);
         }
+        if (architecture_ == Architecture::X86_64) {
+            return detail::x86_64_fixup_semantics(format, rawType);
+        }
         if (architecture_ == Architecture::ARM64) {
             return detail::arm64_fixup_semantics(format, rawType);
         }
@@ -438,6 +451,9 @@ public:
         -> Result<ObjectFixupEncoding, Diagnostic> override {
         if (architecture_ == Architecture::X86) {
             return detail::encode_x86_fixup(semantics, value);
+        }
+        if (architecture_ == Architecture::X86_64) {
+            return detail::encode_x86_64_fixup(semantics, value);
         }
         if (architecture_ == Architecture::ARM64) {
             return detail::encode_arm64_fixup(semantics, value);

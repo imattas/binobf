@@ -501,7 +501,8 @@ auto protect_function(const BinaryImage& image, const VmProtectionOptions& optio
                    .kind = RelocationKind::PcRelative,
                    .rawType = output.format == BinaryFormat::MachO ? 2U : 4U,
                    .targetSymbol = runtimeSymbol->id,
-                   .addend = output.format == BinaryFormat::ELF ? INT64_C(-4) : INT64_C(0),
+                   .addend = output.format == BinaryFormat::MachO
+                       ? INT64_C(0) : INT64_C(-4),
                    .lineage = {}});
     if (output.format == BinaryFormat::COFF) {
         if (output.relocations.size() > std::numeric_limits<std::uint16_t>::max()) {

@@ -1,6 +1,7 @@
 #include "../object_writer_internal.hpp"
 #include "../../architecture/arm64_fixups.hpp"
 #include "../../architecture/x86_fixups.hpp"
+#include "../../architecture/x86_64_fixups.hpp"
 
 #include <algorithm>
 #include <array>
@@ -371,21 +372,28 @@ auto write_coff_object(const BinaryImage& image)
                 output.data() + encoded.rawOffset);
         }
         if (image.architecture == Architecture::X86
+            || image.architecture == Architecture::X86_64
             || image.architecture == Architecture::ARM64) {
             for (const auto* relocation : encoded.relocations) {
                 const auto semantics = image.architecture == Architecture::ARM64
                     ? binobf::detail::arm64_fixup_semantics(
                           BinaryFormat::COFF, relocation->rawType)
-                    : binobf::detail::x86_fixup_semantics(
-                          BinaryFormat::COFF, relocation->rawType);
+                    : image.architecture == Architecture::X86_64
+                        ? binobf::detail::x86_64_fixup_semantics(
+                              BinaryFormat::COFF, relocation->rawType)
+                        : binobf::detail::x86_fixup_semantics(
+                              BinaryFormat::COFF, relocation->rawType);
                 if (!semantics.has_value()) {
                     continue;
                 }
                 const auto fixup = image.architecture == Architecture::ARM64
                     ? binobf::detail::encode_arm64_fixup(
                           semantics.value(), relocation->addend)
-                    : binobf::detail::encode_x86_fixup(
-                          semantics.value(), relocation->addend);
+                    : image.architecture == Architecture::X86_64
+                        ? binobf::detail::encode_x86_64_fixup(
+                              semantics.value(), relocation->addend)
+                        : binobf::detail::encode_x86_fixup(
+                              semantics.value(), relocation->addend);
                 if (!fixup.has_value()) {
                     return failure(fixup.error().code, fixup.error().message);
                 }

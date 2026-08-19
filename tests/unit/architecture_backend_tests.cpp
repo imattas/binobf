@@ -58,7 +58,7 @@ TEST_CASE(backend_service_levels_mirror_the_current_architecture_matrix) {
     REQUIRE_EQ(x86.value()->find_service(binobf::BackendService::EmitCode)->support,
                binobf::SupportLevel::Supported);
     REQUIRE_EQ(x64.value()->find_service(binobf::BackendService::EmitCode)->support,
-               binobf::SupportLevel::Restricted);
+               binobf::SupportLevel::Supported);
     REQUIRE_EQ(arm64.value()->find_service(binobf::BackendService::EmitCode)->support,
                binobf::SupportLevel::Supported);
     for (const auto service : {

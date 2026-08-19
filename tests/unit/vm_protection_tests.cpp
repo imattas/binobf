@@ -17,6 +17,7 @@ auto make_function_object(binobf::BinaryFormat format) -> binobf::BinaryImage {
     image.type = binobf::BinaryType::RelocatableObject;
     image.architecture = binobf::Architecture::X86_64;
     const bool elf = format == binobf::BinaryFormat::ELF;
+    const bool systemV = format != binobf::BinaryFormat::COFF;
     image.sections.push_back(binobf::Section{
         .id = binobf::EntityId{1},
         .formatIndex = 1,
@@ -29,7 +30,7 @@ auto make_function_object(binobf::BinaryFormat format) -> binobf::BinaryImage {
         .alignment = 16,
         .readable = true,
         .executable = true,
-        .contents = elf ? std::vector<std::byte>{std::byte{0x89}, std::byte{0xf8}, std::byte{0x01},
+        .contents = systemV ? std::vector<std::byte>{std::byte{0x89}, std::byte{0xf8}, std::byte{0x01},
                                                  std::byte{0xf0}, std::byte{0xc3}}
                         : std::vector<std::byte>{std::byte{0x89}, std::byte{0xc8}, std::byte{0x01},
                                                  std::byte{0xd0}, std::byte{0xc3}},
@@ -156,6 +157,23 @@ TEST_CASE(vm_protection_synthesizes_elf_runtime_symbol_and_rela_table) {
     const auto written = binobf::write_object(result.value().image);
     REQUIRE(written.has_value());
     REQUIRE(binobf::parse_object(written.value(), "protected.o").has_value());
+}
+
+TEST_CASE(vm_protection_embeds_a_systemv_adapter_and_macho_branch_relocation) {
+    const auto result = binobf::vm::protect_function(
+        make_function_object(binobf::BinaryFormat::MachO),
+        binobf::vm::VmProtectionOptions{.function = "selected_add",
+                                        .abi = binobf::ir::NativeAbi::SystemVAMD64,
+                                        .argumentCount = 2,
+                                        .seed = 16016});
+    REQUIRE(result.has_value());
+    REQUIRE_EQ(result.value().image.relocations.size(), std::size_t{1});
+    REQUIRE_EQ(result.value().image.relocations.front().rawType, UINT64_C(2));
+    REQUIRE_EQ(result.value().image.relocations.front().addend, INT64_C(0));
+    require_embedded_magic(result.value(), result.value().image.sections.front());
+    const auto written = binobf::write_object(result.value().image);
+    REQUIRE(written.has_value());
+    REQUIRE(binobf::parse_object(written.value(), "protected.macho.o").has_value());
 }
 
 TEST_CASE(vm_protection_is_deterministic_and_rejects_mismatched_or_unsupported_inputs) {

@@ -117,7 +117,7 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         architecture_record(
             CodeGeneration, X86, Supported, {},
             {"x86_abi_adapter", "x86_codegen", "x86_unwind"}),
-        architecture_record(CodeGeneration, X86_64, Restricted, "object backend"),
+        architecture_record(CodeGeneration, X86_64, Supported, {}, {"x86_64_codegen"}),
         architecture_record(
             CodeGeneration, ARM64, Supported, {},
             {"arm64_codegen", "arm64_abi_adapter", "arm64_unwind"}),

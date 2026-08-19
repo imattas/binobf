@@ -130,6 +130,39 @@ TEST_CASE(x86_64_supports_zero_extending_constant_materialization) {
     REQUIRE_EQ(emitted.value().emission.clobberedRegisters.front(), "eax");
 }
 
+TEST_CASE(x86_64_codegen_covers_all_fixed_width_template_families) {
+    auto fixed = backend_x64();
+    const auto formats = {binobf::BinaryFormat::COFF, binobf::BinaryFormat::ELF,
+                          binobf::BinaryFormat::MachO};
+    for (const auto format : formats) {
+        binobf::MachineTransformRequest dead{};
+        dead.architecture = binobf::Architecture::X86_64;
+        dead.format = format;
+        dead.kind = binobf::MachineTransformKind::DeadCodeFill;
+        dead.exactSize = 7;
+        REQUIRE(fixed->emit_transform(dead).has_value());
+
+        binobf::MachineTransformRequest branch{};
+        branch.architecture = binobf::Architecture::X86_64;
+        branch.format = format;
+        branch.kind = binobf::MachineTransformKind::ConditionalInversion;
+        branch.condition = "equal";
+        branch.source = source_instruction(0x1000U);
+        branch.targetAddress = 0x1100U;
+        branch.exactSize = 6;
+        const auto branchResult = fixed->emit_transform(branch);
+        if (!branchResult.has_value()) {
+            throw std::runtime_error(branchResult.error().code + ": " + branchResult.error().message);
+        }
+
+        binobf::MachineTransformRequest jump = branch;
+        jump.kind = binobf::MachineTransformKind::DirectJump;
+        jump.condition.clear();
+        jump.exactSize = 5;
+        REQUIRE(fixed->emit_transform(jump).has_value());
+    }
+}
+
 TEST_CASE(x86_constant_templates_materialize_eax_and_ecx) {
     auto fixed = backend();
     for (const auto name : {std::string_view{"eax"}, std::string_view{"ecx"}}) {

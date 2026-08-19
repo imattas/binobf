@@ -140,7 +140,7 @@ TEST_CASE(x86_fixup_tables_expose_stable_semantics_and_little_endian_encoding) {
     }
 }
 
-TEST_CASE(x86_fixup_services_reject_unknown_invalid_and_mismatched_requests) {
+TEST_CASE(x86_fixup_services_reject_unknown_invalid_and_support_x64_requests) {
     const auto backend = binobf::make_architecture_backend(binobf::Architecture::X86);
     REQUIRE(backend.has_value());
     const auto unknown = backend.value()->fixup_semantics(binobf::BinaryFormat::COFF, 0xffffU);
@@ -158,9 +158,12 @@ TEST_CASE(x86_fixup_services_reject_unknown_invalid_and_mismatched_requests) {
 
     const auto x64 = binobf::make_architecture_backend(binobf::Architecture::X86_64);
     REQUIRE(x64.has_value());
-    const auto mismatch = x64.value()->fixup_semantics(binobf::BinaryFormat::ELF, 1U);
-    REQUIRE(!mismatch.has_value());
-    REQUIRE_EQ(mismatch.error().code, "architecture.unsupported_fixup");
+    const auto x64Absolute = x64.value()->fixup_semantics(binobf::BinaryFormat::ELF, 1U);
+    REQUIRE(x64Absolute.has_value());
+    REQUIRE_EQ(x64Absolute.value().bitWidth, std::uint8_t{64});
+    const auto x64Branch = x64.value()->fixup_semantics(binobf::BinaryFormat::MachO, 2U);
+    REQUIRE(x64Branch.has_value());
+    REQUIRE(x64Branch.value().pcRelative);
 }
 
 TEST_CASE(machine_fixup_comparison_includes_new_provider_neutral_kinds) {

@@ -26,7 +26,7 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 | Architecture | Detection | Decoder | Object analysis | Code generation |
 |---|---:|---:|---:|---:|
 | x86 | supported | supported | supported | supported |
-| x86-64 | supported | supported | supported | restricted object backend |
+| x86-64 | supported | supported | supported | supported |
 | ARM64 | supported | supported | supported | supported |
 <!-- binobf:feature-matrix:end -->
 

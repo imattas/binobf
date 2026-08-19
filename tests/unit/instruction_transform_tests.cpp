@@ -273,7 +273,7 @@ TEST_CASE(dead_code_insertion_declines_relocation_overlapped_nop_regions) {
     auto image = make_image(bytes({0x31, 0xc0, 0x0f, 0x1f, 0x00, 0xc3}));
     add_function(image, 2, "relocated_dead_code", 0, 6);
     const auto external = add_external_symbol(image, "external_target");
-    add_relocation(image, 0, 3, external);
+    add_relocation(image, 0, 2, external);
     const auto original = image.sections.front().contents;
 
     const auto outcome = run_pass(image, binobf::make_dead_code_insertion_pass(), 31);

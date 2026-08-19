@@ -20,8 +20,8 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 | Exact linked/object emission | supported | supported | supported | supported | supported |
 | Baseline metadata transformations | supported strip-debug | supported | supported including linked | planned | supported per object member |
 | x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | restricted x86-64 object backend | supported per object member |
-| Selected x86-64 function VM lowering | n/a | restricted | restricted | restricted | unsupported |
-| Embedded selected-function VM protection | n/a | restricted | restricted | restricted | unsupported |
+| Selected x86-64 function VM lowering | n/a | restricted | restricted | restricted | restricted per object member |
+| Embedded selected-function VM protection | n/a | restricted | restricted | restricted | restricted per x86-64 object member |
 
 | Architecture | Detection | Decoder | Object analysis | Code generation |
 |---|---:|---:|---:|---:|
@@ -118,7 +118,7 @@ The i386 backend targets the SSE2 baseline and supports Windows cdecl/stdcall/fa
 
 For linked PE executables/DLLs/drivers and ELF executables/PIEs/shared objects, `analyze` normalizes sections, segments, imports, exports, relocations, dynamic directories, resources, debug metadata, and supported unwind/signature state. `transform --passes=none` is byte-identical. Linked `strip-debug` changes no loaded address: PE debug records and their validated raw payloads are cleared and the PE checksum is rebuilt; non-allocated ELF debug sections and dependent debug relocations become empty section records without renumbering. A signed PE is rejected unless `--allow-signature-invalidation` is explicit, after which the certificate table is removed and reported. Linked post-link code transformation remains disabled, and `.sys` handling remains limited to exact output or this metadata-only operation.
 
-For `.a` and `.lib`, `analyze` reports members and rebuilt index relationships, while `verify` checks container layout, recognized object members, and object-symbol bindings. `transform` applies the selected object pipeline independently to each eligible ELF/COFF member with a deterministic member-derived seed, then rebuilds long-name and linker indexes transactionally. Opaque members are preserved. PE import-library records and their structural COFF members are never machine-code transformed; an unchanged import library is emitted byte-for-byte.
+For `.a` and `.lib`, `analyze` reports members and rebuilt index relationships, while `verify` checks container layout, recognized object members, and object-symbol bindings. `transform` applies the selected object pipeline independently to each eligible ELF/COFF member with a deterministic member-derived seed, then rebuilds long-name and linker indexes transactionally. `vm protect` can protect a selected function in an eligible x86-64 object member and rebuilds the archive index. Opaque members are preserved. PE import-library records and their structural COFF members are never machine-code transformed; an unchanged import library is emitted byte-for-byte.
 
 The public native IR and VM APIs provide explicit widths, virtual variables/registers and frame-local slots, bounded little-endian memory, flags and branches, bounded internal-call frames, a caller-supplied native-call bridge, resource-limited interpretation, seeded opcode/register encoding diversity, strict `BVM1` v1.1 assembly/decoding, and source-instruction lineage. `vm lower` and `vm protect` require an explicit recovered function name, ABI, and zero-to-four `u32` argument count because object files do not reliably contain source signatures. They accept only complete x86-64 functions composed of the documented register/immediate subset; memory operands, native calls, relocations, unsupported flag dependencies, and other native semantics fail closed.
 

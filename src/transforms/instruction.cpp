@@ -41,7 +41,7 @@ auto machine_requirements(bool requiresCfg, bool requiresFullRelocations) -> Pas
         .changesCodeSize = false,
         .supportedPostLink = false,
         .risk = PassRisk::Medium,
-        .formats = {BinaryFormat::COFF, BinaryFormat::ELF},
+        .formats = {BinaryFormat::COFF, BinaryFormat::ELF, BinaryFormat::MachO},
         .architectures = {Architecture::X86, Architecture::X86_64, Architecture::ARM64},
     };
 }
@@ -50,7 +50,8 @@ auto supports_machine_pass(const BinaryImage& image) -> bool {
     return image.type == BinaryType::RelocatableObject &&
            (image.architecture == Architecture::X86 || image.architecture == Architecture::X86_64 ||
             image.architecture == Architecture::ARM64) &&
-           (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF) &&
+           (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF
+            || image.format == BinaryFormat::MachO) &&
            std::none_of(image.unwindInfo.begin(), image.unwindInfo.end(), [](const auto& unwind) {
                return unwind.format == UnwindFormat::Unknown;
            });

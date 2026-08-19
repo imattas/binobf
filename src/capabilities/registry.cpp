@@ -81,13 +81,13 @@ auto builtin_records() -> std::vector<CapabilityRecord> {
         format_record(BaselineMetadataTransformation, PE, Supported, "strip-debug", {"baseline_transforms"}),
         format_record(BaselineMetadataTransformation, COFF, Supported, {}, {"baseline_transforms"}),
         format_record(BaselineMetadataTransformation, ELF, Supported, "including linked", {"baseline_transforms"}),
-        format_record(BaselineMetadataTransformation, MachO, Planned),
+        format_record(BaselineMetadataTransformation, MachO, Supported, {}, {"baseline_transforms"}),
         format_record(BaselineMetadataTransformation, Archive, Supported, "per object member", {"baseline_transforms"}),
 
         format_record(MachineCodeTransformation, PE, Planned),
         format_record(MachineCodeTransformation, COFF, Supported, {}, {"instruction_transforms"}),
         format_record(MachineCodeTransformation, ELF, Supported, {}, {"instruction_transforms"}),
-        format_record(MachineCodeTransformation, MachO, Restricted, "x86-64 object backend"),
+        format_record(MachineCodeTransformation, MachO, Supported, {}, {"macho_transforms"}),
         format_record(MachineCodeTransformation, Archive, Supported, "per object member", {"instruction_transforms"}),
 
         format_record(VmLowering, PE, Restricted, "exported x86-64 functions", {"linked_vm_lowering"}),

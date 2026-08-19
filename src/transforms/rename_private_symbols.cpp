@@ -58,14 +58,15 @@ public:
             .requiresLiftedIr = false,
             .changesCodeSize = false,
             .supportedPostLink = false,
-            .formats = {BinaryFormat::COFF, BinaryFormat::ELF},
+            .formats = {BinaryFormat::COFF, BinaryFormat::ELF, BinaryFormat::MachO},
             .architectures = {Architecture::X86, Architecture::X86_64, Architecture::ARM64},
         };
     }
 
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
         return image.type == BinaryType::RelocatableObject
-            && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF)
+            && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF
+                || image.format == BinaryFormat::MachO)
             && image.architecture != Architecture::Unknown;
     }
 

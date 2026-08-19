@@ -2,10 +2,12 @@
 
 #include <binobf/formats/object_parser.hpp>
 #include <binobf/formats/object_writer.hpp>
+#include <binobf/transforms/registry.hpp>
 #include <binobf/verify/structural_verifier.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
 
 TEST_CASE(macho_object_writer_and_parser_round_trip_x86_64_code_and_symbol) {
     binobf::BinaryImage image{};
@@ -132,6 +134,28 @@ TEST_CASE(macho_object_writer_and_parser_round_trip_arm64_code) {
     REQUIRE_EQ(parsed.value().architecture, binobf::Architecture::ARM64);
     REQUIRE_EQ(parsed.value().sections.front().contents, image.sections.front().contents);
     REQUIRE(binobf::verify_object(written.value(), "fixture.arm64.macho.o").has_value());
+}
+
+TEST_CASE(macho_relocatable_transforms_are_registered_for_all_object_passes) {
+    const auto has_macho = [](const auto& formats) {
+        return std::ranges::find(formats, binobf::BinaryFormat::MachO) != formats.end();
+    };
+    binobf::BinaryImage image{};
+    image.format = binobf::BinaryFormat::MachO;
+    image.type = binobf::BinaryType::RelocatableObject;
+    image.architecture = binobf::Architecture::X86_64;
+    image.sections.push_back(binobf::Section{
+        .id = binobf::EntityId{1}, .formatIndex = 1, .name = "__text",
+        .kind = binobf::SectionKind::Code, .address = binobf::BinaryAddress{0},
+        .logicalSize = 1, .alignment = 1, .readable = true, .executable = true,
+        .contents = {std::byte{0xc3}}, .lineage = {}});
+    binobf::TransformContext context;
+    for (const auto& registration : binobf::registered_passes()) {
+        const auto pass = registration.factory();
+        REQUIRE(pass != nullptr);
+        REQUIRE(has_macho(pass->requirements().formats));
+        REQUIRE(pass->supports(context, image));
+    }
 }
 
 int main() {

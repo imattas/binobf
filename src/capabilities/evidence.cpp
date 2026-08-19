@@ -23,6 +23,7 @@ constexpr std::array kBuiltinEvidence{
     AcceptanceEvidence{"linked_vm_lowering", "linked_image_integration", true},
     AcceptanceEvidence{"macho_object_parser", "macho_object", true},
     AcceptanceEvidence{"macho_object_writer", "macho_object", true},
+    AcceptanceEvidence{"macho_transforms", "macho_object", true},
     AcceptanceEvidence{"object_analyzer", "object_analyzer", true},
     AcceptanceEvidence{"object_writer", "object_writer_integration", true},
     AcceptanceEvidence{"structural_verifier", "structural_verifier", true},

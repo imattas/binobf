@@ -20,8 +20,8 @@ constexpr std::string_view expectedMarkdown =
     "| Linked-image detailed parsing | supported | n/a | supported | restricted thin 64-bit images | n/a |\n"
     "| Structural verification | supported | supported | supported | supported | supported |\n"
     "| Exact linked/object emission | supported | supported | supported | supported | supported |\n"
-    "| Baseline metadata transformations | supported strip-debug | supported | supported including linked | planned | supported per object member |\n"
-    "| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | restricted x86-64 object backend | supported per object member |\n"
+    "| Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported | supported per object member |\n"
+    "| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | supported | supported per object member |\n"
     "| Selected x86-64 function VM lowering | restricted exported x86-64 functions | restricted | restricted | restricted | restricted per qualified object member |\n"
     "| Embedded selected-function VM protection | n/a | restricted | restricted | restricted | restricted per x86-64 object member |\n"
     "\n"
@@ -32,17 +32,17 @@ constexpr std::string_view expectedMarkdown =
     "| ARM64 | supported | supported | supported | supported |\n";
 
 constexpr std::string_view expectedPassText =
-    "block-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "block-splitting risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "branch-inversion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "cleanup-metadata risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "constant-rewriting risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "dead-code-insertion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "function-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "instruction-substitution risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "rename-private-symbols risk=low cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "strip-debug risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n"
-    "strip-local-symbols risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF architectures=arm64,x86,x86-64\n";
+    "block-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "block-splitting risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "branch-inversion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "cleanup-metadata risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "constant-rewriting risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "dead-code-insertion risk=medium cfg=yes relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "function-reordering risk=medium cfg=yes relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "instruction-substitution risk=medium cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "rename-private-symbols risk=low cfg=no relocations=not-required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "strip-debug risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n"
+    "strip-local-symbols risk=low cfg=no relocations=required lifted-ir=no size-change=no post-link=unsupported formats=COFF,ELF,Mach-O architectures=arm64,x86,x86-64\n";
 
 } // namespace
 
@@ -62,7 +62,6 @@ TEST_CASE(capability_renderers_report_registry_and_pass_truth) {
         binobf::render_feature_matrix_markdown(registry),
         "| x86-64 | supported | supported | supported | supported |");
 }
-
 TEST_CASE(markdown_renderer_is_complete_and_deterministic) {
     const auto& registry = binobf::builtin_capability_registry();
     REQUIRE_EQ(binobf::render_feature_matrix_markdown(registry), expectedMarkdown);

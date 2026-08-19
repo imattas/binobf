@@ -239,12 +239,13 @@ public:
     auto dependencies() const -> std::vector<std::string> override { return {}; }
     auto requirements() const -> PassRequirements override {
         return PassRequirements{.requiresFullRelocations = true,
-            .formats = {BinaryFormat::COFF, BinaryFormat::ELF},
+            .formats = {BinaryFormat::COFF, BinaryFormat::ELF, BinaryFormat::MachO},
             .architectures = {Architecture::X86, Architecture::X86_64, Architecture::ARM64}};
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
         return image.type == BinaryType::RelocatableObject
-            && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF);
+            && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF
+                || image.format == BinaryFormat::MachO);
     }
     auto run(TransformContext& context, BinaryImage& image) const
         -> Result<TransformResult, Diagnostic> override {
@@ -264,13 +265,14 @@ public:
     auto requirements() const -> PassRequirements override {
         return PassRequirements{
             .requiresFullRelocations = true,
-            .formats = {BinaryFormat::COFF, BinaryFormat::ELF},
+            .formats = {BinaryFormat::COFF, BinaryFormat::ELF, BinaryFormat::MachO},
             .architectures = {
                 Architecture::X86, Architecture::X86_64, Architecture::ARM64}};
     }
     auto supports(const TransformContext&, const BinaryImage& image) const -> bool override {
         return image.type == BinaryType::RelocatableObject
-            && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF);
+            && (image.format == BinaryFormat::COFF || image.format == BinaryFormat::ELF
+                || image.format == BinaryFormat::MachO);
     }
 
     auto run(TransformContext& context, BinaryImage& image) const

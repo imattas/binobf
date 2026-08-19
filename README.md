@@ -18,8 +18,8 @@ binobf is for legitimate software protection, compiler research, and IP protecti
 | Linked-image detailed parsing | supported | n/a | supported | restricted thin 64-bit images | n/a |
 | Structural verification | supported | supported | supported | supported | supported |
 | Exact linked/object emission | supported | supported | supported | supported | supported |
-| Baseline metadata transformations | supported strip-debug | supported | supported including linked | planned | supported per object member |
-| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | restricted x86-64 object backend | supported per object member |
+| Baseline metadata transformations | supported strip-debug | supported | supported including linked | supported | supported per object member |
+| x86/x86-64/ARM64 instruction/CFG/layout transformations | planned | supported | supported | supported | supported per object member |
 | Selected x86-64 function VM lowering | restricted exported x86-64 functions | restricted | restricted | restricted | restricted per qualified object member |
 | Embedded selected-function VM protection | n/a | restricted | restricted | restricted | restricted per x86-64 object member |
 

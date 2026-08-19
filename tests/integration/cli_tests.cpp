@@ -1046,7 +1046,7 @@ TEST_CASE(vm_protect_command_updates_the_matching_archive_member) {
     const auto inputPath = input.path().string();
     const auto outputPath = protectedOutput.path().string();
     const std::array<std::string_view, 9> arguments{
-        "vm"sv, "protect"sv, inputPath, "--function=cli_vm_add"sv,
+        "vm"sv, "protect"sv, inputPath, "--function=vm-function.obj::cli_vm_add"sv,
         "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, outputPath,
         "--seed=16016"sv};
     std::ostringstream output;

@@ -1827,6 +1827,21 @@ auto vm_protect(
     std::vector<std::byte> writtenBytes;
     if (const auto detection = detect_binary(input.value(), options->input.filename().string());
         detection.has_value() && is_archive_format(detection.value().format)) {
+        const auto separator = options->function.find("::");
+        const auto memberSelector = separator == std::string::npos
+            ? std::string_view{}
+            : std::string_view{options->function}.substr(0, separator);
+        const auto selectedFunction = separator == std::string::npos
+            ? std::string_view{options->function}
+            : std::string_view{options->function}.substr(separator + 2U);
+        if (selectedFunction.empty() || (separator != std::string::npos && memberSelector.empty())) {
+            print_diagnostic(errors, Diagnostic{
+                DiagnosticSeverity::Error,
+                "vm.protection_function",
+                "archive VM protection requires member::function with non-empty names",
+            }, DiagnosticFormat::Text);
+            return 3;
+        }
         auto archive = parse_archive(input.value(), options->input.filename().string());
         if (!archive.has_value()) {
             print_diagnostic(errors, archive.error(), DiagnosticFormat::Text);
@@ -1835,12 +1850,16 @@ auto vm_protect(
         std::optional<Diagnostic> firstFailure;
         for (auto& member : archive.value().members) {
             if (member.kind != ArchiveMemberKind::Object) continue;
+            if (!memberSelector.empty() && member.name != memberSelector) continue;
             const auto parsed = parse_object(member.contents, member.name);
             if (!parsed.has_value()) {
                 print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
                 return 3;
             }
-            const auto protectedResult = vm::protect_function(parsed.value(), protectionOptions);
+            auto memberProtectionOptions = protectionOptions;
+            memberProtectionOptions.function = std::string{selectedFunction};
+            const auto protectedResult = vm::protect_function(
+                parsed.value(), memberProtectionOptions);
             if (!protectedResult.has_value()) {
                 if (!firstFailure.has_value() || protectedResult.error().code != "vm.protection_function_not_found") {
                     firstFailure = protectedResult.error();

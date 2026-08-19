@@ -766,9 +766,9 @@ TEST_CASE(native_lifter_rejects_ambiguous_signatures_and_incomplete_functions) {
         instruction(30, UINT64_C(0x1000), {0xc3}, binobf::InstructionKind::Return),
     });
     auto signature = u32_binary_signature();
-    signature.arguments.push_back(binobf::ir::IrWidth::U32);
-    signature.arguments.push_back(binobf::ir::IrWidth::U32);
-    signature.arguments.push_back(binobf::ir::IrWidth::U32);
+    for (int index = 0; index < 7; ++index) {
+        signature.arguments.push_back(binobf::ir::IrWidth::U32);
+    }
     auto lifted = binobf::ir::lift_function(image, binobf::EntityId{10}, signature);
     REQUIRE(!lifted.has_value());
     REQUIRE_EQ(lifted.error().code, "ir.unsupported_signature");

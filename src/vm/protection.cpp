@@ -98,8 +98,13 @@ auto build_adapter(ir::NativeAbi abi, std::uint32_t bytecodeSize, std::uint32_t 
             load_r11(reserve + 40U + (index - 4U) * 8U);
             store_r11(32U + index * 4U);
         }
+        // Windows x64 runtime ABI: RCX=bytecode, RDX=bytecode size,
+        // R8=argument array, and R9=argument count.
         const std::uint8_t argumentsAddress[] = {0x4c, 0x8d, 0x44, 0x24, 0x20};
         for (const auto value : argumentsAddress) append_byte(bytes, value);
+        append_byte(bytes, 0x48);
+        append_byte(bytes, 0x8d);
+        append_byte(bytes, 0x0d);
         adapter.bytecodeDisplacement = bytes.size();
         append_u32(bytes, 0);
         append_byte(bytes, 0xba);

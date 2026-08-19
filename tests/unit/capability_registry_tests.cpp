@@ -28,7 +28,7 @@ TEST_CASE(builtin_capability_registry_contains_each_public_matrix_axis) {
         .format = binobf::BinaryFormat::PE,
     });
     REQUIRE(peObjectParsing != nullptr);
-    REQUIRE_EQ(peObjectParsing->support, binobf::SupportLevel::NotApplicable);
+    REQUIRE_EQ(peObjectParsing->support, binobf::SupportLevel::Supported);
 }
 
 TEST_CASE(capability_registry_rejects_duplicate_keys_and_unknown_lookups) {

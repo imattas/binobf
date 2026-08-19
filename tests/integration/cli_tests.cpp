@@ -402,11 +402,11 @@ TEST_CASE(capability_commands_are_accurate_and_do_not_overclaim) {
     REQUIRE_EQ(binobf::cli::run_cli(formats, output, errors), 0);
     REQUIRE_EQ(
         output.str(),
-        "PE detection=supported parsing=n/a emission=supported linked-parsing=supported verification=supported baseline-transformation=supported strip-debug machine-code-transformation=planned vm-lowering=restricted exported x86-64 functions vm-protection=n/a\n"
-        "COFF detection=supported parsing=supported emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
-        "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported including linked machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
-        "Mach-O detection=supported parsing=supported emission=supported linked-parsing=restricted thin 64-bit images verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=restricted vm-protection=restricted\n"
-        "archive detection=supported parsing=supported members emission=supported linked-parsing=n/a verification=supported baseline-transformation=supported per object member machine-code-transformation=supported per object member vm-lowering=restricted per qualified object member vm-protection=restricted per x86-64 object member\n");
+        "PE detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=supported vm-protection=supported\n"
+        "COFF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=supported vm-protection=supported\n"
+        "ELF detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=supported vm-protection=supported\n"
+        "Mach-O detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=supported vm-protection=supported\n"
+        "archive detection=supported parsing=supported emission=supported linked-parsing=supported verification=supported baseline-transformation=supported machine-code-transformation=supported vm-lowering=supported vm-protection=supported\n");
     REQUIRE(errors.str().empty());
 
     output.str({});

@@ -314,7 +314,6 @@ auto detect_coff(std::span<const std::byte> bytes) -> Result<DetectionResult, Di
 
 auto macho_architecture(std::uint32_t cpuType) noexcept -> Architecture {
     switch (cpuType) {
-    case 7U: return Architecture::X86;
     case 0x01000007U: return Architecture::X86_64;
     case 0x0100000cU: return Architecture::ARM64;
     default: return Architecture::Unknown;

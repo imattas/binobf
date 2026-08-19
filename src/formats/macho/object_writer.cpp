@@ -68,9 +68,10 @@ auto write_macho_object(const BinaryImage& image)
     if (image.sections.empty() || image.sections.size() > 4096U || image.symbols.size() > 1'000'000U) {
         return failure("macho.size", "Mach-O object exceeds supported section or symbol limits");
     }
-    if (image.architecture != Architecture::X86_64 && image.architecture != Architecture::ARM64 &&
-        image.architecture != Architecture::X86) {
-        return failure("macho.architecture", "Mach-O writer requires a supported architecture");
+    if (image.architecture != Architecture::X86_64 && image.architecture != Architecture::ARM64) {
+        return failure(
+            "macho.architecture",
+            "Mach-O 64-bit writer requires x86-64 or ARM64 architecture");
     }
 
     const auto segmentCommandSize = 72U + image.sections.size() * 80U;
@@ -82,7 +83,7 @@ auto write_macho_object(const BinaryImage& image)
     std::vector<std::byte> output(headerBytes, std::byte{0});
     put_u32(output, 0, 0xfeedfacfU);
     const auto cpuType = image.architecture == Architecture::X86_64
-        ? 0x01000007U : image.architecture == Architecture::ARM64 ? 0x0100000cU : 7U;
+        ? 0x01000007U : 0x0100000cU;
     put_u32(output, 4, cpuType);
     put_u32(output, 8, 3U);
     put_u32(output, 12, 1U);

@@ -1585,12 +1585,60 @@ auto vm_lower(
         print_diagnostic(errors, input.error(), DiagnosticFormat::Text);
         return 3;
     }
-    const auto parsed = parse_object(input.value(), options->input.filename().string());
-    if (!parsed.has_value()) {
-        print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
+    BinaryImage parsedImage;
+    std::string selectedFunctionName = options->function;
+    const auto detection = detect_binary(input.value(), options->input.filename().string());
+    if (!detection.has_value()) {
+        print_diagnostic(errors, detection.error(), DiagnosticFormat::Text);
         return 3;
     }
-    const auto analyzed = analyze_object(parsed.value());
+    if (is_archive_format(detection.value().format)) {
+        const auto separator = options->function.find("::");
+        if (separator == std::string::npos || separator == 0U
+            || separator + 2U >= options->function.size()) {
+            print_diagnostic(errors, Diagnostic{
+                DiagnosticSeverity::Error,
+                "ir.archive_function_identity",
+                "archive VM lowering requires --function=member::function",
+            }, DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto memberName = std::string_view{options->function}.substr(0, separator);
+        selectedFunctionName = options->function.substr(separator + 2U);
+        const auto archive = parse_archive(input.value(), options->input.filename().string());
+        if (!archive.has_value()) {
+            print_diagnostic(errors, archive.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto member = std::find_if(
+            archive.value().members.begin(), archive.value().members.end(),
+            [&](const auto& candidate) {
+                return candidate.kind == ArchiveMemberKind::Object
+                    && candidate.name == memberName;
+            });
+        if (member == archive.value().members.end()) {
+            print_diagnostic(errors, Diagnostic{
+                DiagnosticSeverity::Error,
+                "ir.archive_member_not_found",
+                "selected archive member was not found: " + std::string{memberName},
+            }, DiagnosticFormat::Text);
+            return 3;
+        }
+        const auto parsed = parse_object(member->contents, member->name);
+        if (!parsed.has_value()) {
+            print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        parsedImage = parsed.value();
+    } else {
+        const auto parsed = parse_object(input.value(), options->input.filename().string());
+        if (!parsed.has_value()) {
+            print_diagnostic(errors, parsed.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        parsedImage = parsed.value();
+    }
+    const auto analyzed = analyze_object(parsedImage);
     if (!analyzed.has_value()) {
         print_diagnostic(errors, analyzed.error(), DiagnosticFormat::Text);
         return 3;
@@ -1598,12 +1646,12 @@ auto vm_lower(
     const auto function = std::find_if(
         analyzed.value().image.functions.begin(),
         analyzed.value().image.functions.end(),
-        [&](const auto& candidate) { return candidate.name == options->function; });
+        [&](const auto& candidate) { return candidate.name == selectedFunctionName; });
     if (function == analyzed.value().image.functions.end()) {
         print_diagnostic(errors, Diagnostic{
             DiagnosticSeverity::Error,
             "ir.function_not_found",
-            "selected function was not recovered: " + options->function,
+            "selected function was not recovered: " + selectedFunctionName,
         }, DiagnosticFormat::Text);
         return 3;
     }

@@ -1068,6 +1068,28 @@ TEST_CASE(vm_protect_command_updates_the_matching_archive_member) {
         [](const auto& symbol) { return symbol.name == "binobf_vm_execute_embedded_u32"; }));
 }
 
+TEST_CASE(vm_lower_command_accepts_qualified_archive_members) {
+    const TemporaryFile input{"binobf-cli-vm-lower-input.lib", make_vm_archive()};
+    const TemporaryOutput loweredOutput{"binobf-cli-vm-lower-output.bvm"};
+    const auto inputPath = input.path().string();
+    const auto outputPath = loweredOutput.path().string();
+    const std::array<std::string_view, 9> arguments{
+        "vm"sv, "lower"sv, inputPath, "--function=vm-function.obj::cli_vm_add"sv,
+        "--abi=windows-x64"sv, "--args=2"sv, "-o"sv, outputPath,
+        "--seed=16016"sv};
+    std::ostringstream output;
+    std::ostringstream errors;
+
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE(std::filesystem::exists(loweredOutput.path()));
+    const auto bytes = read_all(loweredOutput.path());
+    REQUIRE(bytes.size() > 4);
+    REQUIRE_EQ(bytes[0], std::byte{'B'});
+    REQUIRE_EQ(bytes[1], std::byte{'V'});
+    REQUIRE_CONTAINS(output.str(), "function: vm-function.obj::cli_vm_add");
+    REQUIRE(errors.str().empty());
+}
+
 int main() {
     return binobf::test::run_all();
 }

@@ -112,6 +112,28 @@ TEST_CASE(macho_object_writer_rejects_32_bit_x86) {
     REQUIRE_EQ(written.error().code, "macho.architecture");
 }
 
+TEST_CASE(macho_object_writer_and_parser_round_trip_arm64_code) {
+    binobf::BinaryImage image{};
+    image.format = binobf::BinaryFormat::MachO;
+    image.type = binobf::BinaryType::RelocatableObject;
+    image.architecture = binobf::Architecture::ARM64;
+    image.sections.push_back(binobf::Section{
+        .id = binobf::EntityId{1}, .formatIndex = 1,
+        .formatFlags = 0x80000400U, .name = "__text",
+        .kind = binobf::SectionKind::Code, .address = binobf::BinaryAddress{0},
+        .logicalSize = 4, .alignment = 4, .readable = true, .executable = true,
+        .contents = {std::byte{0xc0}, std::byte{0x03}, std::byte{0x5f}, std::byte{0xd6}},
+        .lineage = {},
+    });
+    const auto written = binobf::write_object(image);
+    REQUIRE(written.has_value());
+    const auto parsed = binobf::parse_object(written.value(), "fixture.arm64.macho.o");
+    REQUIRE(parsed.has_value());
+    REQUIRE_EQ(parsed.value().architecture, binobf::Architecture::ARM64);
+    REQUIRE_EQ(parsed.value().sections.front().contents, image.sections.front().contents);
+    REQUIRE(binobf::verify_object(written.value(), "fixture.arm64.macho.o").has_value());
+}
+
 int main() {
     return binobf::test::run_all();
 }

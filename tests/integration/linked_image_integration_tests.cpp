@@ -212,6 +212,29 @@ TEST_CASE(linked_cli_lowers_exported_pe_functions) {
     REQUIRE(errors.str().empty());
 }
 
+TEST_CASE(linked_cli_lowers_exported_elf_functions) {
+    const auto outputPath = outputDirectory / "linked-elf-cli-lowered.bvm";
+    std::error_code ignored;
+    std::filesystem::remove(outputPath, ignored);
+    std::ostringstream output;
+    std::ostringstream errors;
+    const auto inputText = fixtures[2].string();
+    const auto outputText = outputPath.string();
+    const std::array arguments{
+        std::string_view{"vm"}, std::string_view{"lower"}, std::string_view{inputText},
+        std::string_view{"--function=binobf_linked_export"},
+        std::string_view{"--abi=sysv-amd64"}, std::string_view{"--args=0"},
+        std::string_view{"-o"}, std::string_view{outputText}, std::string_view{"--seed=1"}};
+    REQUIRE_EQ(binobf::cli::run_cli(arguments, output, errors), 0);
+    REQUIRE(std::filesystem::exists(outputPath));
+    const auto bytes = read_file(outputPath);
+    REQUIRE(bytes.size() >= 4U);
+    REQUIRE_EQ(bytes[0], std::byte{'B'});
+    REQUIRE_EQ(bytes[1], std::byte{'V'});
+    REQUIRE_CONTAINS(output.str(), "function: binobf_linked_export");
+    REQUIRE(errors.str().empty());
+}
+
 int main(int argc, char** argv) {
     if (argc != 8) {
         return 2;

@@ -7,6 +7,7 @@
 #include "x86_fixups.hpp"
 #include "x86_64_fixups.hpp"
 #include "x86_abi.hpp"
+#include "x86_64_abi.hpp"
 #include "x86_templates.hpp"
 #include "x86_unwind.hpp"
 
@@ -33,6 +34,7 @@ constexpr std::array<std::string_view, 1> kX86AnalysisEvidence{"x86_object_backe
 constexpr std::array<std::string_view, 1> kX86CodegenEvidence{"x86_codegen"};
 constexpr std::array<std::string_view, 1> kX8664CodegenEvidence{"x86_64_codegen"};
 constexpr std::array<std::string_view, 1> kX86AbiEvidence{"x86_abi_adapter"};
+constexpr std::array<std::string_view, 1> kX8664AbiEvidence{"x86_64_abi_adapter"};
 constexpr std::array<std::string_view, 1> kX86UnwindEvidence{"x86_unwind"};
 constexpr std::array<std::string_view, 1> kArm64AnalysisEvidence{"arm64_object_backend"};
 constexpr std::array<std::string_view, 1> kArm64CodegenEvidence{"arm64_codegen"};
@@ -257,11 +259,14 @@ public:
                           : std::span<const std::string_view>{}},
               BackendServiceRecord{
                   BackendService::BuildAbiAdapter,
-                  architecture == Architecture::X86 ? SupportLevel::Supported
+                  architecture == Architecture::X86 || architecture == Architecture::X86_64
+                      ? SupportLevel::Supported
                       : architecture == Architecture::ARM64 ? SupportLevel::Supported
                                                             : SupportLevel::Unsupported,
                   architecture == Architecture::X86
                       ? std::span<const std::string_view>{kX86AbiEvidence}
+                      : architecture == Architecture::X86_64
+                          ? std::span<const std::string_view>{kX8664AbiEvidence}
                       : architecture == Architecture::ARM64
                           ? std::span<const std::string_view>{kArm64AbiEvidence}
                           : std::span<const std::string_view>{}},
@@ -470,13 +475,17 @@ public:
                 "architecture.request_mismatch",
                 "ABI request architecture does not match the fixed backend");
         }
-        if (architecture_ != Architecture::X86 && architecture_ != Architecture::ARM64) {
+        if (architecture_ != Architecture::X86 && architecture_ != Architecture::X86_64 &&
+            architecture_ != Architecture::ARM64) {
             return service_failure<AbiAdapterPlan>(
                 "architecture.service_unsupported",
                 "the fixed backend does not implement ABI adapter generation");
         }
         if (architecture_ == Architecture::X86) {
             return detail::build_x86_abi_adapter(request, *codegen_);
+        }
+        if (architecture_ == Architecture::X86_64) {
+            return detail::build_x86_64_abi_adapter(request, *codegen_);
         }
         auto plan = detail::build_arm64_abi_adapter(request, *codegen_);
         if (!plan.has_value()) {

@@ -118,6 +118,7 @@ set(BINOBF_CORE_SOURCES
     src/architecture/llvm_fixups.cpp
     src/architecture/llvm_mc_assembler.cpp
     src/architecture/x86_abi.cpp
+    src/architecture/x86_64_abi.cpp
     src/architecture/x86_fixups.cpp
     src/architecture/x86_64_fixups.cpp
     src/architecture/x86_templates.cpp

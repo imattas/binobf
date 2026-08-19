@@ -16,6 +16,12 @@ auto backend() -> std::unique_ptr<binobf::ArchitectureBackend> {
     return std::move(result).value();
 }
 
+auto backend_x64() -> std::unique_ptr<binobf::ArchitectureBackend> {
+    auto result = binobf::make_architecture_backend(binobf::Architecture::X86_64);
+    if (!result.has_value()) throw std::runtime_error(result.error().message);
+    return std::move(result).value();
+}
+
 auto signature() -> binobf::ir::IrFunctionSignature {
     binobf::ir::IrFunctionSignature result{};
     result.parameterTypes = {
@@ -82,6 +88,25 @@ TEST_CASE(x86_adapters_cover_all_five_abis_with_one_external_call_fixup) {
         REQUIRE(std::ranges::find(plan.value().clobbers.registers, "eax")
                 != plan.value().clobbers.registers.end());
     }
+}
+
+TEST_CASE(x86_64_adapters_support_windows_sysv_and_macho) {
+    auto fixed = backend_x64();
+    auto value = binobf::AbiAdapterRequest{};
+    value.architecture = binobf::Architecture::X86_64;
+    value.format = binobf::BinaryFormat::MachO;
+    value.sourceAbi = binobf::ir::NativeAbi::WindowsX64;
+    value.destinationAbi = binobf::ir::NativeAbi::SystemVAMD64;
+    value.signature = signature();
+    value.symbol = "external_target";
+    value.stackAlignment = 16;
+    const auto plan = fixed->build_abi_adapter(value);
+    REQUIRE(plan.has_value());
+    REQUIRE_EQ(plan.value().emission.fixups.size(), std::size_t{1});
+    REQUIRE_EQ(plan.value().emission.fixups.front().kind,
+               binobf::MachineFixupKind::PcRelative32);
+    REQUIRE_EQ(plan.value().stackDelta, std::int64_t{0});
+    REQUIRE(plan.value().emission.bytes.size() > 0);
 }
 
 TEST_CASE(x86_adapter_spills_register_sources_before_parallel_moves) {

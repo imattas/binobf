@@ -164,6 +164,12 @@ TEST_CASE(x86_fixup_services_reject_unknown_invalid_and_support_x64_requests) {
     const auto x64Branch = x64.value()->fixup_semantics(binobf::BinaryFormat::MachO, 2U);
     REQUIRE(x64Branch.has_value());
     REQUIRE(x64Branch.value().pcRelative);
+    const auto rel32 = x64.value()->fixup_semantics(binobf::BinaryFormat::COFF, 4U);
+    REQUIRE(rel32.has_value());
+    const auto encoded = x64.value()->encode_fixup(rel32.value(), INT64_C(-4));
+    REQUIRE(encoded.has_value());
+    REQUIRE_EQ(encoded.value().fieldBytes,
+               std::vector<std::byte>({std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}}));
 }
 
 TEST_CASE(machine_fixup_comparison_includes_new_provider_neutral_kinds) {

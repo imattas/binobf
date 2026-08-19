@@ -1630,6 +1630,14 @@ auto vm_lower(
             return 3;
         }
         parsedImage = parsed.value();
+    } else if (is_linked_type(detection.value().type)) {
+        const auto linked = parse_linked_image(
+            input.value(), options->input.filename().string());
+        if (!linked.has_value()) {
+            print_diagnostic(errors, linked.error(), DiagnosticFormat::Text);
+            return 3;
+        }
+        parsedImage = linked.value().image;
     } else {
         const auto parsed = parse_object(input.value(), options->input.filename().string());
         if (!parsed.has_value()) {

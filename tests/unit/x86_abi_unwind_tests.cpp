@@ -109,6 +109,30 @@ TEST_CASE(x86_64_adapters_support_windows_sysv_and_macho) {
     REQUIRE(plan.value().emission.bytes.size() > 0);
 }
 
+TEST_CASE(x86_64_adapters_support_stack_and_64_bit_integer_arguments) {
+    auto fixed = backend_x64();
+    auto value = binobf::AbiAdapterRequest{};
+    value.architecture = binobf::Architecture::X86_64;
+    value.format = binobf::BinaryFormat::ELF;
+    value.sourceAbi = binobf::ir::NativeAbi::SystemVAMD64;
+    value.destinationAbi = binobf::ir::NativeAbi::WindowsX64;
+    value.signature.parameterTypes = {
+        binobf::ir::IrType{binobf::ir::IrWidth::U64},
+        binobf::ir::IrType{binobf::ir::IrWidth::U32},
+        binobf::ir::IrType{binobf::ir::IrWidth::U64},
+        binobf::ir::IrType{binobf::ir::IrWidth::U32},
+        binobf::ir::IrType{binobf::ir::IrWidth::U64},
+        binobf::ir::IrType{binobf::ir::IrWidth::U32},
+    };
+    value.signature.returnType = binobf::ir::IrType{binobf::ir::IrWidth::U64};
+    value.symbol = "external_target";
+    value.stackAlignment = 16;
+    const auto plan = fixed->build_abi_adapter(value);
+    REQUIRE(plan.has_value());
+    REQUIRE_EQ(plan.value().stackArgumentBytes, UINT64_C(16));
+    REQUIRE_EQ(plan.value().emission.fixups.size(), std::size_t{1});
+}
+
 TEST_CASE(x86_64_unwind_emits_macho_dwarf64_and_preserves_windows_records) {
     auto fixed = backend_x64();
     binobf::UnwindRequest request{};

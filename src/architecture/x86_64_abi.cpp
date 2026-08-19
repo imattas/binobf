@@ -37,6 +37,16 @@ auto source_registers(ir::NativeAbi abi) -> std::array<std::string_view, 4> {
         : std::array<std::string_view, 4>{"edi", "esi", "edx", "ecx"};
 }
 
+auto source_registers_64(ir::NativeAbi abi) -> std::array<std::string_view, 4> {
+    return abi == ir::NativeAbi::WindowsX64
+        ? std::array<std::string_view, 4>{"rcx", "rdx", "r8", "r9"}
+        : std::array<std::string_view, 4>{"rdi", "rsi", "rdx", "rcx"};
+}
+
+auto register_width(const ir::IrType& type) -> std::string_view {
+    return type_bytes(type) > 4U ? "qword" : "dword";
+}
+
 auto destination_registers(ir::NativeAbi abi) -> std::array<std::string_view, 4> {
     return source_registers(abi);
 }
@@ -62,11 +72,11 @@ auto build_x86_64_abi_adapter(const AbiAdapterRequest& request,
         return failure<AbiAdapterPlan>(
             "architecture.unsupported_abi", "x86-64 adapters support Windows x64 and System V AMD64");
     }
-    if (request.signature.variadic || request.signature.parameterTypes.size() > 4U ||
+    if (request.signature.variadic || request.signature.parameterTypes.size() > 8U ||
         request.signature.returnType.kind != ir::IrTypeKind::Integer ||
         type_bytes(request.signature.returnType) > 8U) {
         return failure<AbiAdapterPlan>(
-            "architecture.incompatible_abi", "x86-64 adapter supports at most four integer arguments");
+            "architecture.incompatible_abi", "x86-64 adapter supports at most eight integer arguments");
     }
     for (const auto& type : request.signature.parameterTypes) {
         if (type.kind != ir::IrTypeKind::Integer || type_bytes(type) > 8U) {
@@ -81,22 +91,60 @@ auto build_x86_64_abi_adapter(const AbiAdapterRequest& request,
 
     const auto source = source_registers(request.sourceAbi);
     const auto destination = destination_registers(request.destinationAbi);
+    const auto source64 = source_registers_64(request.sourceAbi);
+    const auto destination64 = source_registers_64(request.destinationAbi);
+    const auto stackArgumentCount = request.signature.parameterTypes.size() > 4U
+        ? request.signature.parameterTypes.size() - 4U : 0U;
+    const auto localBytes = 64U + request.signature.parameterTypes.size() * 8U;
+    const auto reserveBytes = std::max<std::size_t>(
+        96U, (localBytes + 15U) & ~std::size_t{15U});
     std::string assembly;
     std::size_t instructionCount = 0;
     // Reserve Windows shadow space plus aligned spill slots for all arguments.
-    append(assembly, instructionCount, "sub rsp, 96");
+    append(assembly, instructionCount, "sub rsp, " + std::to_string(reserveBytes));
     for (std::size_t index = 0; index < request.signature.parameterTypes.size(); ++index) {
-        append(assembly, instructionCount,
-               "mov dword ptr [rsp + " + std::to_string(64U + index * 8U) + "], " +
-                   std::string{source[index]});
+        const auto width = register_width(request.signature.parameterTypes[index]);
+        const auto localOffset = 64U + index * 8U;
+        if (index < 4U) {
+            const auto sourceName = width == "qword" ? source64[index] : source[index];
+            append(assembly, instructionCount,
+                   "mov " + std::string{width} + " ptr [rsp + "
+                       + std::to_string(localOffset) + "], " + std::string{sourceName});
+        } else {
+            const auto sourceOffset = reserveBytes
+                + (request.sourceAbi == ir::NativeAbi::WindowsX64 ? 40U : 8U)
+                + (index - 4U) * 8U;
+            const auto scratch = width == "qword" ? "r11" : "r11d";
+            append(assembly, instructionCount,
+                   "mov " + std::string{scratch} + ", " + std::string{width}
+                       + " ptr [rsp + " + std::to_string(sourceOffset) + "]");
+            append(assembly, instructionCount,
+                   "mov " + std::string{width} + " ptr [rsp + "
+                       + std::to_string(localOffset) + "], " + std::string{scratch});
+        }
     }
     for (std::size_t index = 0; index < request.signature.parameterTypes.size(); ++index) {
+        const auto width = register_width(request.signature.parameterTypes[index]);
+        const auto localOffset = 64U + index * 8U;
+        const auto stackOffset = request.destinationAbi == ir::NativeAbi::WindowsX64
+            ? 32U + (index - 4U) * 8U : (index - 4U) * 8U;
+        if (index >= 4U) {
+            const auto scratch = width == "qword" ? "r11" : "r11d";
+            append(assembly, instructionCount,
+                   "mov " + std::string{scratch} + ", " + std::string{width}
+                       + " ptr [rsp + " + std::to_string(localOffset) + "]");
+            append(assembly, instructionCount,
+                   "mov " + std::string{width} + " ptr [rsp + "
+                       + std::to_string(stackOffset) + "], " + std::string{scratch});
+            continue;
+        }
+        const auto destinationName = width == "qword" ? destination64[index] : destination[index];
         append(assembly, instructionCount,
-               "mov " + std::string{destination[index]} + ", dword ptr [rsp + " +
-                   std::to_string(64U + index * 8U) + "]");
+               "mov " + std::string{destinationName} + ", " + std::string{width}
+                   + " ptr [rsp + " + std::to_string(localOffset) + "]");
     }
     append(assembly, instructionCount, "call " + request.symbol);
-    append(assembly, instructionCount, "add rsp, 96");
+    append(assembly, instructionCount, "add rsp, " + std::to_string(reserveBytes));
     append(assembly, instructionCount, "ret");
 
     MachineAssemblyRequest assemblyRequest{};
@@ -114,11 +162,15 @@ auto build_x86_64_abi_adapter(const AbiAdapterRequest& request,
     if (!emitted.has_value()) {
         return failure<AbiAdapterPlan>(emitted.error().code, emitted.error().message);
     }
-    if (emitted.value().fixups.size() != 1U ||
-        emitted.value().fixups.front().kind != MachineFixupKind::PcRelative32 ||
-        emitted.value().fixups.front().symbol != request.symbol) {
+    const auto validCallFixup = emitted.value().fixups.size() == 1U
+        && (emitted.value().fixups.front().kind == MachineFixupKind::PcRelative32
+            || (request.format == BinaryFormat::ELF
+                && emitted.value().fixups.front().kind == MachineFixupKind::PltRelative32))
+        && emitted.value().fixups.front().symbol == request.symbol;
+    if (!validCallFixup) {
         return failure<AbiAdapterPlan>(
-            "architecture.invalid_fixup", "x86-64 adapter must contain one external call fixup");
+            "architecture.invalid_fixup",
+            "x86-64 adapter must contain one external call fixup");
     }
     auto emission = std::move(emitted).value();
     const auto emissionSize = emission.bytes.size();
@@ -129,7 +181,7 @@ auto build_x86_64_abi_adapter(const AbiAdapterRequest& request,
     return Result<AbiAdapterPlan, Diagnostic>::success(AbiAdapterPlan{
         .emission = std::move(emission),
         .argumentMoves = {},
-        .stackArgumentBytes = 0,
+        .stackArgumentBytes = static_cast<std::uint64_t>(stackArgumentCount * 8U),
         .stackDelta = 0,
         .callerCleansStack = true,
         .clobbers = std::move(clobbers),
